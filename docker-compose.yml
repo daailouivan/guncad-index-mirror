@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  guncad-mirror:
+    build: .
+    env_file: guncad-mirror.env
+    volumes:
+      - guncad-mirror:/data:Z
+    healthcheck:
+      test: |
+        curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
+      interval: 5s
+      timeout: 15s
+      retries: 3
+
+volumes:
+  guncad-mirror:

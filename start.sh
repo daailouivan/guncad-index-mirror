@@ -20,17 +20,10 @@ fi
 # If we're root, take advantage before dropping privs
 # When we drop privs we'll just reexec the script as the target user, specified above
 if [ "$(id -u)" -eq "0" ]; then
-	case "$1" in
-		gunicorn|cron)
-			echo "Running as root -- doing some preambulatory configuration"
-			echo "  Changing ownership of /data..."
-			chown -R "$targetuser": /data /home/"$targetuser"
-			ls -alh /data
-			;;
-		*)
-			echo "Running as root -- dropping privs"
-			;;
-	esac
+	echo "Running as root -- doing some preambulatory configuration"
+	echo "  Changing ownership of /data..."
+	chown -R "$targetuser": /data /home/"$targetuser"
+	ls -alh /data
 	echo "Pivoting to $targetuser"
 	echo "Current args: $@"
 	exec su "$targetuser" -s /bin/bash -c "$(realpath "$0") $@"
