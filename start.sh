@@ -48,5 +48,9 @@ echo "Configuration variables:"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Unset??}"
 echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
 
+# Spin up lbrynet
+lbrynet start &
+
+# Now move on to Python
 echo "Nothing to do (NYI)"
 exit 0
