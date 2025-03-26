@@ -8,7 +8,7 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 
 Spin up a container:
 
-```
+```bash
 # Example container name, replace later
 docker run -v guncad-mirror:/data foobar
 ```
