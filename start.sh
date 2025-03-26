@@ -40,10 +40,6 @@ else
 fi
 echo "Git ref of build:"
 echo "  GUNCAD_COMMIT_REF:             ${GUNCAD_COMMIT_REF:-Unset}"
-if [ -n "$GUNCAD_DEBUG" ] && [ -z "$GUNCAD_SITE_WARNING_BANNER" ]; then
-	echo "Debug mode is enabled -- setting default warning banner"
-	export GUNCAD_SITE_WARNING_BANNER="GUNCAD_DEBUG is enabled! Disable to remove this banner!"
-fi
 echo "Configuration variables:"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Unset??}"
 echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
