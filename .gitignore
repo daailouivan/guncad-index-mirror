@@ -1,0 +1,15 @@
+__pycache__
+venv
+*.bak
+/*.csv
+*.swp
+*.sqlite*
+*.sqlite*journal
+docker-compose-local.yml
+/data-dumps
+/docker-data
+/static
+/data*.json
+.*.env
+*.sql
+*.sql.*
