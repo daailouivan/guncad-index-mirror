@@ -1,0 +1,4 @@
+# Unqualified because it's a linter idgaf
+isort
+djlint
+black
