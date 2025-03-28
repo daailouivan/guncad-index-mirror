@@ -5,6 +5,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+
 def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1):
     """
     Waits for a LBRY component to have initialized
@@ -27,9 +28,7 @@ def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1)
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    payload = {
-        "method": "status"
-    }
+    payload = {"method": "status"}
     while True:
         response = session.post(lbry_url, json=payload)
         response.raise_for_status()
