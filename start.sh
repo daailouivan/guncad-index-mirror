@@ -45,6 +45,8 @@ echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Unset??}"
 echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
 
 # Spin up lbrynet
+ln -s ~/.local/share/lbry /data/lbry
+mkdir -p /data/lbry
 lbrynet start &
 
 # Now move on to Python
