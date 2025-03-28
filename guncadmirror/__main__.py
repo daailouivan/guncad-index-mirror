@@ -1,0 +1,56 @@
+import argparse
+import logging
+import os
+import time
+
+from . import index
+
+
+def main():
+    """
+    Application entrypoint
+    """
+    sleephours = 12
+    logger = logging.getLogger("GunCAD Mirror")
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    parser = argparse.ArgumentParser(
+        prog="python -m guncadmirror",
+        description="Mirror content from a GunCAD Index instance over LBRY",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging"
+    )
+    args = parser.parse_args()
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    logger.info("Started GunCAD Mirror")
+
+    while True:
+        logger.info("Acquiring releases...")
+        try:
+            releases = index.get_releases(
+                url=os.getenv(
+                    "MIRROR_API_ENDPOINT",
+                    "https://guncadindex.com/api/releases/?format=json&limit=25",
+                )
+            )
+            logger.info(f"Acquired {len(releases)} releases")
+            for release in releases:
+                try:
+                    logger.debug(f"Mirroring release {release.get('name')}")
+                    index.mirror(release)
+                except Exception as e:
+                    logger.exception(e)
+        except Exception as e:
+            logger.exception(e)
+        logger.info(f"Sleeping for {sleephours}h")
+        time.sleep(60 * 60 * sleephours)
+
+
+if __name__ == "__main__":
+    main()

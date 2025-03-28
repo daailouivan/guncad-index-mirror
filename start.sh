@@ -48,5 +48,4 @@ echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
 lbrynet start &
 
 # Now move on to Python
-echo "Nothing to do (NYI)"
-exit 0
+python3 -m guncadmirror "$@"
