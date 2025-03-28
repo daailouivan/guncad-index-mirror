@@ -28,6 +28,8 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     logger.info("Started GunCAD Mirror")
+    logger.info("Waiting for LBRY to start its wallet...")
+    index.wait_for_component("wallet")
 
     while True:
         logger.info("Acquiring releases...")

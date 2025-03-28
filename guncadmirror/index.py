@@ -5,6 +5,42 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1):
+    """
+    Waits for a LBRY component to have initialized
+
+        component   The component to wait for
+        poll_wait   How long to wait in-between each polling
+
+    Returns False if we can't find that component, otherwise True whwen it
+    finishes initializing
+    """
+    # Boilerplate setup, gearing up for retries n stuff
+    sleepduration = 1
+    session = requests.Session()
+    retries = Retry(
+        total=10,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    payload = {
+        "method": "status"
+    }
+    while True:
+        response = session.post(lbry_url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        result = data.get("result", {}).get("startup_status", {})
+        if result.get(component, False):
+            return True
+        elif not component in result.keys():
+            return False
+        time.sleep(poll_wait)
+
 
 def mirror(release, lbry_url="http://localhost:5279"):
     """
