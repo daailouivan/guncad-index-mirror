@@ -32,14 +32,12 @@ def main():
     while True:
         logger.info("Acquiring releases...")
         try:
-            releases = index.get_releases(
+            for release in index.get_releases(
                 url=os.getenv(
                     "MIRROR_API_ENDPOINT",
                     "https://guncadindex.com/api/releases/?format=json&limit=25",
                 )
-            )
-            logger.info(f"Acquired {len(releases)} releases")
-            for release in releases:
+            ):
                 try:
                     logger.debug(f"Mirroring release {release.get('name')}")
                     index.mirror(release)

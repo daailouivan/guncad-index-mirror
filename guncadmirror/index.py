@@ -55,7 +55,7 @@ def get_releases(url, maxpages=1000):
         maxpages    The maximum number of pages the call should traverse.
                     This * 50 is the maximum number of results you'll get.
 
-    Returns a list of dicts
+    Yields API objects until it gets all of them
     """
     # Basic assertions
     assert type(url) == str
@@ -72,14 +72,13 @@ def get_releases(url, maxpages=1000):
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     # Acquire the data
-    releases = []
     for page in range(1, maxpages + 1):
         response = session.get(url)
         response.raise_for_status()
         data = response.json()
 
         for result in data.get("results", []):
-            releases.append(result)
+            yield (result)
 
         nexturl = data.get("next", False)
         if nexturl:
@@ -87,4 +86,3 @@ def get_releases(url, maxpages=1000):
             url = nexturl
         else:
             break
-    return releases
