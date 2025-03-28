@@ -3,6 +3,8 @@ services:
   guncad-mirror:
     build: .
     env_file: guncad-mirror.env
+    command:
+      - "-v"
     volumes:
       - guncad-mirror:/data:Z
     healthcheck:

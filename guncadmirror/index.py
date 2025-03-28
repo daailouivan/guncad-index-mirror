@@ -37,7 +37,7 @@ def mirror(release, lbry_url="http://localhost:5279"):
             "timeout": 60,
         },
     }
-    response = session.get(lbry_url, json=payload)
+    response = session.post(lbry_url, json=payload)
     response.raise_for_status()
     return response.json()
 

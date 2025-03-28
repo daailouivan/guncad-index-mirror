@@ -13,9 +13,8 @@ def main():
     sleephours = 12
     logger = logging.getLogger("GunCAD Mirror")
     logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
         level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
     )
     parser = argparse.ArgumentParser(
         prog="python -m guncadmirror",
