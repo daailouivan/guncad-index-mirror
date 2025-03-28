@@ -28,12 +28,15 @@ def mirror(release, lbry_url="http://localhost:5279"):
     session.mount("http://", adapter)
     # Get some data
     claimid = release.get("id")
+    downloaddir = f"/data/mirror/{claimid[:2]}/{claimid[2:]}"
+    os.makedirs(downloaddir, exist_ok=True)
     # Set up to talk to LBRY
     payload = {
         "method": "get",
         "params": {
             "uri": release.get("url_lbry"),
             "download_directory": f"/data/mirror/{claimid[:2]}/{claimid[2:]}",
+            "save_file": True,
             "timeout": 60,
         },
     }

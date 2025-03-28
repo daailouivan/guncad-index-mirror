@@ -11,7 +11,7 @@ def main():
     Application entrypoint
     """
     sleephours = 12
-    logger = logging.getLogger("GunCAD Mirror")
+    logger = logging.getLogger("guncad-mirror")
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
         level=logging.INFO,
