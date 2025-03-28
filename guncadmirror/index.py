@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -66,6 +67,8 @@ def mirror(release, lbry_url="http://localhost:5279"):
     claimid = release.get("id")
     downloaddir = f"/data/mirror/{claimid[:2]}/{claimid[2:]}"
     os.makedirs(downloaddir, exist_ok=True)
+    with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
+        json.dump(release, metajson, indent=4)
     # Set up to talk to LBRY
     payload = {
         "method": "get",
