@@ -7,10 +7,14 @@ ARG commit_sha=master
 ARG commit_tag=
 
 # STAGE 1: Building lbrynet
-FROM docker.io/ubuntu:24.04 AS lbrynet
+FROM docker.io/ubuntu:22.04 AS lbrynet
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
+# OH FUCK OFF DEBIAN
+# How is tzdata STILL an interactive config???
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBCONF_NONINTERACTIVE_SEEN=true
 RUN	apt-get update && \
 	apt-get install -y wget file unzip python3-launchpadlib software-properties-common build-essential git libssl-dev && \
 	add-apt-repository ppa:deadsnakes/ppa && \
@@ -35,6 +39,8 @@ FROM docker.io/python:$python-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBCONF_NONINTERACTIVE_SEEN=true
 COPY start.sh /usr/local/bin/start-guncad-mirror
 RUN mkdir /app
 WORKDIR /app
