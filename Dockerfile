@@ -1,17 +1,19 @@
 #
-# GunCAD Index MSB Dockerfile
+# GunCAD Mirror MSB Dockerfile
 #
 ARG python=3.13
 ARG commit_sha=master
 ARG commit_tag=
 
 # STAGE 1: Building lbrynet
+# TODO: This is currently congruent with LBRY's build instructions, but we
+# could probablay move from ubuntu:24.04 to python:3.8-slim if we wanted to
 FROM docker.io/ubuntu:24.04 AS lbrynet
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 RUN	apt-get update && \
-	apt-get install -y wget unzip python3-launchpadlib software-properties-common build-essential git libssl-dev && \
+	apt-get install -y file wget unzip python3-launchpadlib software-properties-common build-essential git libssl-dev && \
 	add-apt-repository ppa:deadsnakes/ppa && \
 	apt-get update && \
 	apt-get install -y python3.8 python3.8-dev python3.8-venv python3-protobuf
@@ -24,7 +26,8 @@ RUN	mkdir /root/buildlbrynet && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
-	ls -alh /opt/lbry-sdk/lbry-venv/bin/lbrynet
+	ls -alh /root/buildlbrynet/lbry-sdk/venv/bin/lbrynet && \
+	file /root/buildlbrynet/lbry-sdk/venv/bin/lbrynet
 
 # STAGE 2: Building the app
 FROM docker.io/python:$python-slim AS builder
