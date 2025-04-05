@@ -35,11 +35,33 @@ And here are some envvars you can use to configure the instance:
 
 **Q: I need help! Where do I go?**
 
-**A**: https://matrix.to/#/#guncad-index:matrix.org
+A: Hit up the Matrix space: https://matrix.to/#/#guncad-index:matrix.org
+
+**Q: How do I construct queries for `MIRROR_API_ENDPOINT` to only mirror some things but not others?
+
+A: Pretty simple. First, go to [GunCAD Index](https://guncadindex.com) and type in a search. For the sake of example, let's search up `ar-15`. This directs us to a page with this URL:
+
+```
+https://guncadindex.com/search?query=ar-15&format=list&sort=rank
+```
+
+The `format` query arg can be ignored, but the other two are important. Simply attach them to the end of the API endpoint for releases -- in this case, `https://guncadindex.com/api/releases`:
+
+```
+https://guncadindex.com/api/releases?query=ar-15&sort=rank
+```
+
+Take that value and stuff it in `MIRROR_API_ENDPOINT` to mirror just those search results.
+
+This supports all constructors you can use on the main website, so if you wanted to exclude certain categories of content, you could do so by searching `-glock` or whatever and using those params with the API.
 
 **Q: I turned `MIRROR_ASSEMBLE_FILES` on and have decided that was a bad idea. What do I do?**
 
-**A**: Delete all files from `/data/mirror` that are not `.json` files or directories. In a pinch, you can nuke the whole directory -- it will be regenerated. Under **no circumstances** should you **ever** do the same for `/data/lbry` -- you will nuke the data you want to mirror and resyncing it will take forever.
+A: Delete all files from `/data/mirror` that are not `.json` files or directories. In a pinch, you can nuke the whole directory -- it will be regenerated. Under **no circumstances** should you **ever** do the same for `/data/lbry` -- you will nuke the data you want to mirror and resyncing it will take forever.
+
+**Q: I didn't turn `MIRROR_ASSEMBLE_FILES` on and want to do so. Can I turn it on after the fact?**
+
+A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files using your cached blobs.
 
 ## License
 
