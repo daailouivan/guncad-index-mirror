@@ -21,8 +21,8 @@ RUN	apt-get update && \
 RUN	mkdir /root/buildlbrynet && \
 	cd /root/buildlbrynet && \
 	git clone https://github.com/lbryio/lbry-sdk && \
-	git checkout $lbrynet && \
 	cd lbry-sdk && \
+	git checkout $lbrynet && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
