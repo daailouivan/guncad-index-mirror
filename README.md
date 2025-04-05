@@ -29,12 +29,7 @@ And here are some envvars you can use to configure the instance:
 | Environment Variable | Description | Default Value |
 | -------------------- | ----------- | ------------- |
 | `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
-
-You can also pass flags to the container via the regular means:
-
-| Flag | Description |
-| ---- | ----------- |
-| `--assemble-files` | By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back to the swarm. If you'd like to have the assembled files as well, add this flag. Note that you will **double** your disk space usage in doing so. |
+| `MIRROR_ASSEMBLE_FILES` | Set this variable to assemble files. By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back out to LBRY. If you'd like to have the files -- for your own archival or so you can automatically mirror them elsewhere, you can turn this feature on. Be warned that doing so **DOUBLES YOUR DISK USAGE**. | Unset |
 
 ## License
 

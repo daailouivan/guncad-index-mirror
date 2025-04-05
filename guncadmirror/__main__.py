@@ -23,17 +23,13 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
-    parser.add_argument(
-        "--assemble-files",
-        action="store_true",
-        help="In addition to storing blobs, store assembled files. Note that this feature uses TWICE the disk space.",
-    )
     args = parser.parse_args()
+    assemble_files = os.getenv("MIRROR_ASSEMBLE_FILES", False)
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    if args.assemble_files:
+    if assemble_files:
         logger.info(
-            "Will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
+            "MIRROR_ASSEMBLE_FILES is set -- we will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
         )
 
     logger.info("Started GunCAD Mirror")
@@ -51,7 +47,7 @@ def main():
             ):
                 try:
                     logger.debug(f"Mirroring release {release.get('name')}")
-                    index.mirror(release, store_file=args.assemble_files or False)
+                    index.mirror(release, store_file=assemble_files)
                 except Exception as e:
                     logger.exception(e)
         except Exception as e:
