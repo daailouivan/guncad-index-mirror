@@ -6,8 +6,6 @@ ARG commit_sha=master
 ARG commit_tag=
 
 # STAGE 1: Building lbrynet
-# TODO: This is currently congruent with LBRY's build instructions, but we
-# could probablay move from ubuntu:24.04 to python:3.8-slim if we wanted to
 FROM docker.io/ubuntu:24.04 AS lbrynet
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -26,8 +24,9 @@ RUN	mkdir /root/buildlbrynet && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
-	ls -alh /root/buildlbrynet/lbry-sdk/venv/bin/lbrynet && \
-	file /root/buildlbrynet/lbry-sdk/venv/bin/lbrynet
+	pip3 install pyinstaller && \
+	pyinstaller --onefile --name lbrynet lbry/extras/cli.py && \
+	./dist/lbrynet --version
 
 # STAGE 2: Building the app
 FROM docker.io/python:$python-slim AS builder
@@ -59,7 +58,7 @@ RUN	adduser mirror --uid 1000 && \
 	mkdir /app && \
 	chown -R mirror: /app
 COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
-COPY --from=lbrynet /opt/lbry-sdk/lbry-venv/bin/lbrynet /usr/local/bin/lbrynet
+COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 WORKDIR /app
 EXPOSE 5567
