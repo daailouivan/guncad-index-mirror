@@ -27,7 +27,6 @@ And here are some envvars you can use to configure the instance:
 | Environment Variable | Description | Default Value |
 | -------------------- | ----------- | ------------- |
 | `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
-| `MIRROR_DISK_USAGE_PERCENT`  | The maximum amount of disk space the Mirror should use, as a percentage. | `85` |
 
 You can also pass flags to the container via the regular means:
 

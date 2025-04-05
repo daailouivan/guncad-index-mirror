@@ -31,6 +31,8 @@ def main():
     args = parser.parse_args()
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+    if args.assemble_files:
+        logger.info("Will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so.")
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
@@ -47,7 +49,7 @@ def main():
             ):
                 try:
                     logger.debug(f"Mirroring release {release.get('name')}")
-                    index.mirror(release)
+                    index.mirror(release, store_file=args.assemble_files or False)
                 except Exception as e:
                     logger.exception(e)
         except Exception as e:
