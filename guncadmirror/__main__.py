@@ -32,7 +32,9 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     if args.assemble_files:
-        logger.info("Will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so.")
+        logger.info(
+            "Will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
+        )
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
