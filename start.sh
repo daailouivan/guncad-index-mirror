@@ -49,6 +49,7 @@ mkdir -p ~/.local/share
 mkdir -p /data/lbry
 ln -s /data/lbry ~/.local/share/lbry
 # Copy in configs
+mkdir -p ~/.local/share/lbry/lbrynet
 cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml
 lbrynet start &
 
