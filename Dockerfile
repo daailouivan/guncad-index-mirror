@@ -14,17 +14,17 @@ RUN	apt-get update && \
 	apt-get install -y wget unzip python3-launchpadlib software-properties-common build-essential git libssl-dev && \
 	add-apt-repository ppa:deadsnakes/ppa && \
 	apt-get update && \
-	apt-get install -y python3.7 python3.7-dev python3.7-venv python3-protobuf && \
-# Build LBRY. Note that we have to pull Py3.7(!) because they don't support
+	apt-get install -y python3.8 python3.8-dev python3.8-venv python3-protobuf
+# Build LBRY. Note that we have to pull Py3.8(!) because they don't support
 # anything newer. Which blows ass. Oh well.
 RUN	mkdir /root/buildlbrynet && \
 	cd /root/buildlbrynet && \
 	git clone https://github.com/lbryio/lbry-sdk && \
 	cd lbry-sdk && \
-	python3.7 -m venv venv && \
+	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
-	which lbrynet
+	ls -alh /opt/lbry-sdk/lbry-venv/bin/lbrynet
 
 # STAGE 2: Building the app
 FROM docker.io/python:$python-slim AS builder
