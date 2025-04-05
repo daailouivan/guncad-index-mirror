@@ -23,6 +23,11 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
+    parser.add_argument(
+        "--assemble-files",
+        action="store_true",
+        help="In addition to storing blobs, store assembled files. Note that this feature uses TWICE the disk space.",
+    )
     args = parser.parse_args()
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)

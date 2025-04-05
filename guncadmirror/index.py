@@ -74,7 +74,7 @@ def mirror(release, lbry_url="http://localhost:5279"):
         "method": "get",
         "params": {
             "uri": release.get("url_lbry"),
-            #"download_directory": f"{downloaddir}",
+            # "download_directory": f"{downloaddir}",
             "download_directory": "/dev",
             "file_name": "null",
             "save_file": True,
