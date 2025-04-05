@@ -42,7 +42,7 @@ def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1)
         time.sleep(poll_wait)
 
 
-def mirror(release, lbry_url="http://localhost:5279"):
+def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     """
     Mirrors a release over LBRY.
 
@@ -74,13 +74,14 @@ def mirror(release, lbry_url="http://localhost:5279"):
         "method": "get",
         "params": {
             "uri": release.get("url_lbry"),
-            # "download_directory": f"{downloaddir}",
-            "download_directory": "/dev",
-            "file_name": "null",
+            "download_directory": f"{downloaddir}",
             "save_file": True,
             "timeout": 60,
         },
     }
+    if not store_file:
+        payload["params"]["download_directory"] = "/dev"
+        payload["params"]["file_name"] = "null"
     response = session.post(lbry_url, json=payload)
     response.raise_for_status()
     return response.json()

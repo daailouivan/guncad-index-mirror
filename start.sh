@@ -42,7 +42,6 @@ echo "Git ref of build:"
 echo "  GUNCAD_COMMIT_REF:             ${GUNCAD_COMMIT_REF:-Unset}"
 echo "Configuration variables:"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Unset??}"
-echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
 
 # Spin up lbrynet
 mkdir -p ~/.local/share
