@@ -7,6 +7,3 @@ lbryum_servers:
 
 save_blobs: true
 save_files: false
-
-components_to_skip:
-  - exchange_rate_manager
