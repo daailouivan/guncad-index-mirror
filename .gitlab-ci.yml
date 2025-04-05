@@ -90,6 +90,8 @@ Build and Tag Container:
         .
     # Last-minute debug info
     - docker images
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 Release:
   image: registry.gitlab.com/gitlab-org/release-cli:latest
