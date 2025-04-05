@@ -32,7 +32,7 @@ You can also pass flags to the container via the regular means:
 
 | Flag | Description |
 | ---- | ----------- |
-| `--assemble-files` | By default, the Mirror ornly stores blobs, as that's the native unit of reflecting a file back to the swarm. If you'd like to have the assembled files as well, add this flag. Note that you will **double** your disk space usage in doing so. |
+| `--assemble-files` | By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back to the swarm. If you'd like to have the assembled files as well, add this flag. Note that you will **double** your disk space usage in doing so. |
 
 ## License
 
