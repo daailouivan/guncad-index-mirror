@@ -40,5 +40,5 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/pyth
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 COPY --from=builder --chown=mirror /app /app
 WORKDIR /app
-EXPOSE 8080
+EXPOSE 5567
 ENTRYPOINT [ "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]

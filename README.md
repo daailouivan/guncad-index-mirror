@@ -9,7 +9,7 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 Spin up a container:
 
 ```bash
-docker run -v guncad-mirror:/data registry.gitlab.com/guncad-index/mirror:latest
+docker run -v guncad-mirror:/data -p 5567:5567 registry.gitlab.com/guncad-index/mirror:latest
 ```
 
 There's also a Docker Compose file if you want to `docker compose up` instead.
