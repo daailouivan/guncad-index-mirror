@@ -60,6 +60,7 @@ RUN	adduser mirror --uid 1000 && \
 	mkdir /app && \
 	chown -R mirror: /app
 COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
+COPY --from=builder /usr/local/bin/start-guncad-mirror /usr/local/bin/start-guncad-mirror
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 WORKDIR /app
