@@ -37,7 +37,7 @@ And here are some envvars you can use to configure the instance:
 
 A: Hit up the Matrix space: https://matrix.to/#/#guncad-index:matrix.org
 
-**Q: How do I construct queries for `MIRROR_API_ENDPOINT` to only mirror some things but not others?
+**Q: How do I construct queries for `MIRROR_API_ENDPOINT` to only mirror some things but not others?**
 
 A: Pretty simple. First, go to [GunCAD Index](https://guncadindex.com) and type in a search. For the sake of example, let's search up `ar-15`. This directs us to a page with this URL:
 
