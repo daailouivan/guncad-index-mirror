@@ -7,7 +7,15 @@ ARG commit_sha=master
 ARG commit_tag=
 
 # STAGE 1: Building lbrynet
-FROM docker.io/ubuntu:22.04 AS lbrynet
+#
+# Why Ubuntu 20.04? Because it dodges an OpenSSL issue
+# In 2021 they just removed a cipher because ??? reasons ???
+# https://github.com/openssl/openssl/issues/16994
+#
+# Once 20.04 goes out of style, we can look toward what it takes to upgrade,
+# but honestly the bigger fish is that lbrynet is on Py3.8 still. Ugh.
+#
+FROM docker.io/ubuntu:20.04 AS lbrynet
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
