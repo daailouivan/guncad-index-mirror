@@ -48,6 +48,8 @@ echo "  MIRROR_DISK_USAGE_PERCENT:     ${MIRROR_DISK_USAGE_PERCENT:-??}%"
 mkdir -p ~/.local/share
 mkdir -p /data/lbry
 ln -s /data/lbry ~/.local/share/lbry
+# Copy in configs
+cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml
 lbrynet start &
 
 # Now move on to Python

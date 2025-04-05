@@ -1,0 +1,12 @@
+# See https://lbry.tech/resources/daemon-settings for all configuration keys and values
+share_usage_data: false
+lbryum_servers:
+  - a-hub1.odysee.com:50001
+  - lbryumx1.lbry.com:50001
+  - spv11.lbry.com:50001
+
+save_blobs: true
+save_files: false
+
+components_to_skip:
+  - exchange_rate_manager
