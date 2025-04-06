@@ -24,7 +24,7 @@ ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
 RUN	apt-get update && \
-	apt-get install -y wget file unzip python3-launchpadlib software-properties-common build-essential git libssl-dev && \
+	apt-get install -y wget file unzip python3-launchpadlib software-properties-common build-essential git libssl-dev libffi-dev && \
 	add-apt-repository ppa:deadsnakes/ppa && \
 	apt-get update && \
 	apt-get install -y python3.8 python3.8-dev python3.8-venv python3-protobuf
