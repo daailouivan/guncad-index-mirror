@@ -38,7 +38,7 @@ RUN	mkdir /root/buildlbrynet && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
-	pip3 install pyinstaller wheel && \
+	pip install pyinstaller wheel && \
 	pyinstaller --onefile --name lbrynet lbry/extras/cli.py && \
 	./dist/lbrynet --version
 
@@ -56,6 +56,7 @@ COPY requirements.txt /app/
 RUN	apt-get update && \
 	apt-get install -y wget unzip
 RUN	pip install --upgrade pip && \
+	pip install wheel && \
 	pip install --no-cache-dir -r requirements.txt
 COPY ./ /app/
 
