@@ -38,7 +38,7 @@ RUN	mkdir /root/buildlbrynet && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
 	make install && \
-	pip3 install pyinstaller && \
+	pip3 install pyinstaller wheel && \
 	pyinstaller --onefile --name lbrynet lbry/extras/cli.py && \
 	./dist/lbrynet --version
 
