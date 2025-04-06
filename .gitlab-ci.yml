@@ -83,6 +83,7 @@ Build and Tag Container:
         PUSH_TAGS=true
       fi
       docker buildx build \
+        --platform linux/amd64,linux/arm64 \
         --build-arg commit_sha=$CI_COMMIT_SHORT_SHA \
         --build-arg commit_tag=$CI_COMMIT_TAG \
         $TAGS \
