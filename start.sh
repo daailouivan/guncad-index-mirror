@@ -50,7 +50,13 @@ ln -s /data/lbry ~/.local/share/lbry
 # Copy in configs
 mkdir -p ~/.local/share/lbry/lbrynet
 cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml
-lbrynet start &
+lbrynet start \
+	--no-save-files \
+	--no-share-usage-data \
+	--save-blobs \
+	--track-bandwidth \
+	--use-upnp \
+	&
 
 # Now move on to Python
 python3 -m guncadmirror "$@"
