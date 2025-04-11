@@ -42,6 +42,13 @@ echo "Git ref of build:"
 echo "  GUNCAD_COMMIT_REF:             ${GUNCAD_COMMIT_REF:-Unset}"
 echo "Configuration variables:"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Unset??}"
+echo ""
+echo "If you have any questions or concerns, reach out:"
+echo "  Source (and docs):             https://gitlab.com/guncad-index/mirror"
+echo "  Twitter:                       https://x.com/theshittinator"
+echo "  Matrix:                        https://matrix.to/#/#guncad-index:matrix.org"
+echo ""
+echo "Support the project on ko-fi: https://ko-fi.com/theshittinator"
 
 # Spin up lbrynet
 mkdir -p ~/.local/share
