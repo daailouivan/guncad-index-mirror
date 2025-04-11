@@ -53,7 +53,7 @@ cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_setti
 (
 set +e
 while true; do
-	timeout \
+	timeout 3400 \
 		--preserve-status \
 		--kill-after 60 \
 		lbrynet start \
