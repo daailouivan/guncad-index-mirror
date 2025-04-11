@@ -92,10 +92,10 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         logger.error(f"Unable to get sd_hash")
         return False
     elif not seen_sd_hashes.should_download(sd_hash):
-        logger.debug(f"Already have sd_hash {sd_hash}, skipping")
+        logger.debug(f"Already have sd_hash {sd_hash[:8]}, skipping")
         return False
     else:
-        logger.debug(f"Acquiring new stream described by sd_hash {sd_hash}")
+        logger.debug(f"Acquiring new stream described by sd_hash {sd_hash[:8]}")
         seen_sd_hashes.touch(sd_hash)
     # Pull the release from LBRY
     payload["params"]["save_file"] = True
