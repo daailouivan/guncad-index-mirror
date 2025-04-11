@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   guncad-mirror:
-    image: registry.gitlab.com/guncad-index/mirror:latest
+    build: .
     env_file: guncad-mirror.env
     command:
       - "-v"

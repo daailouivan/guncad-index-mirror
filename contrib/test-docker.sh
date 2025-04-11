@@ -7,7 +7,7 @@ docker="$(which docker 2>/dev/null || true)"
 	echo "No compatible Docker analogue found"
 	exit 1
 }
-composefile="docker-compose.yml"
+composefile="docker-compose-build.yml"
 [ -r "$composefile" ] || {
 	echo "Could not read compose file: $composefile"
 	exit 2
