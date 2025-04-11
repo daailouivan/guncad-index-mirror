@@ -49,6 +49,7 @@ echo "  Twitter:                       https://x.com/theshittinator"
 echo "  Matrix:                        https://matrix.to/#/#guncad-index:matrix.org"
 echo ""
 echo "Support the project on ko-fi: https://ko-fi.com/theshittinator"
+echo ""
 
 # Spin up lbrynet
 mkdir -p ~/.local/share
