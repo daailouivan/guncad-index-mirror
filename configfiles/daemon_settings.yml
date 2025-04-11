@@ -4,6 +4,42 @@ lbryum_servers:
   - a-hub1.odysee.com:50001
   - lbryumx1.lbry.com:50001
   - spv11.lbry.com:50001
-
+tracker_servers:
+  #
+  # These trackers are the ones that ship with lbrynet and still work
+  #
+  - s1.lbry.network:9252
+  - tracker.lbry.pigg.es:9252
+  #
+  # These trackers are, as of time of writing, the top 20 from this list:
+  #
+  # https://github.com/ngosang/trackerslist
+  #
+  # According to LBRY spec (i.e. a comment in the source code), we can add
+  # any BEP15-compatible torrent tracker, since their handling for infohashes
+  # and LBRY's handling for sd_hash blob hashes are interchangeable:
+  #
+  # https://github.com/lbryio/lbry-sdk/blob/master/lbry/conf.py#L688
+  #
+  - tracker.opentrackr.org:1337
+  - open.demonii.com:1337
+  - open.stealth.si:80
+  - tracker.torrent.eu.org:451
+  - exodus.desync.com:6969
+  - tracker.skyts.net:6969
+  - explodie.org:6969
+  - tracker.tiny-vps.com:6969
+  - tracker.qu.ax:6969
+  - tracker.ololosh.space:6969
+  - tracker.dump.cl:6969
+  - retracker01-msk-virt.corbina.net:80
+  - p4p.arenabg.com:1337
+  - open.free-tracker.ga:6969
+  - leet-tracker.moe:1337
+  - isk.richardsw.club:6969
+  - discord.heihachi.pw:6969
+  - bt.ktrackers.com:6666
+  - www.torrentsnipe.info:2701
+  - www.genesis-sp.org:2710
 save_blobs: true
 save_files: false
