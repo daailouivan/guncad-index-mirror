@@ -11,6 +11,8 @@ services:
       # LBRY uses this port to serve rehosted content. If not exposed, you're
       # just leeching.
       - 5567:5567/tcp
+      # This is to participate in the DHT
+      - 4444:4444/udp
     healthcheck:
       test: |
         curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
