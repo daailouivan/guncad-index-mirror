@@ -26,7 +26,7 @@ def main():
     args = parser.parse_args()
     assemble_files = os.getenv("MIRROR_ASSEMBLE_FILES", False)
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.INFO)
     if assemble_files:
         logger.info(
             "MIRROR_ASSEMBLE_FILES is set -- we will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
@@ -46,7 +46,7 @@ def main():
                 )
             ):
                 try:
-                    logger.debug(f"Mirroring release {release.get('name')}")
+                    logger.info(f"Mirroring release {release.get('name')}")
                     index.mirror(release, store_file=assemble_files)
                 except Exception as e:
                     logger.exception(e)
