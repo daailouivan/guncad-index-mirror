@@ -25,12 +25,21 @@ tracker_servers:
   - open.demonii.com:1337
   - open.stealth.si:80
   - tracker.torrent.eu.org:451
+  - exodus.desync.com:6969
+  - tracker.skyts.net:6969
   - explodie.org:6969
   - tracker.tiny-vps.com:6969
+  - tracker.qu.ax:6969
+  - tracker.ololosh.space:6969
+  - tracker.dump.cl:6969
   - retracker01-msk-virt.corbina.net:80
   - p4p.arenabg.com:1337
+  - open.free-tracker.ga:6969
   - leet-tracker.moe:1337
+  - isk.richardsw.club:6969
   - discord.heihachi.pw:6969
   - bt.ktrackers.com:6666
+  - www.torrentsnipe.info:2701
+  - www.genesis-sp.org:2710
 save_blobs: true
 save_files: false
