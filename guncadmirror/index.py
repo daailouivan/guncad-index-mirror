@@ -1,10 +1,15 @@
 import json
+import logging
 import os
 import time
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from .hashcache import SdHashCache
+
+seen_sd_hashes = SdHashCache()
 
 
 def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1):
@@ -49,7 +54,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         release     The API object of a release
         lbry_url    The URL to the lbrynet daemon we should talk to
 
-    Returns nothing.
+    Returns whether we downloaded the file or not.
     """
     # Boilerplate setup, gearing up for retries n stuff
     sleepduration = 1
@@ -63,28 +68,43 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
+    logger = logging.getLogger("guncad-mirror")
     # Get some data
     claimid = release.get("id")
     downloaddir = f"/data/mirror/{claimid[:2]}/{claimid[2:]}"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
         json.dump(release, metajson, indent=4)
-    # Set up to talk to LBRY
+    # Get release data
     payload = {
         "method": "get",
         "params": {
             "uri": release.get("url_lbry"),
             "download_directory": f"{downloaddir}",
-            "save_file": True,
             "timeout": 60,
         },
     }
+    response = session.post(lbry_url, json=payload)
+    response.raise_for_status()
+    # Have we seen this sd_hash before?
+    sd_hash = response.json().get("result", {}).get("sd_hash", None)
+    if not sd_hash:
+        logger.error(f"Unable to get sd_hash")
+        return False
+    elif not seen_sd_hashes.should_download(sd_hash):
+        logger.debug(f"Already have sd_hash {sd_hash}, skipping")
+        return False
+    else:
+        logger.debug(f"Acquiring new stream described by sd_hash {sd_hash}")
+        seen_sd_hashes.touch(sd_hash)
+    # Pull the release from LBRY
+    payload["params"]["save_file"] = True
     if not store_file:
         payload["params"]["download_directory"] = "/dev"
         payload["params"]["file_name"] = "null"
     response = session.post(lbry_url, json=payload)
     response.raise_for_status()
-    return response.json()
+    return True
 
 
 def get_releases(url, maxpages=1000):
