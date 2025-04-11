@@ -70,7 +70,7 @@ ENV GUNCAD_COMMIT_SHA=$commit_sha
 ENV GUNCAD_COMMIT_TAG=$commit_tag
 ENV GUNCAD_IN_DOCKER=True
 RUN	apt-get update && \
-	apt-get install -y curl
+	apt-get install -y curl logrotate
 RUN	adduser mirror --uid 1000 && \
 	mkdir /app && \
 	chown -R mirror: /app
@@ -78,6 +78,7 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/pyth
 COPY --from=builder /usr/local/bin/start-guncad-mirror /usr/local/bin/start-guncad-mirror
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
+COPY configfiles/logrotate.conf /etc/logrotate.d/lbrynet
 WORKDIR /app
 EXPOSE 5567
 ENTRYPOINT [ "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]

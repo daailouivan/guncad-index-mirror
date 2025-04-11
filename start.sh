@@ -22,7 +22,7 @@ fi
 if [ "$(id -u)" -eq "0" ]; then
 	echo "Running as root -- doing some preambulatory configuration"
 	echo "  Changing ownership of /data..."
-	chown -R "$targetuser": /data /home/"$targetuser"
+	chown -R "$targetuser": /data /home/"$targetuser" /var/lib/logrotate
 	ls -alh /data
 	echo "Pivoting to $targetuser"
 	echo "Current args: $@"
@@ -53,6 +53,8 @@ echo "Support the project on ko-fi: https://ko-fi.com/theshittinator"
 # Spin up lbrynet
 mkdir -p ~/.local/share
 mkdir -p /data/lbry
+mkdir -p /data/log
+mkdir -p /data/mirror
 ln -s /data/lbry ~/.local/share/lbry
 # Copy in configs
 mkdir -p ~/.local/share/lbry/lbrynet
@@ -60,6 +62,7 @@ cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_setti
 (
 set +e
 while true; do
+	logrotate -f /etc/logrotate.d/lbrynet
 	timeout \
 		--preserve-status \
 		--kill-after 60 \
@@ -69,7 +72,8 @@ while true; do
 		--no-share-usage-data \
 		--save-blobs \
 		--track-bandwidth \
-		--use-upnp
+		--use-upnp \
+		> /data/log/lbrynet.log 2>&1
 	sleep 3
 done
 ) &
