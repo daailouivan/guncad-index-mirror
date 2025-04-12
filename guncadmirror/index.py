@@ -89,7 +89,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     # Have we seen this sd_hash before?
     sd_hash = response.json().get("result", {}).get("sd_hash", None)
     if not sd_hash:
-        logger.error(f"Unable to get sd_hash")
+        logger.error(f"Unable to get sd_hash: {response.json()}")
         return False
     elif not seen_sd_hashes.should_download(sd_hash):
         logger.info(f"Already have sd_hash {sd_hash[:8]}, skipping")
