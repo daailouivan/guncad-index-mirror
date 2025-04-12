@@ -47,6 +47,7 @@ def main():
             ):
                 try:
                     logger.info(f"Mirroring release {release.get('name')}")
+                    index.wait_for_component("wallet")
                     index.mirror(release, store_file=assemble_files)
                 except Exception as e:
                     logger.exception(e)
