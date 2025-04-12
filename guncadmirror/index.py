@@ -9,6 +9,9 @@ from urllib3.util.retry import Retry
 
 from .hashcache import SdHashCache
 
+headers = {
+    "User-Agent": f"GunCADMirror/1.0 (https://guncadindex.com) {requests.utils.default_user_agent()}"
+}
 seen_sd_hashes = SdHashCache()
 
 
@@ -36,7 +39,7 @@ def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1)
     session.mount("http://", adapter)
     payload = {"method": "status"}
     while True:
-        response = session.post(lbry_url, json=payload)
+        response = session.post(lbry_url, json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
         result = data.get("result", {}).get("startup_status", {})
@@ -84,7 +87,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
             "timeout": 60,
         },
     }
-    response = session.post(lbry_url, json=payload)
+    response = session.post(lbry_url, json=payload, headers=headers)
     response.raise_for_status()
     # Have we seen this sd_hash before?
     sd_hash = response.json().get("result", {}).get("sd_hash", None)
@@ -102,7 +105,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     if not store_file:
         payload["params"]["download_directory"] = "/dev"
         payload["params"]["file_name"] = "null"
-    response = session.post(lbry_url, json=payload)
+    response = session.post(lbry_url, json=payload, headers=headers)
     response.raise_for_status()
     return True
 
@@ -134,7 +137,7 @@ def get_releases(url, maxpages=1000):
     session.mount("http://", adapter)
     # Acquire the data
     for page in range(1, maxpages + 1):
-        response = session.get(url)
+        response = session.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
 
