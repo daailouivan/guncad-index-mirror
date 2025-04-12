@@ -30,16 +30,6 @@ default:
       paths:
         - venv
 
-# Environment setup
-# Kind of nasty. Really we should have our own container for this
-Setup:
-  stage: Setup
-  script:
-    - python3 -m venv venv
-    - . venv/bin/activate
-    - pip3 install --upgrade pip
-    - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
-
 # Linting and preprocessing
 # All of these should be required for PRs and run on all branches
 Black:
@@ -55,6 +45,8 @@ isort:
   script:
     - python3 -m venv venv
     - . venv/bin/activate
+    - pip3 install --upgrade pip
+    - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
     - python3 -m isort --profile black --check-only .
 
 # Building
