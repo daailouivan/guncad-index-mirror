@@ -67,7 +67,7 @@ while true; do
 	timeout \
 		--preserve-status \
 		--kill-after 60 \
-		3400 \
+		86400 \
 		lbrynet start \
 		--no-save-files \
 		--no-share-usage-data \
