@@ -1,3 +1,5 @@
+# 0.1.2
+
 * Fixed: urllib no longer vomits on startup
 * Fixed: Third invocations and on now actually work and don't die because of symlink hell
 
