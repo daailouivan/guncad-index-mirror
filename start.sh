@@ -56,7 +56,9 @@ mkdir -p ~/.local/share
 mkdir -p /data/lbry
 mkdir -p /data/log
 mkdir -p /data/mirror
-ln -s /data/lbry ~/.local/share/lbry
+if ! [ -e ~/.local/share/lbry ]; then
+	ln -s /data/lbry ~/.local/share/lbry
+fi
 # Copy in configs
 mkdir -p ~/.local/share/lbry/lbrynet
 cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml

@@ -11,6 +11,10 @@ def main():
     Application entrypoint
     """
     sleephours = 4
+    # Slow down the urllib3 logger so it doesn't annoy users at startup
+    urllib3_logger = logging.getLogger("urllib3.connectionpool")
+    urllib3_logger.setLevel(logging.ERROR)
+    # Set up our logger
     logger = logging.getLogger("guncad-mirror")
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
