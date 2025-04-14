@@ -91,7 +91,7 @@ def main():
             logger.exception(e)
         logger.info(f"Sleeping for {sleephours}h")
         stats.extrastats["mirror_state"] = (
-            "Sleeping until {(datetime.now() + timedelta(hours=sleephours)).strftime('%I:%M %p')}"
+            f"Sleeping until {(datetime.now() + timedelta(hours=sleephours)).strftime('%I:%M %p')}"
         )
         time.sleep(60 * 60 * sleephours)
 
