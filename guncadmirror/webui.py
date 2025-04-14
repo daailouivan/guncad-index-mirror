@@ -9,6 +9,7 @@ from . import __main__ as mirror_main
 from . import index, stats
 
 app = Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 3600
 # This is a dirty nasty hack to disable showing the banner that gives a big
 # "dev server only" warning. We don't need that because:
 #    A. This is an internal-only process
