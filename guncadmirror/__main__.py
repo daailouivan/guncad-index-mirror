@@ -35,6 +35,11 @@ def main():
         logger.info(
             "MIRROR_ASSEMBLE_FILES is set -- we will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
         )
+    enable_webui = os.getenv("MIRROR_ENABLE_WEBUI", False)
+    if enable_webui:
+        logger.info(
+            "MIRROR_ENABLE_WEBUI is set -- view stats on :8080 (or whatever port you forwarded that to)"
+        )
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
