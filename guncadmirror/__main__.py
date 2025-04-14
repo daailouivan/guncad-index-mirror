@@ -55,6 +55,9 @@ def main():
     index.wait_for_component("wallet")
 
     while True:
+        logger.info(f"Cleaning sd_hash cache...")
+        webui.extrastats["mirror_state"] = "Cleaning the sd_hash cache"
+        index.seen_sd_hashes.cleanup()
         logger.info("Acquiring releases...")
         webui.extrastats["mirror_state"] = "Acquiring releases"
         try:
