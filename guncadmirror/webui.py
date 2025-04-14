@@ -27,13 +27,15 @@ def stats():
     } | mirror_main.stats
     return render_template("index.html", **stats)
 
+
 @app.template_filter()
 def humanize_bytes(num):
-    for unit in ['','K','M','G','T','P','E','Z']:
+    for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
         if abs(num) < 1024.0:
             return f"{num:3.1f} {unit}iB"
         num /= 1024.0
     return f"{num:.1f} YiB"
+
 
 def run_flask():
     app.run(host="0.0.0.0", port="5000", debug=True, use_reloader=False)

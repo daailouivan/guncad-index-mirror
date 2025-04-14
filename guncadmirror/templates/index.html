@@ -2,6 +2,7 @@
 <html>
     <head>
         <meta charset="utf-8" />
+        <meta http-equiv="refresh" content="5" />
         <link rel="stylesheet" href="/static/styles.css">
         <link rel="icon" type="image/x-icon" href="/static/favicon.png">
         <title>GunCAD Mirror Stats Page</title>
@@ -72,8 +73,10 @@
                     </tr>
                     <tr>
                         <th>Disk Usage</th>
-												<td>{{ psutil_disk.percent }}%, {{ psutil_disk.free | humanize_bytes }} free</td>
-                        <td>Overall system disk space usage for whatever filesystem is at /data. Directly governs how much space GunCAD Mirror has to play with.</td>
+                        <td>{{ psutil_disk.percent }}%, {{ psutil_disk.free | humanize_bytes }} free</td>
+                        <td>
+                            Overall system disk space usage for whatever filesystem is at /data. Directly governs how much space GunCAD Mirror has to play with.
+                        </td>
                     </tr>
                     <tr>
                         <th>Known sdhashes</th>
@@ -97,7 +100,9 @@
                     <tr>
                         <th>Bytes Out</th>
                         <td>{{ psutil_net.bytes_sent | humanize_bytes }}</td>
-                        <td>Number of bytes sent out since the application was started. Resets if you restart GunCAD Mirror.</td>
+                        <td>
+                            Number of bytes sent out since the application was started. Resets if you restart GunCAD Mirror. Also counts hits against this web UI, bear in mind.
+                        </td>
                     </tr>
                     <tr>
                         <th>Bytes In</th>
