@@ -1,3 +1,6 @@
+* Added: We now use sdhash data from the Index if we can get it
+* Changed: Directory layout for `/data/mirror` is now much more sane, sorted by Author and then Release using human-readable names
+
 # 0.1.2
 
 * Fixed: urllib no longer vomits on startup
