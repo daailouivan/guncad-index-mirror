@@ -74,24 +74,44 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     logger = logging.getLogger("guncad-mirror")
     # Get some data
     claimid = release.get("id")
-    downloaddir = f"/data/mirror/{claimid[:2]}/{claimid[2:]}"
+    author_handle = (
+        release.get("channel", {})
+        .get("handle", "Unknown handle")
+        .replace(":", "#")
+        .replace("@", "")
+    )
+    release_handle = (
+        release.get("url_lbry", claimid)
+        .replace("lbry://", "")
+        .replace(":", "#")
+        .replace("@", "")
+    )
+    downloaddir = f"/data/mirror/{author_handle}/{release_handle}"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
         json.dump(release, metajson, indent=4)
-    # Get release data
-    payload = {
-        "method": "get",
-        "params": {
-            "uri": release.get("url_lbry"),
-            "download_directory": f"{downloaddir}",
-            "timeout": 60,
-        },
-    }
-    response = session.post(lbry_url, json=payload, headers=headers)
-    response.raise_for_status()
+    # Get the sd_hash of the file
+    if release.get("sd_hash", False):
+        sd_hash = release.get("sd_hash")
+    else:
+        payload = {
+            "method": "get",
+            "params": {
+                "uri": release.get("url_lbry"),
+                "download_directory": f"{downloaddir}",
+                "timeout": 60,
+            },
+        }
+        response = session.post(lbry_url, json=payload, headers=headers)
+        response.raise_for_status()
+        sd_hash = response.json().get("result", {}).get("sd_hash", None)
     # Have we seen this sd_hash before?
-    sd_hash = response.json().get("result", {}).get("sd_hash", None)
-    if not sd_hash:
+    if store_file:
+        # If we're configured to store files, we should not skip over seen
+        # sd_hashes because there's no guarantee we have the file assembled
+        # This means we can also safely skip over errors, which is fun
+        pass
+    elif not sd_hash:
         logger.error(f"Unable to get sd_hash: {response.json()}")
         return False
     elif not seen_sd_hashes.should_download(sd_hash):
