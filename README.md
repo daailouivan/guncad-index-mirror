@@ -6,10 +6,16 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 
 ## Quickstart
 
-Spin up a container:
+Spin up a container (you can omit `-p 8081:5000` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI):
 
 ```bash
-docker run -v guncad-mirror:/data -p 5567:5567/tcp -p 4444:4444/udp registry.gitlab.com/guncad-index/mirror:latest
+docker run \
+    -e MIRROR_ENABLE_WEBUI=True \
+    -v guncad-mirror:/data \
+    -p 8081:5000 \
+    -p 5567:5567/tcp \
+    -p 4444:4444/udp \
+    registry.gitlab.com/guncad-index/mirror:latest
 ```
 
 There's also a Docker Compose file if you want to `docker compose up` instead.
@@ -31,7 +37,7 @@ And here are some envvars you can use to configure the instance:
 | -------------------- | ----------- | ------------- |
 | `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
 | `MIRROR_ASSEMBLE_FILES` | Set this variable to assemble files. By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back out to LBRY. If you'd like to have the files -- for your own archival or so you can automatically mirror them elsewhere, you can turn this feature on. Be warned that doing so **DOUBLES YOUR DISK USAGE**. | Unset |
-| `MIRROR_ENABLE_WEBUI` | Set this variable to enable a lightweight web UI for monitoring. Note that this uses the Flask debug webserver and is unfit to be served over the public internet. | Unset |
+| `MIRROR_ENABLE_WEBUI` | Set this variable to enable a lightweight web UI for monitoring. | Unset |
 
 ## FAQ
 
@@ -64,6 +70,10 @@ A: Delete all files from `/data/mirror` that are not `.json` files or directorie
 **Q: I didn't turn `MIRROR_ASSEMBLE_FILES` on and want to do so. Can I turn it on after the fact?**
 
 A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files using your cached blobs.
+
+**Q: I set `MIRROR_ASSEMBLE_FILES` to False and it still built them out! Why?!**
+
+A: *Unset* the variable. If it contains any value at all, we interpret it as truthy. This goes for any environment variable config here, really.
 
 ## License
 
