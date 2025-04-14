@@ -74,7 +74,6 @@ def main():
                     webui.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )
-                    index.wait_for_component("wallet")
                     index.mirror(release, store_file=assemble_files)
                 except Exception as e:
                     logger.exception(e)

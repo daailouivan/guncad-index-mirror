@@ -103,6 +103,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         sd_hash = release.get("sd_hash")
     else:
         logger.info("GunCAD Index didn't have sd_hash -- fetching from LBRY")
+        wait_for_component("wallet")
         response = session.post(lbry_url, json=payload, headers=headers)
         response.raise_for_status()
         sd_hash = response.json().get("result", {}).get("sd_hash", None)
@@ -126,6 +127,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     if not store_file:
         payload["params"]["download_directory"] = "/dev"
         payload["params"]["file_name"] = "null"
+    wait_for_component("wallet")
     response = session.post(lbry_url, json=payload, headers=headers)
     response.raise_for_status()
     return True
