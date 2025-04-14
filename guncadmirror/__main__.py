@@ -89,10 +89,9 @@ def main():
                     logger.exception(e)
         except Exception as e:
             logger.exception(e)
-        logger.info(f"Sleeping for {sleephours}h")
-        stats.extrastats["mirror_state"] = (
-            f"Sleeping until {(datetime.now() + timedelta(hours=sleephours)).strftime('%I:%M %p')}"
-        )
+        sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")
+        logger.info(f"Sleeping for {sleephours}h (until {sleepuntil}")
+        stats.extrastats["mirror_state"] = f"Sleeping until {sleepuntil}"
         time.sleep(60 * 60 * sleephours)
 
 
