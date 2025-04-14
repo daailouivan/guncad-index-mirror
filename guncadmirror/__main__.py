@@ -51,19 +51,26 @@ def main():
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
+    webui.extrastats["mirror_state"] = "Waiting for LBRY"
     index.wait_for_component("wallet")
 
     while True:
         logger.info("Acquiring releases...")
+        webui.extrastats["mirror_state"] = "Acquiring releases"
         try:
-            for release in index.get_releases(
-                url=os.getenv(
-                    "MIRROR_API_ENDPOINT",
-                    "https://guncadindex.com/api/releases/?format=json&limit=25",
+            for i, release in enumerate(
+                index.get_releases(
+                    url=os.getenv(
+                        "MIRROR_API_ENDPOINT",
+                        "https://guncadindex.com/api/releases/?format=json&limit=25",
+                    )
                 )
             ):
                 try:
-                    logger.info(f"Mirroring release {release.get('name')}")
+                    logger.info(f"Mirroring #{i + 1}:  {release.get('name')}")
+                    webui.extrastats["mirror_state"] = (
+                        f"Mirroring #{i + 1}: {release.get('name')}"
+                    )
                     index.wait_for_component("wallet")
                     index.mirror(release, store_file=assemble_files)
                 except Exception as e:
@@ -71,6 +78,7 @@ def main():
         except Exception as e:
             logger.exception(e)
         logger.info(f"Sleeping for {sleephours}h")
+        webui.extrastats["mirror_state"] = "Sleeping"
         time.sleep(60 * 60 * sleephours)
 
 
