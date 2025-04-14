@@ -8,6 +8,8 @@ from flask import Flask, cli, render_template
 from . import __main__ as mirror_main
 from . import index
 
+extrastats = {}
+
 app = Flask(__name__)
 # This is a dirty nasty hack to disable showing the banner that gives a big
 # "dev server only" warning. We don't need that because:
@@ -26,7 +28,7 @@ def stats():
         "psutil_disk": psutil.disk_usage("/data"),
         "seen_sd_hashes": len(index.seen_sd_hashes.cache),
         "disk_space_used": get_dir_size("/data"),
-    } | mirror_main.stats
+    } | extrastats
     return render_template("index.html", **stats)
 
 
