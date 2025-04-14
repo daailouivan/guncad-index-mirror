@@ -20,6 +20,8 @@ docker run \
 
 There's also a Docker Compose file if you want to `docker compose up` instead.
 
+View the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
+
 ## Detailed Configuration
 
 Here are the volume mountpoints you're probably interested in. If you mount `/data` you're good:
