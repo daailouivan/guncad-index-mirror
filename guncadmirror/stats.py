@@ -17,7 +17,6 @@ def run_stats():
         extrastats["psutil_disk"] = psutil.disk_usage("/data")
         extrastats["seen_sd_hashes"] = len(index.seen_sd_hashes.cache)
         extrastats["disk_space_used"] = get_dir_size("/data")
-        extrastats["disk_space_used"] = get_dir_size("/data")
         time.sleep(5)
 
 
