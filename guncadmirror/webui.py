@@ -1,8 +1,11 @@
 import time
-import psutil
 from threading import Thread
-from . import index
+
+import psutil
 from flask import Flask, cli, render_template
+
+from . import __main__ as mirror_main
+from . import index
 
 app = Flask(__name__)
 # This is a dirty nasty hack to disable showing the banner that gives a big
@@ -14,13 +17,13 @@ cli.show_server_banner = lambda *_: None
 
 
 @app.route("/")
-def index():
+def stats():
     stats = {
-            "psutil_cpu": psutil.cpu_percent(interval=0.2),
-            "psutil_mem": psutil.virtual_memory().percent,
-            "psutil_net": psutil.net_io_counters(),
-            "seen_sd_hashes": len(index.seen_sd_hashes.cache),
-    }
+        "psutil_cpu": psutil.cpu_percent(interval=0.2),
+        "psutil_mem": psutil.virtual_memory().percent,
+        "psutil_net": psutil.net_io_counters(),
+        "seen_sd_hashes": len(index.seen_sd_hashes.cache),
+    } | mirror_main.stats
     return render_template("index.html", **stats)
 
 

@@ -5,6 +5,9 @@ import time
 
 from . import index, webui
 
+# Stats for Flask. Will be populated by main() as time goes on
+stats = {}
+
 
 def main():
     """
@@ -41,6 +44,13 @@ def main():
             "MIRROR_ENABLE_WEBUI is set -- view stats on :8080 (or whatever port you forwarded that to)"
         )
         webui.start()
+
+    stats["mirror_api_endpoint"] = os.getenv(
+        "MIRROR_API_ENDPOINT",
+        "https://guncadindex.com/api/releases/?format=json&limit=25",
+    )
+    stats["mirror_assemble_files"] = assemble_files
+    stats["mirror_enable_webui"] = enable_webui
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")

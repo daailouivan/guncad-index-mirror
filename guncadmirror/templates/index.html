@@ -2,31 +2,84 @@
 <html>
     <head>
         <meta charset="utf-8" />
+        <link rel="stylesheet" href="/static/styles.css">
+        <link rel="icon" type="image/x-icon" href="/static/favicon.png">
         <title>GunCAD Mirror Stats Page</title>
     </head>
     <body>
-        <h1>GunCAD Mirror</h1>
-				<table>
-					<tr>
-						<th>Stat</th>
-						<th>Value</th>
-					</tr>
-					<tr>
-						<th>Known sdhashes</th>
-						<td>{{ seen_sd_hashes }}</td>
-					</tr>
-					<tr>
-						<th>CPU Usage</th>
-						<td>{{ psutil_cpu }}</td>
-					</tr>
-					<tr>
-						<th>Memory Usage</th>
-						<td>{{ psutil_mem }}</td>
-					</tr>
-					<tr>
-						<th>Network Usage</th>
-						<td>{{ psutil_net }}</td>
-					</tr>
-				</table>
+        <div class="header">
+            <img src="/static/logo.png"
+                 class="logo"
+                 width="128"
+                 height="128"
+                 alt="GunCAD Mirror logo" />
+            <h1>GunCAD Mirror</h1>
+            <p>
+                A well regulated Militia, being necessary to the security of a free State, the right of the people to keep and bear Arms, shall not be infringed.
+            </p>
+        </div>
+        <div class="subcontainer">
+            <table>
+                <tr>
+                    <th>Configuration Variable</th>
+                    <th>Value</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <th>API Endpoint</th>
+                    <td>{{ mirror_api_endpoint }}</td>
+                    <td>The API endpoint to check for releases. Defaults to the main production GunCAD Index instance.</td>
+                </tr>
+                <tr>
+                    <th>Assemble Files</th>
+                    <td>{{ mirror_assemble_files }}</td>
+                    <td>
+                        Whether or not files should be assembled in addition to being stored as blobs. This feature doubles disk space usage.
+                    </td>
+                </tr>
+                <tr>
+                    <th>Enable web UI</th>
+                    <td>{{ mirror_enable_webui }}</td>
+                    <td>If this is disabled you should have several concerning questions.</td>
+                </tr>
+            </table>
+            <table>
+                <tr>
+                    <th>Stat</th>
+                    <th>Value</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <th>CPU Usage</th>
+                    <td>{{ psutil_cpu }}</td>
+                    <td>Overall system CPU usage across all cores</td>
+                </tr>
+                <tr>
+                    <th>Memory Usage</th>
+                    <td>{{ psutil_mem }}</td>
+                    <td>Overall system memory usage</td>
+                </tr>
+                <tr>
+                    <th>Known sdhashes</th>
+                    <td>{{ seen_sd_hashes }}</td>
+                    <td>
+                        Number of known sd_hash variations. Correlates to the number of releases downloaded, but can increase beyond it if someone updates their files.
+                    </td>
+                </tr>
+                <tr>
+                    <th>Network Usage</th>
+                    <td>{{ psutil_net }}</td>
+                    <td>????</td>
+                </tr>
+            </table>
+        </div>
+        <div class="footer">
+            <p>
+                This page displays statistics for a locally-hosted GunCAD Mirror instance. For information on what these things do or for help configuring your instance, <a href="https://matrix.to/#/#guncad-index:matrix.org" target="_blank">join our Matrix Space</a> or <a href="https://x.com/theshittinator" target="_blank">ping me on Twitter</a>.
+            </p>
+            <p>
+                <a href="https://ko-fi.com/theshittinator" target="_blank">Support development on Ko-Fi</a>
+            </p>
+        </div>
     </body>
 </html>
