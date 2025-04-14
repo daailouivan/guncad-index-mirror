@@ -6,13 +6,13 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 
 ## Quickstart
 
-Spin up a container (you can omit `-p 8081:5000` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI):
+Spin up a container (you can omit `-p 8081:5000/tcp` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI):
 
 ```bash
 docker run \
     -e MIRROR_ENABLE_WEBUI=True \
     -v guncad-mirror:/data \
-    -p 8081:5000 \
+    -p 8081:5000/tcp \
     -p 5567:5567/tcp \
     -p 4444:4444/udp \
     registry.gitlab.com/guncad-index/mirror:latest
