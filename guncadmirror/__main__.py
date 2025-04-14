@@ -52,7 +52,7 @@ def main():
     stats.start_stats_thread()
     stats.extrastats["mirror_api_endpoint"] = os.getenv(
         "MIRROR_API_ENDPOINT",
-        "https://guncadindex.com/api/releases/?format=json&limit=25",
+        "https://guncadindex.com/api/releases/?format=json&limit=100",
     )
     stats.extrastats["mirror_assemble_files"] = assemble_files
     stats.extrastats["mirror_enable_webui"] = enable_webui
