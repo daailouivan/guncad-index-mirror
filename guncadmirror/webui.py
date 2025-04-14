@@ -1,11 +1,10 @@
 import time
+import psutil
 from threading import Thread
-
+from . import index
 from flask import Flask, cli, render_template
 
 app = Flask(__name__)
-flask_thread = Thread(target=app.run(host="0.0.0.0", port="5000", debug=True))
-flask_thread.daemon = True
 # This is a dirty nasty hack to disable showing the banner that gives a big
 # "dev server only" warning. We don't need that because:
 #    A. This is an internal-only process
@@ -16,9 +15,20 @@ cli.show_server_banner = lambda *_: None
 
 @app.route("/")
 def index():
-    stats = {"cpu": 42, "mem": 68}
+    stats = {
+            "psutil_cpu": psutil.cpu_percent(interval=0.2),
+            "psutil_mem": psutil.virtual_memory().percent,
+            "psutil_net": psutil.net_io_counters(),
+            "seen_sd_hashes": len(index.seen_sd_hashes.cache),
+    }
     return render_template("index.html", **stats)
 
 
+def run_flask():
+    app.run(host="0.0.0.0", port="5000", debug=True, use_reloader=False)
+
+
 def start():
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
     flask_thread.start()

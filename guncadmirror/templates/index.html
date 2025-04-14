@@ -6,7 +6,27 @@
     </head>
     <body>
         <h1>GunCAD Mirror</h1>
-        <p>CPU: {{ cpu }}</p>
-        <p>MEM: {{ mem }}</p>
+				<table>
+					<tr>
+						<th>Stat</th>
+						<th>Value</th>
+					</tr>
+					<tr>
+						<th>Known sdhashes</th>
+						<td>{{ seen_sd_hashes }}</td>
+					</tr>
+					<tr>
+						<th>CPU Usage</th>
+						<td>{{ psutil_cpu }}</td>
+					</tr>
+					<tr>
+						<th>Memory Usage</th>
+						<td>{{ psutil_mem }}</td>
+					</tr>
+					<tr>
+						<th>Network Usage</th>
+						<td>{{ psutil_net }}</td>
+					</tr>
+				</table>
     </body>
 </html>
