@@ -3,13 +3,16 @@
     <head>
         <meta charset="utf-8" />
         <meta http-equiv="refresh" content="60" />
-        <link rel="stylesheet" href="/static/styles.css">
-        <link rel="icon" type="image/x-icon" href="/static/favicon.png">
+        <link rel="stylesheet"
+              href="{{ url_for('static', filename='styles.css') }}">
+        <link rel="icon"
+              type="image/x-icon"
+              href="{{ url_for('static', filename='favicon.png') }}">
         <title>GunCAD Mirror Stats Page</title>
     </head>
     <body>
         <div class="header">
-            <img src="/static/logo.png"
+            <img src="{{ url_for('static', filename='logo.png') }}"
                  class="logo"
                  width="128"
                  height="128"
