@@ -20,59 +20,113 @@
         </div>
         <div class="subcontainer">
             <table>
-                <tr>
-                    <th>Configuration Variable</th>
-                    <th>Value</th>
-                    <th>Description</th>
-                </tr>
-                <tr>
-                    <th>API Endpoint</th>
-                    <td>{{ mirror_api_endpoint }}</td>
-                    <td>
-                        The API endpoint to check for releases. Defaults to the main production GunCAD Index instance. Can be changed if you want to mirror a subset of releases.
-                    </td>
-                </tr>
-                <tr>
-                    <th>Assemble Files</th>
-                    <td>{{ mirror_assemble_files }}</td>
-                    <td>
-                        Whether or not files should be assembled in addition to being stored as blobs. This feature doubles disk space usage.
-                    </td>
-                </tr>
-                <tr>
-                    <th>Enable web UI</th>
-                    <td>{{ mirror_enable_webui }}</td>
-                    <td>If this is disabled you should have several concerning questions.</td>
-                </tr>
+                <caption>GunCAD Mirror configuration</caption>
+                <thead>
+                    <tr>
+                        <th>Configuration Variable</th>
+                        <th>Value</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th>API Endpoint</th>
+                        <td>{{ mirror_api_endpoint }}</td>
+                        <td>
+                            The API endpoint to check for releases. Defaults to the main production GunCAD Index instance. Can be changed if you want to mirror a subset of releases.
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Assemble Files</th>
+                        <td>{{ mirror_assemble_files }}</td>
+                        <td>
+                            Whether or not files should be assembled in addition to being stored as blobs. This feature doubles disk space usage.
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Enable web UI</th>
+                        <td>{{ mirror_enable_webui }}</td>
+                        <td>If this is disabled you should have several concerning questions.</td>
+                    </tr>
+                </tbody>
             </table>
             <table>
-                <tr>
-                    <th>Stat</th>
-                    <th>Value</th>
-                    <th>Description</th>
-                </tr>
-                <tr>
-                    <th>CPU Usage</th>
-                    <td>{{ psutil_cpu }}</td>
-                    <td>Overall system CPU usage across all cores</td>
-                </tr>
-                <tr>
-                    <th>Memory Usage</th>
-                    <td>{{ psutil_mem }}</td>
-                    <td>Overall system memory usage</td>
-                </tr>
-                <tr>
-                    <th>Known sdhashes</th>
-                    <td>{{ seen_sd_hashes }}</td>
-                    <td>
-                        Number of known sd_hash variations. Correlates to the number of releases downloaded, but can increase beyond it if someone updates their files.
-                    </td>
-                </tr>
-                <tr>
-                    <th>Network Usage</th>
-                    <td>{{ psutil_net }}</td>
-                    <td>????</td>
-                </tr>
+                <caption>Basic system/application statistics</caption>
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>Value</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th>CPU Usage</th>
+                        <td>{{ psutil_cpu }}%</td>
+                        <td>Overall system CPU usage across all cores.</td>
+                    </tr>
+                    <tr>
+                        <th>Memory Usage</th>
+                        <td>{{ psutil_mem }}%</td>
+                        <td>Overall system memory usage.</td>
+                    </tr>
+                    <tr>
+                        <th>Disk Usage</th>
+												<td>{{ psutil_disk.percent }}%, {{ psutil_disk.free | humanize_bytes }} free</td>
+                        <td>Overall system disk space usage for whatever filesystem is at /data. Directly governs how much space GunCAD Mirror has to play with.</td>
+                    </tr>
+                    <tr>
+                        <th>Known sdhashes</th>
+                        <td>{{ seen_sd_hashes }}</td>
+                        <td>
+                            Number of known sd_hash variations. Correlates to the number of releases downloaded, but can increase beyond it if someone updates their files.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <table>
+                <caption>Network statistics</caption>
+                <thead>
+                    <tr>
+                        <th>Stat</th>
+                        <th>Value</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th>Bytes Out</th>
+                        <td>{{ psutil_net.bytes_sent | humanize_bytes }}</td>
+                        <td>Number of bytes sent out since the application was started. Resets if you restart GunCAD Mirror.</td>
+                    </tr>
+                    <tr>
+                        <th>Bytes In</th>
+                        <td>{{ psutil_net.bytes_recv | humanize_bytes }}</td>
+                        <td>Number of bytes received from the network since the application was started.</td>
+                    </tr>
+                    <tr>
+                        <th>Errors Out</th>
+                        <td>{{ psutil_net.errout }} errors</td>
+                        <td>Number of errors encountered when attempting to send data to the network.</td>
+                    </tr>
+                    <tr>
+                        <th>Errors In</th>
+                        <td>{{ psutil_net.errin }} errors</td>
+                        <td>Number of errors encountered when attempting to download data from the network.</td>
+                    </tr>
+                    <tr>
+                        <th>Drops Out</th>
+                        <td>{{ psutil_net.dropout }} packets</td>
+                        <td>
+                            Number of packets that we attempted to send but were dropped by the network. High amounts of these indicate a pretty serious network connectivity issue.
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Drops In</th>
+                        <td>{{ psutil_net.dropin }} packets</td>
+                        <td>Number of packets dropped we attempted to download but were dropped for some reason or another.</td>
+                    </tr>
+                </tbody>
             </table>
         </div>
         <div class="footer">
