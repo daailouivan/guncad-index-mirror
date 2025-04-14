@@ -20,6 +20,20 @@
             </p>
         </div>
         <div class="subcontainer">
+            <div class="glances">
+                <div class="glance">
+                    <span class="glance-stat">{{ seen_sd_hashes }}</span>
+                    <span class="glance-caption">Known hashes</span>
+                </div>
+                <div class="glance">
+                    <span class="glance-stat">{{ disk_space_used | humanize_bytes }}</span>
+                    <span class="glance-caption">Space used</span>
+                </div>
+                <div class="glance">
+                    <span class="glance-stat">{{ psutil_disk.free | humanize_bytes }}</span>
+                    <span class="glance-caption">Space free</span>
+                </div>
+            </div>
             <table>
                 <caption>GunCAD Mirror configuration</caption>
                 <thead>

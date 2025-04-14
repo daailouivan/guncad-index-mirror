@@ -1,3 +1,4 @@
+import os
 import time
 from threading import Thread
 
@@ -24,6 +25,7 @@ def stats():
         "psutil_net": psutil.net_io_counters(),
         "psutil_disk": psutil.disk_usage("/data"),
         "seen_sd_hashes": len(index.seen_sd_hashes.cache),
+        "disk_space_used": get_dir_size("/data"),
     } | mirror_main.stats
     return render_template("index.html", **stats)
 
@@ -35,6 +37,18 @@ def humanize_bytes(num):
             return f"{num:3.1f} {unit}iB"
         num /= 1024.0
     return f"{num:.1f} YiB"
+
+
+def get_dir_size(path):
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            try:
+                total += os.path.getsize(fp)
+            except FileNotFoundError:
+                pass  # File might vanish during the walk
+    return total
 
 
 def run_flask():
