@@ -13,6 +13,8 @@ services:
       - 5567:5567/tcp
       # This is to participate in the DHT
       - 4444:4444/udp
+      # This is for the web UI. You can omit if you don't want it
+      - 8081:8080/tcp
     healthcheck:
       test: |
         curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
