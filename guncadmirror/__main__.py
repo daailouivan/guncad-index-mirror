@@ -60,7 +60,7 @@ def main():
     # We've finished bootstrapping, wait for LBRY to do its thing
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
-    stats.extrastats["mirror_state"] = "Waiting for LBRY"
+    stats.extrastats["mirror_state"] = "Waiting for LBRY to start up"
     index.wait_for_component("wallet")
 
     while True:
