@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from . import index
+from . import index, webui
 
 
 def main():
@@ -40,6 +40,7 @@ def main():
         logger.info(
             "MIRROR_ENABLE_WEBUI is set -- view stats on :8080 (or whatever port you forwarded that to)"
         )
+        webui.start()
 
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
