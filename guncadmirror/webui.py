@@ -4,6 +4,7 @@ from threading import Thread
 
 import psutil
 from flask import Flask, cli, render_template
+from waitress import serve
 
 from . import __main__ as mirror_main
 from . import index
@@ -54,7 +55,7 @@ def get_dir_size(path):
 
 
 def run_flask():
-    app.run(host="0.0.0.0", port="5000", debug=True, use_reloader=False)
+    serve(app, host="0.0.0.0", port="5000", threads=4)
 
 
 def start():

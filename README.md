@@ -65,10 +65,6 @@ A: Delete all files from `/data/mirror` that are not `.json` files or directorie
 
 A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files using your cached blobs.
 
-**Q: The webserver says it's a dev server and not to use it in production?**
-
-A: I'm aware. It's not a concern for several reasons, and honestly it's a blessing that it only serves one request at a time. Spinning up a full-fat WSGI server would be a lot of headache for no benefit.
-
 ## License
 
 This software is distributed under the terms of the [GNU Affero General Public License](/LICENSE.md).
