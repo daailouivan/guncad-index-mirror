@@ -41,6 +41,7 @@ fi
 echo "Git ref of build:"
 echo "  GUNCAD_COMMIT_REF:             ${GUNCAD_COMMIT_REF:-Unset}"
 echo "Configuration variables:"
+echo "  TZ:                            ${TZ:-Unset (you should fix this)}"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Default}"
 echo "  MIRROR_ENABLE_WEBUI:           ${MIRROR_ENABLE_WEBUI:-Unset}"
 echo ""
