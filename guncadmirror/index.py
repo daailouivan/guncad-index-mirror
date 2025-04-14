@@ -91,18 +91,18 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
         json.dump(release, metajson, indent=4)
     # Get the sd_hash of the file
+    payload = {
+        "method": "get",
+        "params": {
+            "uri": release.get("url_lbry"),
+            "download_directory": f"{downloaddir}",
+            "timeout": 60,
+        },
+    }
     if release.get("sd_hash", False):
         sd_hash = release.get("sd_hash")
     else:
         logger.info("GunCAD Index didn't have sd_hash -- fetching from LBRY")
-        payload = {
-            "method": "get",
-            "params": {
-                "uri": release.get("url_lbry"),
-                "download_directory": f"{downloaddir}",
-                "timeout": 60,
-            },
-        }
         response = session.post(lbry_url, json=payload, headers=headers)
         response.raise_for_status()
         sd_hash = response.json().get("result", {}).get("sd_hash", None)
