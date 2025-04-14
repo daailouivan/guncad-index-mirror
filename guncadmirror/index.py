@@ -94,6 +94,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     if release.get("sd_hash", False):
         sd_hash = release.get("sd_hash")
     else:
+        logger.info("GunCAD Index didn't have sd_hash -- fetching from LBRY")
         payload = {
             "method": "get",
             "params": {
