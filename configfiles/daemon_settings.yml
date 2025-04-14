@@ -4,6 +4,7 @@ lbryum_servers:
   - a-hub1.odysee.com:50001
   - lbryumx1.lbry.com:50001
   - spv11.lbry.com:50001
+
 tracker_servers:
   #
   # These trackers are the ones that ship with lbrynet and still work

@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import time
+from datetime import datetime, timedelta
 
 from . import index, stats, webui
 
@@ -89,7 +90,9 @@ def main():
         except Exception as e:
             logger.exception(e)
         logger.info(f"Sleeping for {sleephours}h")
-        stats.extrastats["mirror_state"] = "Sleeping"
+        stats.extrastats["mirror_state"] = (
+            "Sleeping until {(datetime.now() + timedelta(hours=sleephours)).strftime('%I:%M %p')}"
+        )
         time.sleep(60 * 60 * sleephours)
 
 
