@@ -38,7 +38,7 @@ def main():
     enable_webui = os.getenv("MIRROR_ENABLE_WEBUI", False)
     if enable_webui:
         logger.info(
-            "MIRROR_ENABLE_WEBUI is set -- view stats on :8080 (or whatever port you forwarded that to)"
+            "MIRROR_ENABLE_WEBUI is set -- view stats on :8081 (or whatever port you forwarded that to)"
         )
         webui.start()
 
