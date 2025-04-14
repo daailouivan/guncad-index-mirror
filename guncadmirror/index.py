@@ -147,7 +147,7 @@ def get_releases(url, maxpages=1000):
     # Basic assertions
     assert type(url) == str
     # Boilerplate setup, gearing up for retries n stuff
-    sleepduration = 0.25
+    sleepduration = 0.15
     session = requests.Session()
     retries = Retry(
         total=10,
