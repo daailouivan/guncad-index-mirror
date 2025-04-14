@@ -1,3 +1,4 @@
+* Added: Docs now specify how to set the timezone in the container -- be sure and check it out so times are listed correctly
 * Added: The sdhash cache is now proactively cleaned to give admins a more accurate readout of how many files they're seeding
 * Added: There's now a web UI you can enable, see the README for more information
 * Added: We now use sdhash data from the Index if we can get it
