@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from . import index, webui
+from . import index, stats, webui
 
 
 def main():
@@ -11,15 +11,19 @@ def main():
     Application entrypoint
     """
     sleephours = 4
+
     # Slow down the urllib3 logger so it doesn't annoy users at startup
     urllib3_logger = logging.getLogger("urllib3.connectionpool")
     urllib3_logger.setLevel(logging.ERROR)
+
     # Set up our logger
     logger = logging.getLogger("guncad-mirror")
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
         level=logging.INFO,
     )
+
+    # Set up the arg parser
     parser = argparse.ArgumentParser(
         prog="python -m guncadmirror",
         description="Mirror content from a GunCAD Index instance over LBRY",
@@ -28,6 +32,8 @@ def main():
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
     args = parser.parse_args()
+
+    # Parse out envvars as configs
     assemble_files = os.getenv("MIRROR_ASSEMBLE_FILES", False)
     if args.verbose:
         logging.getLogger().setLevel(logging.INFO)
@@ -42,24 +48,27 @@ def main():
         )
         webui.start()
 
-    webui.extrastats["mirror_api_endpoint"] = os.getenv(
+    # Set up some extra statistics
+    stats.start_stats_thread()
+    stats.extrastats["mirror_api_endpoint"] = os.getenv(
         "MIRROR_API_ENDPOINT",
         "https://guncadindex.com/api/releases/?format=json&limit=25",
     )
-    webui.extrastats["mirror_assemble_files"] = assemble_files
-    webui.extrastats["mirror_enable_webui"] = enable_webui
+    stats.extrastats["mirror_assemble_files"] = assemble_files
+    stats.extrastats["mirror_enable_webui"] = enable_webui
 
+    # We've finished bootstrapping, wait for LBRY to do its thing
     logger.info("Started GunCAD Mirror")
     logger.info("Waiting for LBRY to start its wallet...")
-    webui.extrastats["mirror_state"] = "Waiting for LBRY"
+    stats.extrastats["mirror_state"] = "Waiting for LBRY"
     index.wait_for_component("wallet")
 
     while True:
         logger.info(f"Cleaning sd_hash cache...")
-        webui.extrastats["mirror_state"] = "Cleaning the sd_hash cache"
+        stats.extrastats["mirror_state"] = "Cleaning the sd_hash cache"
         index.seen_sd_hashes.cleanup()
         logger.info("Acquiring releases...")
-        webui.extrastats["mirror_state"] = "Acquiring releases"
+        stats.extrastats["mirror_state"] = "Acquiring releases"
         try:
             for i, release in enumerate(
                 index.get_releases(
@@ -71,7 +80,7 @@ def main():
             ):
                 try:
                     logger.info(f"Mirroring #{i + 1}:  {release.get('name')}")
-                    webui.extrastats["mirror_state"] = (
+                    stats.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )
                     index.mirror(release, store_file=assemble_files)
@@ -80,7 +89,7 @@ def main():
         except Exception as e:
             logger.exception(e)
         logger.info(f"Sleeping for {sleephours}h")
-        webui.extrastats["mirror_state"] = "Sleeping"
+        stats.extrastats["mirror_state"] = "Sleeping"
         time.sleep(60 * 60 * sleephours)
 
 

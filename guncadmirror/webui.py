@@ -2,14 +2,11 @@ import os
 import time
 from threading import Thread
 
-import psutil
 from flask import Flask, cli, render_template
 from waitress import serve
 
 from . import __main__ as mirror_main
-from . import index
-
-extrastats = {}
+from . import index, stats
 
 app = Flask(__name__)
 # This is a dirty nasty hack to disable showing the banner that gives a big
@@ -21,16 +18,8 @@ cli.show_server_banner = lambda *_: None
 
 
 @app.route("/")
-def stats():
-    stats = {
-        "psutil_cpu": psutil.cpu_percent(interval=0.2),
-        "psutil_mem": psutil.virtual_memory().percent,
-        "psutil_net": psutil.net_io_counters(),
-        "psutil_disk": psutil.disk_usage("/data"),
-        "seen_sd_hashes": len(index.seen_sd_hashes.cache),
-        "disk_space_used": get_dir_size("/data"),
-    } | extrastats
-    return render_template("index.html", **stats)
+def mirror_statistics():
+    return render_template("index.html", **stats.extrastats)
 
 
 @app.template_filter()
@@ -40,18 +29,6 @@ def humanize_bytes(num):
             return f"{num:3.1f} {unit}iB"
         num /= 1024.0
     return f"{num:.1f} YiB"
-
-
-def get_dir_size(path):
-    total = 0
-    for dirpath, dirnames, filenames in os.walk(path):
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
-            try:
-                total += os.path.getsize(fp)
-            except FileNotFoundError:
-                pass  # File might vanish during the walk
-    return total
 
 
 def run_flask():
