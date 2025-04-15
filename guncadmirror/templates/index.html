@@ -59,8 +59,7 @@
                 </div>
             </div>
             <div class="codeblock">
-                <p>Last 20 notable events:</p>
-                {% for log in extralog %}<p>{{ log }}</p>{% endfor %}
+                {% for log in extralog|reverse%}<p>{{ log }}</p>{% endfor %}
             </div>
             <table>
                 <caption>GunCAD Mirror configuration</caption>

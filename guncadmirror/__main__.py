@@ -11,7 +11,7 @@ def main():
     """
     Application entrypoint
     """
-    stats.log("Began startup")
+    stats.log("Started GunCAD Mirror")
     sleephours = 4
 
     # Slow down the urllib3 logger so it doesn't annoy users at startup

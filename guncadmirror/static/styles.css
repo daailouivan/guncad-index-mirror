@@ -78,6 +78,10 @@ h1, caption {
 	border-radius: 8px;
 	padding: 1em;
 	margin: 1em;
+	max-height: 16em;
+	overflow: auto;
+	display: flex;
+	flex-direction: column-reverse;
 }
 .codeblock p {
 	margin: 0;

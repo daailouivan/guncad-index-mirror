@@ -41,3 +41,4 @@ def start():
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
+    stats.log("Started web UI thread")

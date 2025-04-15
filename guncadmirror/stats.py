@@ -11,7 +11,7 @@ from . import index
 
 extrastats = {}
 
-extralog = collections.deque(maxlen=20)
+extralog = collections.deque(maxlen=512)
 
 
 def run_stats():
@@ -49,5 +49,5 @@ def get_dir_size(path):
 def start_stats_thread():
     stats_thread = Thread(target=run_stats)
     stats_thread.daemon = True
-    log("Started collecting system statistics")
     stats_thread.start()
+    log("Started statistics collector thread")
