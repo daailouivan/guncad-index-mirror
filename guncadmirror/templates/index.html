@@ -58,6 +58,10 @@
                     <span class="glance-caption">Space free</span>
                 </div>
             </div>
+            <div class="codeblock">
+                <p>Last 20 notable events:</p>
+                {% for log in extralog %}<p>{{ log }}</p>{% endfor %}
+            </div>
             <table>
                 <caption>GunCAD Mirror configuration</caption>
                 <thead>

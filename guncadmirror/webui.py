@@ -20,7 +20,8 @@ cli.show_server_banner = lambda *_: None
 
 @app.route("/")
 def mirror_statistics():
-    return render_template("index.html", **stats.extrastats)
+    context = {"extralog": list(stats.extralog)} | stats.extrastats
+    return render_template("index.html", **context)
 
 
 @app.template_filter()

@@ -11,6 +11,7 @@ def main():
     """
     Application entrypoint
     """
+    stats.log("Began startup")
     sleephours = 4
 
     # Slow down the urllib3 logger so it doesn't annoy users at startup
@@ -63,6 +64,7 @@ def main():
     logger.info("Waiting for LBRY to start its wallet...")
     stats.extrastats["mirror_state"] = "Waiting for LBRY to start up"
     index.wait_for_component("wallet")
+    stats.log("Finished waiting for LBRY to initialize")
 
     while True:
         logger.info(f"Cleaning sd_hash cache...")
@@ -84,7 +86,11 @@ def main():
                     stats.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )
-                    index.mirror(release, store_file=assemble_files)
+                    changed = index.mirror(release, store_file=assemble_files)
+                    if changed:
+                        stats.log(
+                            f"Fetched new files for release #{i + 1}: {release.get('url')} \"{release.get('name')}\""
+                        )
                 except Exception as e:
                     logger.exception(e)
         except Exception as e:

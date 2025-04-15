@@ -1,6 +1,8 @@
+import collections
 import logging
 import os
 import time
+from datetime import datetime
 from threading import Thread
 
 import psutil
@@ -8,6 +10,8 @@ import psutil
 from . import index
 
 extrastats = {}
+
+extralog = collections.deque(maxlen=20)
 
 
 def run_stats():
@@ -26,6 +30,10 @@ def run_stats():
         time.sleep(5)
 
 
+def log(string):
+    return extralog.append(f"[{datetime.now()}] {string}")
+
+
 def get_dir_size(path):
     total = 0
     for dirpath, dirnames, filenames in os.walk(path):
@@ -41,4 +49,5 @@ def get_dir_size(path):
 def start_stats_thread():
     stats_thread = Thread(target=run_stats)
     stats_thread.daemon = True
+    log("Started collecting system statistics")
     stats_thread.start()
