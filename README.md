@@ -81,3 +81,7 @@ A: *Unset* the variable. If it contains any value at all, we interpret it as tru
 ## License
 
 This software is distributed under the terms of the [GNU Affero General Public License](/LICENSE.md).
+
+### Third-Party Licenses
+
+"IBM Plex Sans" and "IBM Plex Mono" Copyright © 2017 IBM Corp. with Reserved Font Name "Plex" licensed under the terms of [SIL Open Font License, Version 1.1](https://openfontlicense.org/open-font-license-official-text/)
