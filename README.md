@@ -6,10 +6,33 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 
 ## Quickstart
 
+Select your preferred deployment method below and follow it. Afterward, view the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
+
+### Unraid
+
+Watch this space. I'll add a template at some point.
+
+If you're familiar enough with Unraid, use the setup from the "Docker" section below to assist you in adding the container.
+
+### Docker Compose
+
+Clone the repo and pull 'er up:
+
+```bash
+docker compose --env-file guncad-mirror.env up
+```
+
+You can also use `docker-compose-build.yml` instead of `docker-compose.yml` if you're interested in running bleeding-edge builds or want to hack on it.
+
+This file is also verifiably compatible with Podman.
+
+### Docker
+
 Spin up a container. You can omit `-p 8081:5000/tcp` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI, and should set `TZ` to be your timezone [according to this list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
 
 ```bash
 docker run \
+    --name guncad-mirror \
     -e TZ="America/Chicago" \
     -e MIRROR_ENABLE_WEBUI=True \
     -v guncad-mirror:/data \
@@ -19,9 +42,7 @@ docker run \
     registry.gitlab.com/guncad-index/mirror:latest
 ```
 
-There's also a Docker Compose file if you want to `docker compose up` instead.
-
-View the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
+This command is also verifiably compatible with Podman.
 
 ## Detailed Configuration
 
