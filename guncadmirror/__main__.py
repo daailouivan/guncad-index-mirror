@@ -89,7 +89,7 @@ def main():
                     changed = index.mirror(release, store_file=assemble_files)
                     if changed:
                         stats.log(
-                            f"Fetched new files for release #{i + 1}: {release.get('url')} \"{release.get('name')}\""
+                            f"+ Fetched new files for release #{i + 1}: {release.get('url')} \"{release.get('name')}\""
                         )
                 except Exception as e:
                     logger.exception(e)
