@@ -64,6 +64,7 @@ def main():
         index.seen_sd_hashes.cleanup()
         logger.info("Acquiring releases...")
         stats.extrastats["mirror_state"] = "Acquiring releases"
+        starttime = time.perf_counter()
         try:
             for i, release in enumerate(index.get_releases(url=settings.endpoint)):
                 try:
@@ -81,7 +82,9 @@ def main():
         except Exception as e:
             logger.exception(e)
         sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")
-        logger.info(f"Sleeping for {sleephours}h (until {sleepuntil})")
+        elapsed_time = time.perf_counter() - starttime
+        stats.log(f"Mirroring complete, ran for {elapsed_time:2f}s")
+        logger.info(f"Completed in {elapsed_time:2f}s, sleeping for {sleephours}h (until {sleepuntil})")
         stats.extrastats["mirror_state"] = f"Sleeping until {sleepuntil}"
         time.sleep(60 * 60 * sleephours)
 

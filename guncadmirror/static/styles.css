@@ -78,7 +78,7 @@ h1, caption {
 	border-radius: 8px;
 	padding: 1em;
 	margin: 1em;
-	max-height: 16em;
+	height: 16em;
 	font-size: 85%;
 	overflow: auto;
 	display: flex;
