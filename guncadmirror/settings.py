@@ -22,7 +22,7 @@ def get_envvar_bool(variable, message=None, messagewhen=True) -> bool:
     logger = logging.getLogger("guncad-mirror")
     result = str_to_bool(os.getenv(variable, False))
     if message and (result == messagewhen):
-        logger.info(f'{message} ({variable}={result})')
+        logger.info(f"{message} ({variable}={result})")
     return result
 
 
