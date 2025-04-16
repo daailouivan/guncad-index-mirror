@@ -1,3 +1,6 @@
+* Added: Web UI now has a notable events log, for things like updated releases
+* Changed: Boolean environment variables now need a "truthy" string like "True", "1", or "Enabled" to be considered set
+
 # 0.2.0
 
 * Added: There's now a web UI you can enable, see the README for more information
