@@ -58,6 +58,8 @@
                     <span class="glance-caption">Space free</span>
                 </div>
             </div>
+            <h1>Logs</h1>
+            <p>This is a very narrow view of the logs. For more info, see the container output and /data/log:</p>
             <div class="codeblock">
                 {% for log in extralog|reverse %}<p>{{ log }}</p>{% endfor %}
             </div>
