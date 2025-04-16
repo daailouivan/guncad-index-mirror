@@ -4,7 +4,13 @@ import os
 import time
 from datetime import datetime, timedelta
 
-from . import index, stats, webui
+from . import index, settings, stats, webui
+
+
+def str_to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return value.strip().lower() in ("1", "true", "t", "yes", "on", "enabled")
 
 
 def main():
@@ -36,28 +42,14 @@ def main():
     args = parser.parse_args()
 
     # Parse out envvars as configs
-    assemble_files = os.getenv("MIRROR_ASSEMBLE_FILES", False)
-    if args.verbose:
-        logging.getLogger().setLevel(logging.INFO)
-    if assemble_files:
-        logger.info(
-            "MIRROR_ASSEMBLE_FILES is set -- we will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so."
-        )
-    enable_webui = os.getenv("MIRROR_ENABLE_WEBUI", False)
-    if enable_webui:
-        logger.info(
-            "MIRROR_ENABLE_WEBUI is set -- view stats on :8081 (or whatever port you forwarded that to)"
-        )
+    settings.parse_environment()
+
+    # If we have to start the webui thread, do so
+    if settings.enable_webui:
         webui.start()
 
     # Set up some extra statistics
     stats.start_stats_thread()
-    stats.extrastats["mirror_api_endpoint"] = os.getenv(
-        "MIRROR_API_ENDPOINT",
-        "https://guncadindex.com/api/releases/?format=json&limit=100",
-    )
-    stats.extrastats["mirror_assemble_files"] = assemble_files
-    stats.extrastats["mirror_enable_webui"] = enable_webui
 
     # We've finished bootstrapping, wait for LBRY to do its thing
     logger.info("Started GunCAD Mirror")
@@ -73,20 +65,13 @@ def main():
         logger.info("Acquiring releases...")
         stats.extrastats["mirror_state"] = "Acquiring releases"
         try:
-            for i, release in enumerate(
-                index.get_releases(
-                    url=os.getenv(
-                        "MIRROR_API_ENDPOINT",
-                        "https://guncadindex.com/api/releases/?format=json&limit=25",
-                    )
-                )
-            ):
+            for i, release in enumerate(index.get_releases(url=settings.endpoint)):
                 try:
                     logger.info(f"Mirroring #{i + 1}:  {release.get('name')}")
                     stats.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )
-                    changed = index.mirror(release, store_file=assemble_files)
+                    changed = index.mirror(release, store_file=settings.assemble_files)
                     if changed:
                         stats.log(
                             f"+ Fetched new files for release #{i + 1}: {release.get('url')} \"{release.get('name')}\""
