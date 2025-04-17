@@ -1,3 +1,5 @@
+# 0.3.1
+
 * Fixed: Stats are now initialized before the web UI, fixing an ISE
 * Fixed: Turning `MIRROR_ASSEMBLE_FILES` on no longer spams the log with erroneous "new file" messages
 
