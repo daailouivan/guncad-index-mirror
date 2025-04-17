@@ -1,3 +1,7 @@
+# 0.3.3
+
+* Fixed: Expensive stats are now primed with non-None values and deferred until later, not blocking the main thread
+
 # 0.3.2
 
 * Fixed: Stats are now actually really for real initialized before the web UI.
