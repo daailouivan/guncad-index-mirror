@@ -109,21 +109,21 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         sd_hash = response.json().get("result", {}).get("sd_hash", None)
     # Have we seen this sd_hash before?
     returncode = False
-    if store_file:
-        # If we're configured to store files, we should not skip over seen
-        # sd_hashes because there's no guarantee we have the file assembled
-        # This means we can also safely skip over errors, which is fun
-        pass
-    elif not sd_hash:
+    if not sd_hash:
         logger.error(f"Unable to get sd_hash: {response.json()}")
-        return returncode
+        return False
     elif not seen_sd_hashes.should_download(sd_hash):
-        logger.info(f"Already have sd_hash {sd_hash[:8]}, skipping")
-        return returncode
+        if store_file:
+            logger.info(f"Already have sd_hash {sd_hash[:8]}, but continuing to ensure we assemble the file")
+        else:
+            logger.info(f"Already have sd_hash {sd_hash[:8]}, skipping")
+        returncode = False
     else:
         logger.info(f"Acquiring new stream described by sd_hash {sd_hash[:8]}")
         seen_sd_hashes.touch(sd_hash)
         returncode = True
+    if not store_file:
+        return returncode
     # Pull the release from LBRY
     payload["params"]["save_file"] = True
     if not store_file:
