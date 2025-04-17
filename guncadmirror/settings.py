@@ -60,6 +60,5 @@ def parse_environment():
     )
     stats.extrastats["mirror_api_endpoint"] = endpoint
 
-    logger.info("Updated settings from environment variables")
-    stats.log("Updated settings from environment variables")
+    stats.log("Updated settings from environment variables", stdout=True)
     return

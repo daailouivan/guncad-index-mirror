@@ -37,6 +37,21 @@ def humanize_bytes(num):
     return f"{num:.1f} YiB"
 
 
+@app.template_filter()
+def humanize_seconds(num):
+    for unit, factor in [
+        ("seconds", 60),
+        ("minutes", 60),
+        ("hours", 24),
+        ("days", 7),
+        ("weeks", 52),
+    ]:
+        if abs(num) < factor:
+            return f"{num:3.1f} {unit}"
+        num /= factor
+    return f"{num:.1f} years"
+
+
 def run_flask():
     serve(app, host="0.0.0.0", port="5000", threads=4)
 
@@ -45,4 +60,4 @@ def start():
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
-    stats.log("Started web UI thread")
+    stats.log("Started web UI thread", stdout=True)

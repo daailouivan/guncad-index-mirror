@@ -56,7 +56,7 @@ def main():
     logger.info("Waiting for LBRY to start its wallet...")
     stats.extrastats["mirror_state"] = "Waiting for LBRY to start up"
     index.wait_for_component("wallet")
-    stats.log("Finished waiting for LBRY to initialize")
+    stats.log("Finished waiting for LBRY to initialize", stdout=True)
 
     while True:
         logger.info(f"Cleaning sd_hash cache...")
@@ -83,9 +83,9 @@ def main():
             logger.exception(e)
         sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")
         elapsed_time = time.perf_counter() - starttime
-        stats.log(f"Mirroring complete, ran for {elapsed_time:2f}s")
-        logger.info(
-            f"Completed in {elapsed_time:2f}s, sleeping for {sleephours}h (until {sleepuntil})"
+        stats.log(
+            f"Completed in {webui.humanize_seconds(elapsed_time)}, sleeping for {sleephours}h (until {sleepuntil})",
+            stdout=True,
         )
         stats.extrastats["mirror_state"] = f"Sleeping until {sleepuntil}"
         time.sleep(60 * 60 * sleephours)

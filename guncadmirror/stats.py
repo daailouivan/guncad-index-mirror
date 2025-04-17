@@ -30,7 +30,10 @@ def run_stats():
         time.sleep(5)
 
 
-def log(string):
+def log(string, stdout=False):
+    logger = logging.getLogger("guncad-mirror")
+    if stdout:
+        logger.info(string)
     return extralog.append(f"[{datetime.now()}] {string}")
 
 
