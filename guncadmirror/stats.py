@@ -13,17 +13,19 @@ extrastats = {}
 
 extralog = collections.deque(maxlen=512)
 
+def collect():
+    extrastats["psutil_cpu"] = psutil.cpu_percent(interval=0.2)
+    extrastats["psutil_mem"] = psutil.virtual_memory().percent
+    extrastats["psutil_net"] = psutil.net_io_counters()
+    extrastats["psutil_disk"] = psutil.disk_usage("/data")
+    extrastats["seen_sd_hashes"] = len(index.seen_sd_hashes.cache)
+    extrastats["disk_space_used"] = get_dir_size("/data")
 
 def run_stats():
     logger = logging.getLogger("guncad-mirror")
     while True:
         try:
-            extrastats["psutil_cpu"] = psutil.cpu_percent(interval=0.2)
-            extrastats["psutil_mem"] = psutil.virtual_memory().percent
-            extrastats["psutil_net"] = psutil.net_io_counters()
-            extrastats["psutil_disk"] = psutil.disk_usage("/data")
-            extrastats["seen_sd_hashes"] = len(index.seen_sd_hashes.cache)
-            extrastats["disk_space_used"] = get_dir_size("/data")
+            collect()
         except Exception as e:
             logger.error("Exception in stats collection thread:")
             logger.error(e, exc_info=True)
@@ -52,5 +54,7 @@ def get_dir_size(path):
 def start_stats_thread():
     stats_thread = Thread(target=run_stats)
     stats_thread.daemon = True
+    # Do one collection run before returning so the app doesn't use stale stats
+    collect()
     stats_thread.start()
     log("Started statistics collector thread")
