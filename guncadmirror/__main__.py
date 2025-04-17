@@ -44,12 +44,12 @@ def main():
     # Parse out envvars as configs
     settings.parse_environment()
 
+    # Set up some extra statistics
+    stats.start_stats_thread()
+
     # If we have to start the webui thread, do so
     if settings.enable_webui:
         webui.start()
-
-    # Set up some extra statistics
-    stats.start_stats_thread()
 
     # We've finished bootstrapping, wait for LBRY to do its thing
     logger.info("Started GunCAD Mirror")
