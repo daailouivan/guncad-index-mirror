@@ -114,7 +114,9 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         return False
     elif not seen_sd_hashes.should_download(sd_hash):
         if store_file:
-            logger.info(f"Already have sd_hash {sd_hash[:8]}, but continuing to ensure we assemble the file")
+            logger.info(
+                f"Already have sd_hash {sd_hash[:8]}, but continuing to ensure we assemble the file"
+            )
         else:
             logger.info(f"Already have sd_hash {sd_hash[:8]}, skipping")
         returncode = False

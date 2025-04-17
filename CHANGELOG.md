@@ -1,5 +1,7 @@
 # 0.3.3
 
+* Fixed: Bytes are displayed properly
+* Fixed: Fixed (for real this time) logging newly-acquired files while MIRROR_ASSEMBLE_FILES is on
 * Fixed: Expensive stats are now primed with non-None values and deferred until later, not blocking the main thread
 
 # 0.3.2
