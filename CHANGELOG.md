@@ -1,3 +1,7 @@
+# 0.3.2
+
+* Fixed: Stats are now actually really for real initialized before the web UI.
+
 # 0.3.1
 
 * Fixed: Stats are now initialized before the web UI, fixing an ISE
