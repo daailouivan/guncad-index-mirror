@@ -1,4 +1,5 @@
 import os
+import random
 import time
 from threading import Thread
 
@@ -6,7 +7,7 @@ from flask import Flask, cli, render_template
 from waitress import serve
 
 from . import __main__ as mirror_main
-from . import index, stats
+from . import index, settings, stats
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
@@ -20,7 +21,10 @@ cli.show_server_banner = lambda *_: None
 
 @app.route("/")
 def mirror_statistics():
-    context = {"extralog": list(stats.extralog)} | stats.extrastats
+    context = {
+        "extralog": list(stats.extralog),
+        "cachebuster": settings.cachebuster,
+    } | stats.extrastats
     return render_template("index.html", **context)
 
 

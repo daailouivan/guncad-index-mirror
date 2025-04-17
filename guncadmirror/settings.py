@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 
 from . import stats
 
@@ -9,6 +10,9 @@ assemble_files = False
 enable_webui = False
 # What is our target API endpoint
 endpoint = "https://guncadindex.com/api/releases/?format=json&limit=100"
+
+# Generate a cachebuster to use for this session
+cachebuster = "?cb=" + "".join(str(random.randint(0, 9)) for _ in range(16))
 
 
 def str_to_bool(value) -> bool:

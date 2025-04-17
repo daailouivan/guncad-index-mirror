@@ -84,7 +84,9 @@ def main():
         sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")
         elapsed_time = time.perf_counter() - starttime
         stats.log(f"Mirroring complete, ran for {elapsed_time:2f}s")
-        logger.info(f"Completed in {elapsed_time:2f}s, sleeping for {sleephours}h (until {sleepuntil})")
+        logger.info(
+            f"Completed in {elapsed_time:2f}s, sleeping for {sleephours}h (until {sleepuntil})"
+        )
         stats.extrastats["mirror_state"] = f"Sleeping until {sleepuntil}"
         time.sleep(60 * 60 * sleephours)
 

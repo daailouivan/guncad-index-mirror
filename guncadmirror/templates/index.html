@@ -21,10 +21,10 @@
 
         </style>
         <link rel="stylesheet"
-              href="{{ url_for('static', filename='styles.css') }}">
+              href="{{ url_for('static', filename='styles.css') }}{{ cachebuster }}">
         <link rel="icon"
               type="image/x-icon"
-              href="{{ url_for('static', filename='favicon.png') }}">
+              href="{{ url_for('static', filename='favicon.png') }}{{ cachebuster }}">
         <title>GunCAD Mirror Stats Page</title>
     </head>
     <body>
