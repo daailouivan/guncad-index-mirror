@@ -1,3 +1,5 @@
+# 0.3.0
+
 * Added: Web UI now has a notable events log, for things like updated releases
 * Added: Web UI resources now implement cachebusting per-startup
 * Changed: Boolean environment variables now need a "truthy" string like "True", "1", or "Enabled" to be considered set
