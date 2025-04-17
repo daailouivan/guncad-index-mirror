@@ -1,3 +1,6 @@
+* Fixed: Stats are now initialized before the web UI, fixing an ISE
+* Fixed: Turning `MIRROR_ASSEMBLE_FILES` on no longer spams the log with erroneous "new file" messages
+
 # 0.3.0
 
 * Added: Web UI now has a notable events log, for things like updated releases
