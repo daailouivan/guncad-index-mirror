@@ -13,6 +13,7 @@ extrastats = {}
 
 extralog = collections.deque(maxlen=512)
 
+
 def collect():
     extrastats["psutil_cpu"] = psutil.cpu_percent(interval=0.2)
     extrastats["psutil_mem"] = psutil.virtual_memory().percent
@@ -20,6 +21,7 @@ def collect():
     extrastats["psutil_disk"] = psutil.disk_usage("/data")
     extrastats["seen_sd_hashes"] = len(index.seen_sd_hashes.cache)
     extrastats["disk_space_used"] = get_dir_size("/data")
+
 
 def run_stats():
     logger = logging.getLogger("guncad-mirror")
