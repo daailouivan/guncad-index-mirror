@@ -21,6 +21,7 @@ def collect():
     extrastats["psutil_disk"] = psutil.disk_usage("/data")
     extrastats["seen_sd_hashes"] = len(index.seen_sd_hashes.cache)
 
+
 def collect_expensive(prime=False):
     extrastats["disk_space_used"] = 0 if prime else get_dir_size("/data")
 
@@ -35,6 +36,7 @@ def run_stats():
             logger.error(e, exc_info=True)
         time.sleep(1)
 
+
 def run_expensive_stats():
     logger = logging.getLogger("guncad-mirror")
     while True:
@@ -44,6 +46,7 @@ def run_expensive_stats():
             logger.error("Exception in stats collection thread:")
             logger.error(e, exc_info=True)
         time.sleep(30)
+
 
 def log(string, stdout=False):
     logger = logging.getLogger("guncad-mirror")
