@@ -108,6 +108,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         response.raise_for_status()
         sd_hash = response.json().get("result", {}).get("sd_hash", None)
     # Have we seen this sd_hash before?
+    returncode = False
     if store_file:
         # If we're configured to store files, we should not skip over seen
         # sd_hashes because there's no guarantee we have the file assembled
@@ -115,13 +116,14 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         pass
     elif not sd_hash:
         logger.error(f"Unable to get sd_hash: {response.json()}")
-        return False
+        return returncode
     elif not seen_sd_hashes.should_download(sd_hash):
         logger.info(f"Already have sd_hash {sd_hash[:8]}, skipping")
-        return False
+        return returncode
     else:
         logger.info(f"Acquiring new stream described by sd_hash {sd_hash[:8]}")
         seen_sd_hashes.touch(sd_hash)
+        returncode = True
     # Pull the release from LBRY
     payload["params"]["save_file"] = True
     if not store_file:
@@ -130,7 +132,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     wait_for_component("wallet")
     response = session.post(lbry_url, json=payload, headers=headers)
     response.raise_for_status()
-    return True
+    return returncode
 
 
 def get_releases(url, maxpages=1000):
