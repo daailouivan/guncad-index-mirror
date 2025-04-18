@@ -15,6 +15,7 @@ extralog = collections.deque(maxlen=512)
 
 
 def collect():
+    extrastats["version"] = os.getenv("GUNCAD_COMMIT_REF", "Unknown")
     extrastats["psutil_cpu"] = psutil.cpu_percent(interval=0.2)
     extrastats["psutil_mem"] = psutil.virtual_memory().percent
     extrastats["psutil_net"] = psutil.net_io_counters()
