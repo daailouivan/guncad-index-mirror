@@ -1,3 +1,5 @@
+* Added: Version number is now shown in the title of the web UI
+
 # 0.3.3
 
 * Fixed: Bytes are displayed properly
