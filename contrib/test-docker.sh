@@ -13,4 +13,4 @@ composefile="docker-compose-build.yml"
 	exit 2
 }
 
-"$docker" compose -f "$composefile" up --build --force-recreate
+"$docker" compose -f "$composefile" --env-file guncad-mirror.env up --build --force-recreate
