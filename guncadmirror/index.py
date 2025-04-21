@@ -124,7 +124,11 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         logger.info(f"Acquiring new stream described by sd_hash {sd_hash[:8]}")
         seen_sd_hashes.touch(sd_hash)
         returncode = True
-    if not store_file:
+    # If we:
+    # * Don't want to store the file; and
+    # * Don't see a new file that we may want to mirror; then
+    # We can short-circuit
+    if not store_file and not returncode:
         return returncode
     # Pull the release from LBRY
     payload["params"]["save_file"] = True
