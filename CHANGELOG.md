@@ -1,3 +1,6 @@
+# 0.3.4
+
+* Fixed: Files are now properly downloaded even with MIRROR_ASSEMBLE_FILES disabled
 * Added: Version number is now shown in the title of the web UI
 
 # 0.3.3
