@@ -95,13 +95,8 @@ Scan Container:
   image:
     name: aquasec/trivy
     entrypoint: [""]
-  # We don't want to die if we have known vulns
-  allow_failure: true
-  cache:
-    key: trivy-db
-    paths:
-      - .trivy
   stage: Scan
+  retry: 0
   script:
     - trivy image \
         --scanners vuln,secret,misconfig \
@@ -112,12 +107,8 @@ Scan Repository for Secrets:
   image:
     name: aquasec/trivy
     entrypoint: [""]
-  allow_failure: true
-  cache:
-    key: trivy-db
-    paths:
-      - .trivy
   stage: Scan
+  retry: 0
   script:
     - trivy fs \
         --exit-code 1 \
@@ -126,12 +117,8 @@ Scan Repository for Misconfiguration:
   image:
     name: aquasec/trivy
     entrypoint: [""]
-  allow_failure: true
-  cache:
-    key: trivy-db
-    paths:
-      - .trivy
   stage: Scan
+  retry: 0
   script:
     - trivy config \
         --exit-code 1 \
