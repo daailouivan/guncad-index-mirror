@@ -58,8 +58,8 @@ Trivy Secrets:
   stage: Lint
   retry: 0
   script:
-    - trivy fs \
-        --exit-code 1 \
+    - trivy fs
+        --exit-code 1
         ./
 Trivy Misconfiguration:
   image:
@@ -68,8 +68,8 @@ Trivy Misconfiguration:
   stage: Lint
   retry: 0
   script:
-    - trivy config \
-        --exit-code 1 \
+    - trivy config
+        --exit-code 1
         ./
 
 # Building
@@ -119,10 +119,10 @@ Scan Container:
   allow_failure: true
   retry: 0
   script:
-    - trivy image \
-        --scanners vuln,secret,misconfig \
-        --severity HIGH,CRITICAL \
-        --ignore-unfixed \
+    - trivy image
+        --scanners vuln,secret,misconfig
+        --severity HIGH,CRITICAL
+        --ignore-unfixed
         $IMAGE_TAG
 
 # Cut the release at GitLab
