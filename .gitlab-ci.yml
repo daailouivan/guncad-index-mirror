@@ -1,5 +1,6 @@
 image: ubuntu:latest
 stages:
+  - Scan Early
   - Lint
   - Build
   - Test
@@ -33,6 +34,29 @@ default:
       paths:
         - .trivy
 
+# Lightweight scanning where we check for repo misconfigs
+Trivy Secrets:
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
+  stage: Scan Early
+  retry: 0
+  script:
+    - trivy fs
+        --exit-code 1
+        ./
+Trivy Misconfiguration:
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
+  stage: Scan Early
+  retry: 0
+  script:
+    - trivy config
+        --severity HIGH,CRITICAL
+        --exit-code 1
+        ./
+
 # Linting and preprocessing
 # All of these should be required for PRs and run on all branches
 Black:
@@ -51,27 +75,6 @@ isort:
     - pip3 install --upgrade pip
     - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
     - python3 -m isort --profile black --check-only .
-Trivy Secrets:
-  image:
-    name: aquasec/trivy
-    entrypoint: [""]
-  stage: Lint
-  retry: 0
-  script:
-    - trivy fs
-        --exit-code 1
-        ./
-Trivy Misconfiguration:
-  image:
-    name: aquasec/trivy
-    entrypoint: [""]
-  stage: Lint
-  retry: 0
-  script:
-    - trivy config
-        --severity HIGH,CRITICAL
-        --exit-code 1
-        ./
 
 # Building
 Build and Tag Container:
@@ -111,7 +114,7 @@ Build and Tag Container:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
 
-# Scanning
+# The real meaty scanning where we check for package vulns
 Scan Container:
   image:
     name: aquasec/trivy
