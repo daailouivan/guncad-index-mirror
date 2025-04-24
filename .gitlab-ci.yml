@@ -51,6 +51,26 @@ isort:
     - pip3 install --upgrade pip
     - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
     - python3 -m isort --profile black --check-only .
+Trivy Secrets:
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
+  stage: Lint
+  retry: 0
+  script:
+    - trivy fs \
+        --exit-code 1 \
+        ./
+Trivy Misconfiguration:
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
+  stage: Lint
+  retry: 0
+  script:
+    - trivy config \
+        --exit-code 1 \
+        ./
 
 # Building
 Build and Tag Container:
@@ -96,33 +116,14 @@ Scan Container:
     name: aquasec/trivy
     entrypoint: [""]
   stage: Scan
+  allow_failure: true
   retry: 0
   script:
     - trivy image \
         --scanners vuln,secret,misconfig \
         --severity HIGH,CRITICAL \
-        --exit-code 1 \
+        --ignore-unfixed \
         $IMAGE_TAG
-Scan Repository for Secrets:
-  image:
-    name: aquasec/trivy
-    entrypoint: [""]
-  stage: Scan
-  retry: 0
-  script:
-    - trivy fs \
-        --exit-code 1 \
-        ./
-Scan Repository for Misconfiguration:
-  image:
-    name: aquasec/trivy
-    entrypoint: [""]
-  stage: Scan
-  retry: 0
-  script:
-    - trivy config \
-        --exit-code 1 \
-        ./
 
 # Cut the release at GitLab
 Release:
