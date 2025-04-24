@@ -101,8 +101,6 @@ Scan Container:
     key: trivy-db
     paths:
       - .trivy
-  before_script:
-    - docker pull $IMAGE_TAG
   stage: Scan
   script:
     - trivy image \
