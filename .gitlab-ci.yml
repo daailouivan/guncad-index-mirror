@@ -127,6 +127,7 @@ Scan Container:
         --scanners vuln,secret,misconfig
         --severity HIGH,CRITICAL
         --ignore-unfixed
+        --exit-code 1
         $IMAGE_TAG
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
