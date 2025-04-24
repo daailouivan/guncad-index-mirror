@@ -92,7 +92,9 @@ Build and Tag Container:
 
 # Scanning
 Scan Container:
-  image: aquasec/trivy
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
   # We don't want to die if we have known vulns
   allow_failure: true
   cache:
@@ -109,7 +111,9 @@ Scan Container:
         --exit-code 1 \
         $IMAGE_TAG
 Scan Repository for Secrets:
-  image: aquasec/trivy
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
   allow_failure: true
   cache:
     key: trivy-db
@@ -121,7 +125,9 @@ Scan Repository for Secrets:
         --exit-code 1 \
         ./
 Scan Repository for Misconfiguration:
-  image: aquasec/trivy
+  image:
+    name: aquasec/trivy
+    entrypoint: [""]
   allow_failure: true
   cache:
     key: trivy-db
