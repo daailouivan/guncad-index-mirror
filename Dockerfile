@@ -70,6 +70,7 @@ ENV GUNCAD_COMMIT_SHA=$commit_sha
 ENV GUNCAD_COMMIT_TAG=$commit_tag
 ENV GUNCAD_IN_DOCKER=True
 RUN	apt-get update && \
+	apt-get dist-upgrade && \
 	apt-get install -y curl logrotate
 RUN	adduser mirror --uid 1000 && \
 	mkdir /app && \
