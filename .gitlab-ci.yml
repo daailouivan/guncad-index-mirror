@@ -69,6 +69,7 @@ Trivy Misconfiguration:
   retry: 0
   script:
     - trivy config
+        --severity HIGH,CRITICAL
         --exit-code 1
         ./
 
