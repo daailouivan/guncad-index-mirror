@@ -123,23 +123,24 @@ Scan Container:
   stage: Scan
   allow_failure: true
   retry: 0
+  before_script:
+    - mkdir container
+    - tar xf $IMAGE_TARBALL -C container
   script:
     - trivy image
-        --input $IMAGE_TARBALL
+        --input container
         --platform linux/amd64
         --scanners vuln,secret,misconfig
         --severity HIGH,CRITICAL
         --ignore-unfixed
         --exit-code 1
-        $IMAGE_TAG
     - trivy image
-        --input $IMAGE_TARBALL
+        --input container
         --platform linux/arm64
         --scanners vuln,secret,misconfig
         --severity HIGH,CRITICAL
         --ignore-unfixed
         --exit-code 1
-        $IMAGE_TAG
 # Tagging
 Tag SHA:
   image: docker:latest
