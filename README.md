@@ -38,7 +38,7 @@ docker run \
     -v guncad-mirror:/data \
     -p 8081:5000/tcp \
     -p 5567:5567/tcp \
-    -p 4444:4444/udp \
+    -p 4444:4444 \
     registry.gitlab.com/guncad-index/mirror:latest
 ```
 

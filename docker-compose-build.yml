@@ -11,8 +11,8 @@ services:
       # LBRY uses this port to serve rehosted content. If not exposed, you're
       # just leeching.
       - 5567:5567/tcp
-      # This is to participate in the DHT
-      - 4444:4444/udp
+      # This is to participate in the DHT. Needs both TCP and UDP
+      - 4444:4444
       # This is for the web UI. You can omit if you don't want it
       - 8081:5000/tcp
     healthcheck:
