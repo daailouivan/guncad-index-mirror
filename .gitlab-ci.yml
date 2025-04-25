@@ -33,7 +33,6 @@ default:
     - key: trivy-db
       paths:
         - .trivy
-
 # Lightweight scanning where we check for repo misconfigs
 Trivy Secrets:
   image:
@@ -75,6 +74,19 @@ isort:
     - pip3 install --upgrade pip
     - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
     - python3 -m isort --profile black --check-only .
+YAML Lint:
+  stage: Lint
+  image:
+    name: ghcr.io/google/yamlfmt:latest
+    entrypoint: [""]
+  cache: []
+  before_script:
+    - apk add git
+  script:
+    - echo "Formatting..."
+    - yamlfmt
+    - git diff --exit-code
+    - echo "Formatting complete"
 # Building
 Build Container:
   image: docker:latest
