@@ -150,6 +150,7 @@ Tag SHA:
   stage: Release
   script:
     - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - skopeo inspect oci-archive:$IMAGE_TARBALL
     - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG
     - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_BLEEDING
   rules:
@@ -163,6 +164,7 @@ Tag Release:
   stage: Release
   script:
     - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - skopeo inspect oci-archive:$IMAGE_TARBALL
     - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_RELEASE
     - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_LATEST
   rules:
