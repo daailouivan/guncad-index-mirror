@@ -8,6 +8,11 @@ GunCAD Mirror is a small piece of software that watches out for content on a Gun
 
 Select your preferred deployment method below and follow it. Afterward, view the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
 
+**VERY IMPORTANT**: You are going to have to port-forward these at your router no matter which route you take:
+
+* 5567 TCP
+* 4444 TCP & UDP
+
 ### Unraid
 
 Watch this space. I'll add a template at some point.
