@@ -3,8 +3,8 @@ stages:
   - Scan Early
   - Lint
   - Build
-  - Test
   - Scan
+  - Test
   - Release
   - GitLab
 before_script:
@@ -25,7 +25,7 @@ default:
   services:
     - name: docker:dind
       alias: docker
-      command: [ "--tls=false" ]
+      command: ["--tls=false"]
   cache:
     - key: cache-venv-$CI_COMMIT_REF_SLUG
       paths:
