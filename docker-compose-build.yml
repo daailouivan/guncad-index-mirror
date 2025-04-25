@@ -12,7 +12,8 @@ services:
       # just leeching.
       - 5567:5567/tcp
       # This is to participate in the DHT. Needs both TCP and UDP
-      - 4444:4444
+      - 4444:4444/tcp
+      - 4444:4444/udp
       # This is for the web UI. You can omit if you don't want it
       - 8081:5000/tcp
     healthcheck:

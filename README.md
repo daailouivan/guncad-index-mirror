@@ -38,7 +38,8 @@ docker run \
     -v guncad-mirror:/data \
     -p 8081:5000/tcp \
     -p 5567:5567/tcp \
-    -p 4444:4444 \
+    -p 4444:4444/tcp \
+    -p 4444:4444/udp \
     registry.gitlab.com/guncad-index/mirror:latest
 ```
 
@@ -95,9 +96,9 @@ A: Delete all files from `/data/mirror` that are not `.json` files or directorie
 
 A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files using your cached blobs.
 
-**Q: I set `MIRROR_ASSEMBLE_FILES` to False and it still built them out! Why?!**
+**Q: I set `MIRROR_ASSEMBLE_FILES` but I'm not getting anything! Why?**
 
-A: *Unset* the variable. If it contains any value at all, we interpret it as truthy. This goes for any environment variable config here, really.
+A: Set it to some variable that's obviously truthy, like `True`. There's a narrow set we accept, otherwise we default to `False`.
 
 ## License
 
