@@ -143,7 +143,9 @@ Scan Container:
         --exit-code 1
 # Tagging
 Tag SHA:
-  image: quay.io/containers/skopeo:latest
+  image:
+    name: quay.io/containers/skopeo:latest
+    entrypoint: [""]
   interruptible: no
   cache: []
   before_script: []
@@ -157,7 +159,9 @@ Tag SHA:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
 Tag Release:
-  image: quay.io/containers/skopeo:latest
+  image:
+    name: quay.io/containers/skopeo:latest
+    entrypoint: [""]
   interruptible: no
   cache: []
   before_script: []
