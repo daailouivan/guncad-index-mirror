@@ -1,17 +1,23 @@
 # GunCAD Mirror
 
-**NOTICE**: We have yet to have a first release, this is all draft shit. Don't take it at its word.
+> [!warning]
+> We have yet to have a first release, this is all draft shit. Don't take it at its word.
 
 GunCAD Mirror is a small piece of software that watches out for content on a GunCAD Index instance and mirrors it, offering it to the LBRY network for increased resiliency and redundancy.
 
+[TOC]
+
 ## Quickstart
 
-Select your preferred deployment method below and follow it. Afterward, view the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
-
-**VERY IMPORTANT**: You are going to have to port-forward these at your router no matter which route you take:
+>>> [!important]
+You are going to have to port-forward these at your router no matter which route you take:
 
 * 5567 TCP
 * 4444 TCP & UDP
+>>>
+
+Select your preferred deployment method below and follow it. Afterward, view the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
+
 
 ### Unraid
 
