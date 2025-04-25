@@ -3,8 +3,8 @@ stages:
   - Scan Early
   - Lint
   - Build
-  - Test
   - Scan
+  - Test
   - Release
   - GitLab
 before_script:
@@ -25,7 +25,7 @@ default:
   services:
     - name: docker:dind
       alias: docker
-      command: [ "--tls=false" ]
+      command: ["--tls=false"]
   cache:
     - key: cache-venv-$CI_COMMIT_REF_SLUG
       paths:
@@ -33,7 +33,6 @@ default:
     - key: trivy-db
       paths:
         - .trivy
-
 # Lightweight scanning where we check for repo misconfigs
 Trivy Secrets:
   image:
@@ -75,9 +74,21 @@ isort:
     - pip3 install --upgrade pip
     - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
     - python3 -m isort --profile black --check-only .
-
+YAML Lint:
+  stage: Lint
+  image:
+    name: ghcr.io/google/yamlfmt:latest
+    entrypoint: [""]
+  cache: []
+  before_script:
+    - apk add git
+  script:
+    - echo "Formatting..."
+    - yamlfmt
+    - git diff --exit-code
+    - echo "Formatting complete"
 # Building
-Build and Tag Container:
+Build Container:
   image: docker:latest
   cache: []
   before_script: []
@@ -90,30 +101,20 @@ Build and Tag Container:
     # Set up build environment
     - docker buildx create --use
     - docker buildx inspect --bootstrap
-    # Build the container, with some logic for conditionally pushing tags
-    - |
-      TAGS="--tag $IMAGE_TAG"
-      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
-        TAGS="$TAGS --tag $IMAGE_TAG_BLEEDING"
-        PUSH_BLEEDING=true
-      fi
-      if [[ -n "$CI_COMMIT_TAG" ]]; then
-        TAGS="$TAGS --tag $IMAGE_TAG_RELEASE --tag $IMAGE_TAG_LATEST"
-        PUSH_TAGS=true
-      fi
-      docker buildx build \
-        --platform linux/amd64,linux/arm64 \
-        --build-arg commit_sha=$CI_COMMIT_SHORT_SHA \
-        --build-arg commit_tag=$CI_COMMIT_TAG \
-        $TAGS \
-        --push \
+    # Build the container
+    - docker buildx build
+        --platform linux/amd64,linux/arm64
+        --build-arg commit_sha=$CI_COMMIT_SHORT_SHA
+        --build-arg commit_tag=$CI_COMMIT_TAG
+        --tag=$IMAGE_TAG
+        --output type=oci,dest=$IMAGE_TARBALL
         .
     # Last-minute debug info
     - docker images
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_COMMIT_TAG
-
+  artifacts:
+    paths:
+      - $IMAGE_TARBALL
+    expire_in: 1h
 # The real meaty scanning where we check for package vulns
 Scan Container:
   image:
@@ -122,18 +123,52 @@ Scan Container:
   stage: Scan
   allow_failure: true
   retry: 0
+  before_script:
+    - mkdir container
+    - tar xf $IMAGE_TARBALL -C container
   script:
     - trivy image
+        --input container
+        --platform linux/amd64
         --scanners vuln,secret,misconfig
         --severity HIGH,CRITICAL
         --ignore-unfixed
         --exit-code 1
-        $IMAGE_TAG
+    - trivy image
+        --input container
+        --platform linux/arm64
+        --scanners vuln,secret,misconfig
+        --severity HIGH,CRITICAL
+        --ignore-unfixed
+        --exit-code 1
+# Tagging
+Tag SHA:
+  image: quay.io/containers/skopeo:latest
+  interruptible: no
+  cache: []
+  before_script: []
+  stage: Release
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - skopeo inspect oci-archive:$IMAGE_TARBALL
+    - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG
+    - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_BLEEDING
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
-
-# Cut the release at GitLab
+Tag Release:
+  image: quay.io/containers/skopeo:latest
+  interruptible: no
+  cache: []
+  before_script: []
+  stage: Release
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - skopeo inspect oci-archive:$IMAGE_TARBALL
+    - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_RELEASE
+    - skopeo copy oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_LATEST
+  rules:
+    - if: $CI_COMMIT_TAG
 Release:
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   interruptible: no
