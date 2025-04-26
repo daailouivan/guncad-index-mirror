@@ -1,3 +1,5 @@
+* Added: We now limit the size of files we acquire from the Index. By default, anything over 10GB is skipped. At time of writing, that is 50 of the 7.8k releases
+
 # 0.3.4
 
 * Fixed: Files are now properly downloaded even with MIRROR_ASSEMBLE_FILES disabled

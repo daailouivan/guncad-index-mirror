@@ -7,6 +7,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from . import settings, stats, webui
 from .hashcache import SdHashCache
 
 headers = {
@@ -124,6 +125,13 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         logger.info(f"Acquiring new stream described by sd_hash {sd_hash[:8]}")
         seen_sd_hashes.touch(sd_hash)
         returncode = True
+    # Short-circuit if we run afoul of restrictions and intend to download the file
+    if returncode:
+        if settings.maxsize and release.get("size") > settings.maxsize:
+            logger.info(
+                f"Skipping sd_hash {sd_hash[:8]} ({release.get('name')}) since filesize {webui.humanize_bytes(release.get('size'))} greater than configured maximum {webui.humanize_bytes(settings.maxsize)}"
+            )
+            returncode = False
     # If we:
     # * Don't want to store the file; and
     # * Don't see a new file that we may want to mirror; then

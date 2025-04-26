@@ -73,6 +73,7 @@ And here are some envvars you can use to configure the instance:
 | -------------------- | ----------- | ------------- |
 | `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
 | `MIRROR_ASSEMBLE_FILES` | Set this variable to assemble files. By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back out to LBRY. If you'd like to have the files -- for your own archival or so you can automatically mirror them elsewhere, you can turn this feature on. Be warned that doing so **DOUBLES YOUR DISK USAGE**. | Unset |
+| `MIRROR_RELEASE_MAX_SIZE` | The maximum size of a release (in bytes) we're comfortable mirroring. Any file above this size will be ignored. If unset or set to `0`, this feature is disabled. | `10737418240` (10GB) |
 | `MIRROR_ENABLE_WEBUI` | Set this variable to enable a lightweight web UI for monitoring. | Unset |
 
 ## FAQ
@@ -110,6 +111,14 @@ A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files us
 **Q: I set `MIRROR_ASSEMBLE_FILES` but I'm not getting anything! Why?**
 
 A: Set it to some variable that's obviously truthy, like `True`. There's a narrow set we accept, otherwise we default to `False`.
+
+**Q: Why am I ~50-100GB short on my download?**
+
+A: We have `MIRROR_RELEASE_MAX_SIZE` turned on by default, as there are some pretty huge outliers at the far end of the dataset. If you'd like to download them too, set this envvar to `0`.
+
+**Q: Can I set this up behind a VPN?**
+
+A: You *must* be able to port-forward. If you're able to do so, consider plumbing traffic through something like [gluetun](https://github.com/qdm12/gluetun).
 
 ## License
 
