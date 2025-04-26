@@ -11,7 +11,7 @@ enable_webui = False
 # What is our target API endpoint
 endpoint = "https://guncadindex.com/api/releases/?format=json&limit=100"
 # What's the biggest file we'll accept from the Index?
-maxsize = 10737418240 # 10GB in B
+maxsize = 10737418240  # 10GB in B
 
 # Generate a cachebuster to use for this session
 cachebuster = "?cb=" + "".join(str(random.randint(0, 9)) for _ in range(16))
@@ -22,6 +22,7 @@ def str_to_bool(value) -> bool:
         return value
     result = value.strip().lower() in ("1", "true", "t", "yes", "on", "enabled")
     return result
+
 
 def get_envvar_bool(variable, message=None, messagewhen=True) -> bool:
     logger = logging.getLogger("guncad-mirror")
@@ -72,7 +73,7 @@ def parse_environment():
     maxsize = get_envvar_int(
         "MIRROR_RELEASE_MAX_SIZE",
         default=10737418240,
-        message="Accepting releases up to size"
+        message="Accepting releases up to size",
     )
     stats.extrastats["mirror_release_max_size"] = maxsize
 
