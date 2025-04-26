@@ -112,6 +112,14 @@ A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files us
 
 A: Set it to some variable that's obviously truthy, like `True`. There's a narrow set we accept, otherwise we default to `False`.
 
+**Q: Why am I ~50-100GB short on my download?**
+
+A: We have `MIRROR_RELEASE_MAX_SIZE` turned on by default, as there are some pretty huge outliers at the far end of the dataset. If you'd like to download them too, set this envvar to `0`.
+
+**Q: Can I set this up behind a VPN?**
+
+A: You *must* be able to port-forward. If you're able to do so, consider plumbing traffic through something like [gluetun](https://github.com/qdm12/gluetun).
+
 ## License
 
 This software is distributed under the terms of the [GNU Affero General Public License](/LICENSE.md).
