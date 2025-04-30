@@ -88,9 +88,16 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         .replace("@", "")
     )
     downloaddir = f"/data/mirror/{author_handle}/{release_handle}"
+    hugodir = f"/app/guncad_mirror_hugo/content/releases/"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
         json.dump(release, metajson, indent=4)
+    with open(os.path.join(hugodir, f"{author_handle}_{release_handle}.md"), "w") as hugo_release:
+        f.write("+++\n")
+        f.write(f"title = {release_handle}")
+        f.write(f"id = {claimid}")
+        f.write("+++\n")
+
     # Get the sd_hash of the file
     payload = {
         "method": "get",
