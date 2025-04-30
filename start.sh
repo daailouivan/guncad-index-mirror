@@ -62,6 +62,7 @@ mkdir -p /data/mirror
 if ! [ -e ~/.local/share/lbry ]; then
 	ln -s /data/lbry ~/.local/share/lbry
 fi
+
 # Copy in configs
 mkdir -p ~/.local/share/lbry/lbrynet
 cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml
@@ -83,6 +84,11 @@ while true; do
 	sleep 3
 done
 ) &
+
+#Set up Hugo stuff
+hugo new site guncad_mirror_hugo
+cp -R hugo_resources/guncad_mirror_theme guncad_mirror_hugo/themes
+cp hugo_resources/config.toml guncad_mirror_hugo/config.toml
 
 # Now move on to Python
 python3 -m guncadmirror "$@"

@@ -80,6 +80,10 @@ COPY --from=builder /usr/local/bin/start-guncad-mirror /usr/local/bin/start-gunc
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 COPY configfiles/logrotate.conf /etc/logrotate.d/lbrynet
+
+# Install Hugo
+RUN	apt-get install -y hugo
+
 WORKDIR /app
 EXPOSE 5567
 ENTRYPOINT [ "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]
