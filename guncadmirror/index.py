@@ -92,10 +92,12 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
         json.dump(release, metajson, indent=4)
-    with open(os.path.join(hugodir, f"{author_handle}_{release_handle}.md"), "w") as hugo_release:
+    with open(
+        os.path.join(hugodir, f"{author_handle}_{release_handle}.md"), "w"
+    ) as hugo_release:
         hugo_release.write("+++\n")
-        hugo_release.write(f"title = \"{release_handle}\"\n")
-        hugo_release.write(f"id = \"{claimid}\"\n")
+        hugo_release.write(f'title = "{release_handle}"\n')
+        hugo_release.write(f'id = "{claimid}"\n')
         hugo_release.write("+++\n")
 
     # Get the sd_hash of the file
