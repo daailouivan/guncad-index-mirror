@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import time
+import subprocess
 from datetime import datetime, timedelta
 
 from . import index, settings, stats, webui
@@ -79,6 +80,7 @@ def main():
                         )
                 except Exception as e:
                     logger.exception(e)
+            subprocess.run(["hugo", "--source", "/app/guncad_mirror_hugo"])
         except Exception as e:
             logger.exception(e)
         sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")

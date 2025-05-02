@@ -87,6 +87,7 @@ done
 
 #Set up Hugo stuff
 hugo new site guncad_mirror_hugo
+mkdir guncad_mirror_hugo/content/releases
 cp -R hugo_resources/guncad_mirror_theme guncad_mirror_hugo/themes
 cp hugo_resources/config.toml guncad_mirror_hugo/config.toml
 
