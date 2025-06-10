@@ -21,7 +21,7 @@ Select your preferred deployment method below and follow it. Afterward, view the
 
 ### Unraid
 
-Download the `GunCad-Mirror-Unraid.xml` file and move it to the '/boot/config/plugins/dockerMan/templates-user' directory on your Unraid server.
+Download the [GunCad-Mirror-Unraid.xml](/GunCad-Mirror-Unraid.xml) file and move it to the `/boot/config/plugins/dockerMan/templates-user` directory on your Unraid server.
 
 Once the file is in place, go to the Docker tab in the Unraid Web UI and click 'Add Container' at the bottom of the page. From the Template dropdown menu, select GunCad-Mirror-Unraid, then configure the container using the settings provided below.
 
