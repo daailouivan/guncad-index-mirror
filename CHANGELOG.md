@@ -1,3 +1,4 @@
+* Added: Unraid template (thanks crocs!)
 * Added: We now limit the size of files we acquire from the Index. By default, anything over 10GB is skipped. At time of writing, that is 50 of the 7.8k releases
 
 # 0.3.4
