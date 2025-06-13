@@ -166,6 +166,121 @@ def get_releases(url, maxpages=1000):
     sleepduration = 0.15
     session = requests.Session()
     retries = Retry(
+        total=5,
+        backoff_factor=2,
+        status_forcelist=[429, 500, 502, 503, 504],
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    logger = logging.getLogger("guncad-mirror")
+    # Acquire the data
+    yielded = 0
+    for page in range(1, maxpages + 1):
+        try:
+            response = session.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            for result in data.get("results", []):
+                yield (result)
+                yielded += 1
+
+            nexturl = data.get("next", False)
+            if nexturl:
+                time.sleep(sleepduration)
+                url = nexturl
+            else:
+                break
+        except Exception as e:
+            logger.error(
+                f"Error fetching releases from the configured GunCAD Index endpoint: {e}"
+            )
+            logger.exception(e)
+            stats.log(
+                f"Encountered an error when communicating with the configured Index endpoint. See logs for more."
+            )
+            break
+    if yielded < 1:
+        # If we failed to yield any objects, we've failed at something or the endpoint is misbehaving.
+        # We should fall back to using LBRY data instead
+        try:
+            stats.log("Did not get any releases. Falling back to LBRY search")
+            for release in get_releases_lbry():
+                yield (release)
+        except Exception as e:
+            logger.error(f"Error fetching releases from LBRY: {e}")
+            logger.exception(e)
+            stats.log(
+                f"Encountered an error when communicating with LBRY. See logs for more."
+            )
+            stats.log(
+                "Your instance is broken and not mirroring. Please reconfigure it."
+            )
+
+
+def get_releases_lbry(tags=["guncad"], filetypes=[""]):
+    """
+    Get all releases from LBRY:
+     * From channels with a particular set of tags (`tags`); and
+     * Whose filetypes are in a particular whitelist
+    This function then wraps them up and attempts to build faux-Index API
+    objects out of them for consumption by later functions.
+
+        tags        The list of tags to use when searching for channels
+        filetypes   File types (not MIME types) to fetch
+
+    Yields API objects until it gets all of them
+    """
+    for channelid, channeldata in channel_search(tags):
+        handle = (
+            channeldata.get("canonical_url", "")
+            .replace("lbry://", "")
+            .replace("#", ":")
+        )
+        print(handle)
+
+
+def claim_search(handle, maxpages=20):
+    """
+    Calls the claim_search method in LBRY, attempting to find all claims for a handle (@foo:b)
+    Returns a dict, indexed by claim_id, of all releases
+    """
+    assert maxpages > 0
+    claims = {}
+    for i in range(1, maxpages):
+        payload = {
+            "method": "claim_search",
+            "params": {"channel": handle, "page_size": 50, "page": i}
+            | common_claim_search_args,
+        }
+        response = requests.post(odysee_api_url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        items = data.get("result", {}).get("items", [])
+        for item in items:
+            if (
+                item.get("value_type", "") in common_claim_search_bad_value_types
+                or item.get("value", {}).get("stream_type", "")
+                in common_claim_search_bad_stream_types
+            ):
+                continue
+            claims[item["claim_id"]] = item
+        if i == data.get("result", {}).get("total_pages", 1):
+            break
+    return claims
+
+
+def channel_search(tags=[], maxqueries=5000):
+    """
+    Calls the claim_search method in LBRY, attempting to find all channel claims given a list
+    of tags. Defaults to some standard GunCAD creator tags.
+    """
+    assert type(tags) == list
+    oldestclaim = time.time()
+    session = requests.Session()
+    retries = Retry(
         total=10,
         backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
@@ -174,18 +289,56 @@ def get_releases(url, maxpages=1000):
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    # Acquire the data
-    for page in range(1, maxpages + 1):
-        response = session.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+    for i in range(1, maxqueries):
+        stale_oldestclaim = oldestclaim
+        first_payload = {
+            "method": "claim_search",
+            "params": {
+                "remove_duplicates": True,
+                "order_by": "timestamp",
+                "timestamp": f"<{oldestclaim}",
+                "claim_type": "channel",
+                "page_size": 100,
+            },
+        }
+        # Note: If you omit the tags parameter, we enumerate *the entire blockchain*.
+        # The whole fucking thing.
+        # So be really careful with that.
+        if tags:
+            first_payload["params"]["any_tags"] = tags
+        # Note: not a magic number here. The LBRY API supports 1000 claims in a single query.
+        # Thus, the 100 claims per page and the 10 iterations we do here matches as much as we
+        # can without reformulating the query
+        # Parallelize page requests
+        with ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(
+                    session.post,
+                    odysee_api_url,
+                    json={
+                        **first_payload,
+                        "params": {**first_payload["params"], "page": i},
+                    },
+                ): i
+                for i in range(1, 11)
+            }
 
-        for result in data.get("results", []):
-            yield (result)
+            for future in as_completed(futures):
+                response = future.result()
+                response.raise_for_status()
+                data = response.json()
+                items = data.get("result", {}).get("items", [])
+                for item in items:
+                    observed_tags = item.get("value", {}).get("tags", [])
+                    # Ignore tag-spammers
+                    # The Odysee UI only lets you put 5 in. LBRY Desktop probably lets you do more,
+                    # but if you're significantly above budget you're probably SEO spamming.
+                    if len(observed_tags) > 15:
+                        continue
+                    yield (item["claim_id"], item)
+                    if item.get("timestamp") < oldestclaim:
+                        oldestclaim = item.get("timestamp")
 
-        nexturl = data.get("next", False)
-        if nexturl:
-            time.sleep(sleepduration)
-            url = nexturl
-        else:
+        if stale_oldestclaim == oldestclaim:
             break
+    return
