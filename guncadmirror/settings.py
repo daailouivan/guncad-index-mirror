@@ -59,28 +59,38 @@ def get_envvar_int(variable, default=None, message=None) -> str:
 def parse_environment():
     global assemble_files, enable_webui, endpoint
     logger = logging.getLogger("guncad-mirror")
-    stats.extrastats["mirror_assemble_files"] = get_envvar_bool(
+    assemble_files = get_envvar_bool(
         "MIRROR_ASSEMBLE_FILES",
         message="MIRROR_ASSEMBLE_FILES is set -- we will mirror WHOLE FILES. Note that this uses TWICE AS MUCH DISK as not doing so.",
     )
-    stats.extrastats["mirror_enable_webui"] = get_envvar_bool(
+    stats.extrastats["mirror_assemble_files"] = assemble_files
+
+    enable_webui = get_envvar_bool(
         "MIRROR_ENABLE_WEBUI",
         message="MIRROR_ENABLE_WEBUI is set -- view stats on :8081 (or whatever port you forwarded that to)",
     )
-    stats.extrastats["mirror_api_endpoint"] = get_envvar_string(
+    stats.extrastats["mirror_enable_webui"] = enable_webui
+
+    endpoint = get_envvar_string(
         "MIRROR_API_ENDPOINT",
         default="https://guncadindex.com/api/releases/?format=json&limit=100",
         message="Using API endpoint",
     )
-    stats.extrastats["mirror_release_max_size"] = get_envvar_int(
+    stats.extrastats["mirror_api_endpoint"] = endpoint
+
+    maxsize = get_envvar_int(
         "MIRROR_RELEASE_MAX_SIZE",
         default=10737418240,
         message="Accepting releases up to size",
     )
-    stats.extrastats["mirror_blacklisted_handles"] = get_envvar_list(
+    stats.extrastats["mirror_release_max_size"] = maxsize
+
+    blacklist = get_envvar_list(
         "MIRROR_BLACKLISTED_HANDLES",
         default=[],
         message="Blacklisting the following channels",
     )
+    stats.extrastats["mirror_blacklisted_handles"] = blacklist
+
     stats.log("Updated settings from environment variables", stdout=True)
     return
