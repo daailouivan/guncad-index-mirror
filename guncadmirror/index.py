@@ -294,9 +294,7 @@ def get_releases_lbry(tags=default_tags):
                 "size": int(data_source.get("size", 0)),
                 "sd_hash": data_source.get("sd_hash", None),
                 "channel": {
-                    "handle": data_channel.get("canonical_url", "")
-                    .replace("#", ":")
-                    .replace("lbry://", "")
+                    "handle": handle,
                 },
             }
 
