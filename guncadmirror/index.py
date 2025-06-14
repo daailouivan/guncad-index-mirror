@@ -278,6 +278,18 @@ def get_releases_lbry(tags=default_tags):
             .replace("lbry://", "")
             .replace("#", ":")
         )
+        # If this author's in the blacklist, ignore and move on
+        is_blacklisted = False
+        for pattern in stats.extrastats["mirror_blacklisted_handles"]:
+            if handle.replace(":", "#").startswith(pattern):
+                is_blacklisted = True
+                stats.log(
+                    f'Skipping blacklisted channel: {handle} (matched rule "{pattern}")',
+                    stdout=True,
+                )
+                break
+        if is_blacklisted:
+            continue
         for claimid, claimdata in claim_search(handle).items():
             data = claimdata.get("value", {})
             data_channel = claimdata.get("signing_channel", {})
