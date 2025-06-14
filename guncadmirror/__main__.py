@@ -31,9 +31,6 @@ def main():
         level=logging.INFO,
     )
 
-    # Now that we have the logger, dump some quick info
-    logger.info(f"Starting GunCAD Mirror {os.getenv('GUNCAD_COMMIT_REF', 'Unknown')}")
-
     # Set up the arg parser
     parser = argparse.ArgumentParser(
         prog="python -m guncadmirror",
@@ -43,6 +40,9 @@ def main():
         "-v", "--verbose", action="store_true", help="Enable verbose logging"
     )
     args = parser.parse_args()
+
+    # Now that we have the logger, dump some quick info
+    logger.info(f"Starting GunCAD Mirror {os.getenv('GUNCAD_COMMIT_REF', 'Unknown')}")
 
     # Parse out envvars as configs
     settings.parse_environment()
