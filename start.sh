@@ -87,4 +87,4 @@ done
 ) &
 
 # Now move on to Python
-python3 -m guncadmirror "$@"
+python3 -m guncadmirror "$@" 2>&1 | tee /data/log/guncadmirror.log
