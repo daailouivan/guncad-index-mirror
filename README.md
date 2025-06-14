@@ -76,6 +76,7 @@ And here are some envvars you can use to configure the instance:
 | -------------------- | ----------- | ------------- |
 | `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
 | `MIRROR_ASSEMBLE_FILES` | Set this variable to assemble files. By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back out to LBRY. If you'd like to have the files -- for your own archival or so you can automatically mirror them elsewhere, you can turn this feature on. Be warned that doing so **DOUBLES YOUR DISK USAGE**. | Unset |
+| `MIRROR_BLACKLISTED_HANDLES` | Set this variable to a colon-separated list of handles (ex. `someguy#a:someoneelse:somethirdguy#b15`) that you'd like to ignore. Uploads from those channels will be ignored. | Unset |
 | `MIRROR_ENABLE_WEBUI` | Set this variable to enable a lightweight web UI for monitoring. | Unset |
 | `MIRROR_RELEASE_MAX_SIZE` | The maximum size of a release (in bytes) we're comfortable mirroring. Any file above this size will be ignored. If unset or set to `0`, this feature is disabled. | `10737418240` (10GB) |
 
