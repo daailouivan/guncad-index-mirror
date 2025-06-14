@@ -260,7 +260,6 @@ def get_releases_lbry(tags=default_tags):
     objects out of them for consumption by later functions.
 
         tags        The list of tags to use when searching for channels
-        filetypes   File types (not MIME types) to fetch
 
     Yields API objects until it gets all of them
     """
