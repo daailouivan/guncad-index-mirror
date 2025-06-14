@@ -40,6 +40,14 @@ def get_envvar_string(variable, default=None, message=None) -> str:
     return result
 
 
+def get_envvar_list(variable, default=None, message=None, separator=":") -> list:
+    logger = logging.getLogger("guncad-mirror")
+    result = os.getenv(variable, default or "").split(separator)
+    if message:
+        logger.info(f'{message}: "{result}" ({variable})')
+    return result
+
+
 def get_envvar_int(variable, default=None, message=None) -> str:
     logger = logging.getLogger("guncad-mirror")
     result = int(os.getenv(variable, default or "0"))
@@ -76,6 +84,13 @@ def parse_environment():
         message="Accepting releases up to size",
     )
     stats.extrastats["mirror_release_max_size"] = maxsize
+
+    blacklist = get_envvar_list(
+        "MIRROR_BLACKLISTED_HANDLES",
+        default=[],
+        message="Blacklisting the following channels",
+    )
+    stats.extrastats["mirror_blacklisted_handles"] = blacklist
 
     stats.log("Updated settings from environment variables", stdout=True)
     return

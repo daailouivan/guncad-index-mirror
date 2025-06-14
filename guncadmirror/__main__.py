@@ -41,6 +41,9 @@ def main():
     )
     args = parser.parse_args()
 
+    # Now that we have the logger, dump some quick info
+    logger.info(f"Starting GunCAD Mirror {os.getenv('GUNCAD_COMMIT_REF', 'Unknown')}")
+
     # Parse out envvars as configs
     settings.parse_environment()
 
@@ -68,7 +71,7 @@ def main():
         try:
             for i, release in enumerate(index.get_releases(url=settings.endpoint)):
                 try:
-                    logger.info(f"Mirroring #{i + 1}:  {release.get('name')}")
+                    logger.info(f"Mirroring #{i + 1}: {release.get('name')}")
                     stats.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )

@@ -8,6 +8,7 @@ venv
 .dockerignore*
 *.env*
 .git*
+.trivyignore
 contrib
 data-dumps
 data*.json
@@ -15,5 +16,8 @@ docker-data
 docs
 requirements-build.txt
 static
+docker-compose*.yml
 Dockerfile
+GunCAD-Mirror-Unraid.xml
 README.md
+yamlfmt.yml

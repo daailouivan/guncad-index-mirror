@@ -43,6 +43,8 @@ echo "  GUNCAD_COMMIT_REF:             ${GUNCAD_COMMIT_REF:-Unset}"
 echo "Configuration variables:"
 echo "  TZ:                            ${TZ:-Unset (you should fix this)}"
 echo "  MIRROR_API_ENDPOINT:           ${MIRROR_API_ENDPOINT:-Default}"
+echo "  MIRROR_ASSEMBLE_FILES:         ${MIRROR_ASSEMBLE_FILES:-Unset}"
+echo "  MIRROR_BLACKLISTED_HANDLES:    ${MIRROR_BLACKLISTED_HANDLES:-Unset}"
 echo "  MIRROR_ENABLE_WEBUI:           ${MIRROR_ENABLE_WEBUI:-Unset}"
 echo "  MIRROR_RELEASE_MAX_SIZE:       ${MIRROR_RELEASE_MAX_SIZE:-Default}"
 echo ""
@@ -85,4 +87,4 @@ done
 ) &
 
 # Now move on to Python
-python3 -m guncadmirror "$@"
+python3 -m guncadmirror "$@" 2>&1 | tee /data/log/guncadmirror.log
