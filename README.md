@@ -22,8 +22,7 @@ Select your preferred deployment method below and follow it. Afterward, view the
 ### Unraid
 
 > [!important]
-> Unraid support is **community-contributed**.
-> Additionally, ensure you also forward ports at your router. See [Quickstart](#quickstart)
+> The Unraid template is **community-contributed**. Additionally, ensure you also forward ports at your router. See [Quickstart](#quickstart)
 
 Download the [GunCAD-Mirror-Unraid.xml](/GunCAD-Mirror-Unraid.xml) template file and move it to the `/boot/config/plugins/dockerMan/templates-user` directory on your Unraid server.
 
