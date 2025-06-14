@@ -125,6 +125,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         .replace(":", "#")
         .replace("@", "")
     )
+    print(f"Author handle: {author_handle}, release handle: {release_handle}")
     downloaddir = f"/data/mirror/{author_handle}/{release_handle}"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
@@ -286,7 +287,10 @@ def get_releases_lbry(tags=default_tags):
             yield {
                 "id": claimid,
                 "name": data.get("title", "Unnamed release"),
-                "url_lbry": claimdata.get("canonical_url", "").replace("#", ":"),
+                "url": claimdata.get("short_url", "")
+                .replace("#", ":")
+                .replace("lbry://", "https://odysee.com/"),
+                "url_lbry": claimdata.get("short_url", "").replace("#", ":"),
                 "size": int(data_source.get("size", 0)),
                 "sd_hash": data_source.get("sd_hash", None),
                 "channel": {
