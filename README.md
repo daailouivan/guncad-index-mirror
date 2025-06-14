@@ -52,6 +52,7 @@ Spin up a container. You can omit `-p 8081:5000/tcp` and `-e MIRROR_ENABLE_WEBUI
 
 ```bash
 docker run \
+    --detach \
     --name guncad-mirror \
     -e TZ="America/Chicago" \
     -e MIRROR_ENABLE_WEBUI=True \
