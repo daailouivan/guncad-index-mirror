@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -13,6 +14,33 @@ from .hashcache import SdHashCache
 headers = {
     "User-Agent": f"GunCADMirror/1.0 (https://guncadindex.com) {requests.utils.default_user_agent()}"
 }
+common_claim_search_bad_value_types = [
+    "repost",  # We should get this one from the OG source
+    "collection",  # Playlists are irrelevant to our needs
+]
+common_claim_search_bad_stream_types = [
+    "video",  # Just in case these sneak through
+]
+common_claim_search_args = {
+    "stream_types": ["binary", "model", "document", "image"],
+    "remove_duplicates": True,
+    "fee_amount": "<=0",
+    "has_source": True,
+    "not_tags": ["c:members-only", "noindex", "nobot", "nobots"],
+}
+default_tags = [
+    "3d2a",
+    "3dg",
+    "3dguns",
+    "3dpg",
+    "arewecoolyet?",
+    "awcy",
+    "blc",
+    "fosscad",
+    "gatalog",
+    "guncad",
+    "guncadindex",
+]
 seen_sd_hashes = SdHashCache()
 
 
@@ -166,7 +194,7 @@ def get_releases(url, maxpages=1000):
     sleepduration = 0.15
     session = requests.Session()
     retries = Retry(
-        total=5,
+        total=3,
         backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
         respect_retry_after_header=True,
@@ -220,11 +248,11 @@ def get_releases(url, maxpages=1000):
             )
 
 
-def get_releases_lbry(tags=["guncad"], filetypes=[""]):
+def get_releases_lbry(tags=default_tags):
     """
     Get all releases from LBRY:
      * From channels with a particular set of tags (`tags`); and
-     * Whose filetypes are in a particular whitelist
+     * Whose filetypes are in a particular whitelist (defined at top of file)
     This function then wraps them up and attempts to build faux-Index API
     objects out of them for consumption by later functions.
 
@@ -239,10 +267,26 @@ def get_releases_lbry(tags=["guncad"], filetypes=[""]):
             .replace("lbry://", "")
             .replace("#", ":")
         )
-        print(handle)
+        stats.log(f"Processing found channel: {handle}", stdout=True)
+        for claimid, claimdata in claim_search(handle).items():
+            data = claimdata.get("value", {})
+            data_channel = claimdata.get("signing_channel", {})
+            data_source = data.get("source", {})
+            yield {
+                "id": claimid,
+                "name": data.get("title", "Unnamed release"),
+                "url_lbry": claimdata.get("canonical_url", "").replace("#", ":"),
+                "size": int(data_source.get("size", 0)),
+                "sd_hash": data_source.get("sd_hash", None),
+                "channel": {
+                    "handle": data_channel.get("canonical_url", "")
+                    .replace("#", ":")
+                    .replace("lbry://", "")
+                },
+            }
 
 
-def claim_search(handle, maxpages=20):
+def claim_search(handle, maxpages=20, lbry_url="http://localhost:5279"):
     """
     Calls the claim_search method in LBRY, attempting to find all claims for a handle (@foo:b)
     Returns a dict, indexed by claim_id, of all releases
@@ -255,7 +299,7 @@ def claim_search(handle, maxpages=20):
             "params": {"channel": handle, "page_size": 50, "page": i}
             | common_claim_search_args,
         }
-        response = requests.post(odysee_api_url, json=payload)
+        response = requests.post(lbry_url, json=payload)
         response.raise_for_status()
         data = response.json()
         items = data.get("result", {}).get("items", [])
@@ -272,7 +316,7 @@ def claim_search(handle, maxpages=20):
     return claims
 
 
-def channel_search(tags=[], maxqueries=5000):
+def channel_search(tags=[], maxqueries=5000, lbry_url="http://localhost:5279"):
     """
     Calls the claim_search method in LBRY, attempting to find all channel claims given a list
     of tags. Defaults to some standard GunCAD creator tags.
@@ -314,7 +358,7 @@ def channel_search(tags=[], maxqueries=5000):
             futures = {
                 executor.submit(
                     session.post,
-                    odysee_api_url,
+                    lbry_url,
                     json={
                         **first_payload,
                         "params": {**first_payload["params"], "page": i},
