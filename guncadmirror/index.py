@@ -285,6 +285,7 @@ def get_releases_lbry(tags=default_tags):
             data_source = data.get("source", {})
             yield {
                 "id": claimid,
+                "synthetic_api_object": True,
                 "name": data.get("title", "Unnamed release"),
                 "url": claimdata.get("short_url", "")
                 .replace("#", ":")
