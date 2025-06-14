@@ -68,7 +68,7 @@ def main():
         try:
             for i, release in enumerate(index.get_releases(url=settings.endpoint)):
                 try:
-                    logger.info(f"Mirroring #{i + 1}:  {release.get('name')}")
+                    logger.info(f"Mirroring #{i + 1}: {release.get('name')}")
                     stats.extrastats["mirror_state"] = (
                         f"Mirroring #{i + 1}: {release.get('name')}"
                     )
