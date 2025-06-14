@@ -113,7 +113,7 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     )
     # If this author's in the blacklist, just bail
     for pattern in stats.extrastats["mirror_blacklisted_handles"]:
-        if author_handle.startswith(pattern):
+        if pattern and author_handle.startswith(pattern):
             logger.info(
                 f'Channel is blacklisted: {author_handle} (matched rule "{pattern}")',
             )
@@ -281,7 +281,9 @@ def get_releases_lbry(tags=default_tags):
         # If this author's in the blacklist, ignore and move on
         is_blacklisted = False
         for pattern in stats.extrastats["mirror_blacklisted_handles"]:
-            if handle.replace("@", "").replace(":", "#").startswith(pattern):
+            if pattern and handle.replace("@", "").replace(":", "#").startswith(
+                pattern
+            ):
                 is_blacklisted = True
                 stats.log(
                     f'Skipping blacklisted channel: {handle} (matched rule "{pattern}")',
