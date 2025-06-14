@@ -125,7 +125,6 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         .replace(":", "#")
         .replace("@", "")
     )
-    print(f"Author handle: {author_handle}, release handle: {release_handle}")
     downloaddir = f"/data/mirror/{author_handle}/{release_handle}"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
