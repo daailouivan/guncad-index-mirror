@@ -1,3 +1,5 @@
+* Added: GunCAD Mirror logs are now saved to /data/log with all the others in addition to being displayed on stdout
+* Added: We now fall back to LBRY if we can't talk to the Index
 * Added: Unraid template (thanks crocs!)
 * Added: We now limit the size of files we acquire from the Index. By default, anything over 10GB is skipped. At time of writing, that is 50 of the 7.8k releases
 
