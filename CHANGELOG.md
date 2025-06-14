@@ -1,3 +1,5 @@
+# 0.4.0
+
 * Fixed: Erroneous inclusions in docker containers (small stuff, just noise)
 * Added: GunCAD Mirror logs are now saved to /data/log with all the others in addition to being displayed on stdout
 * Added: We now fall back to LBRY if we can't talk to the Index
