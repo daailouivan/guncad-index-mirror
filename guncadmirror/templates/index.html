@@ -93,6 +93,21 @@
                         </td>
                     </tr>
                     <tr>
+                        <th>Blacklisted Channels</th>
+                        <td>
+                            {% if mirror_blacklisted_handles %}
+                                <ul>
+                                    {% for channel in mirror_blacklisted_handles %}<li>{{ channel }}</li>{% endfor %}
+                                </ul>
+                            {% else %}
+                                No blacklist configured
+                            {% endif %}
+                        </td>
+                        <td>
+                            A list of patterns to blacklist channels. If we would mirror a release from a channel that starts with any of these patterns, it is skipped instead.
+                        </td>
+                    </tr>
+                    <tr>
                         <th>Enable web UI</th>
                         <td>{{ mirror_enable_webui }}</td>
                         <td>If this is disabled you should have several concerning questions.</td>

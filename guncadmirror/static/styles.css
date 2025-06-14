@@ -38,6 +38,9 @@ th {
 th, td {
 	padding: 0.25em;
 }
+td ul {
+	margin: 0;
+}
 h1, caption {
 	text-align: center;
 	font-size: 200%;

@@ -111,6 +111,14 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
         .replace(":", "#")
         .replace("@", "")
     )
+    # If this author's in the blacklist, just bail
+    for pattern in stats.extrastats["mirror_blacklisted_handles"]:
+        if pattern.startswith(author_handle):
+            stats.log(
+                f'Channel is blacklisted: {author_handle} (matched rule "{pattern}")',
+                stdout=True,
+            )
+            return False
     release_handle = (
         release.get("url_lbry", claimid)
         .replace("lbry://", "")
