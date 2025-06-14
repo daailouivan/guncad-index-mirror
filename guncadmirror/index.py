@@ -233,6 +233,7 @@ def get_releases(url, maxpages=1000):
     if yielded < 1:
         # If we failed to yield any objects, we've failed at something or the endpoint is misbehaving.
         # We should fall back to using LBRY data instead
+        stats.extrastats["mirror_fallback_mode"] = True
         try:
             stats.log("Did not get any releases. Falling back to LBRY search")
             for release in get_releases_lbry():
@@ -246,6 +247,8 @@ def get_releases(url, maxpages=1000):
             stats.log(
                 "Your instance is broken and not mirroring. Please reconfigure it."
             )
+    else:
+        stats.extrastats["mirror_fallback_mode"] = False
 
 
 def get_releases_lbry(tags=default_tags):
@@ -267,7 +270,6 @@ def get_releases_lbry(tags=default_tags):
             .replace("lbry://", "")
             .replace("#", ":")
         )
-        stats.log(f"Processing found channel: {handle}", stdout=True)
         for claimid, claimdata in claim_search(handle).items():
             data = claimdata.get("value", {})
             data_channel = claimdata.get("signing_channel", {})

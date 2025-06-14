@@ -73,6 +73,12 @@ h1, caption {
 	max-width: 96em;
 	margin: auto;
 }
+.banner {
+	background: #ffab24;
+	text-align: center;
+	margin-bottom: 0.25em;
+	color: #2a2a2a;
+}
 .codeblock {
 	background: #1a1a1a;
 	border-radius: 8px;

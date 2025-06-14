@@ -85,6 +85,10 @@ And here are some envvars you can use to configure the instance:
 
 A: Hit up the Matrix space: https://matrix.to/#/#guncad-index:matrix.org
 
+**Q: My instance says it's in "LBRY-only mode" -- what is that and why is it happening?
+
+A: In the event that GunCAD Mirror is not able to talk to your instance -- be it because you misconfigured the settings, because the instance is down, or because your search API query returned no releases (which we interpret as misbehavior and assume the site is malfunctioning) -- GunCAD Mirror will recognize the situation and fall back to doing its own query against the LBRY blockchain to find GunCAD content. Double-check that the site is up (especially if you're self-hosting an Index instance) and that your `MIRROR_API_ENDPOINT` does actually return at least one release; visit it in your web browser to confirm.
+
 **Q: How do I construct queries for `MIRROR_API_ENDPOINT` to only mirror some things but not others?**
 
 A: Pretty simple. First, go to [GunCAD Index](https://guncadindex.com) and type in a search. For the sake of example, let's search up `ar-15`. This directs us to a page with this URL:
@@ -121,7 +125,7 @@ A: We have `MIRROR_RELEASE_MAX_SIZE` turned on by default, as there are some pre
 
 **Q: Can I set this up behind a VPN?**
 
-A: You *must* be able to port-forward. If you're able to do so, consider plumbing traffic through something like [gluetun](https://github.com/qdm12/gluetun).
+A: You *must* be able to port-forward, and your external ports *must* match the defaults. Unless you're hosting your own VPN, this is going to be a tough ask. If you're able to do so, consider plumbing traffic through something like [gluetun](https://github.com/qdm12/gluetun).
 
 ## License
 

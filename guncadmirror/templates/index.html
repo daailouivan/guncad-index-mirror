@@ -39,6 +39,11 @@
                 A well regulated Militia, being necessary to the security of a free State, the right of the people to keep and bear Arms, shall not be infringed.
             </p>
         </div>
+        {% if mirror_fallback_mode %}
+            <div class="subcontainer banner">
+                <p>GunCAD Mirror is running in LBRY-only mode. See documentation for details.</p>
+            </div>
+        {% endif %}
         <div class="subcontainer">
             <div class="glance">
                 <span class="glance-caption">GunCAD Mirror is currently:</span>
