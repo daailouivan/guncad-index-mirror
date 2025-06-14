@@ -29,6 +29,7 @@ common_claim_search_args = {
     "not_tags": ["c:members-only", "noindex", "nobot", "nobots"],
 }
 default_tags = [
+    "2a3d",
     "3d2a",
     "3dg",
     "3dguns",
@@ -40,6 +41,7 @@ default_tags = [
     "gatalog",
     "guncad",
     "guncadindex",
+    "hoffmantactical",
 ]
 seen_sd_hashes = SdHashCache()
 
