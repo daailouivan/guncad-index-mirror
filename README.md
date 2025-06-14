@@ -30,6 +30,9 @@ Once the file is in place, go to the "Docker" tab in the Unraid Web UI and click
 
 ### Docker Compose
 
+> [!important]
+> Ensure you also forward ports at your router. See [Quickstart](#quickstart)
+
 Clone the repo and pull 'er up:
 
 ```bash
@@ -41,6 +44,9 @@ You can also use `docker-compose-build.yml` instead of `docker-compose.yml` if y
 This file is also verifiably compatible with Podman.
 
 ### Docker
+
+> [!important]
+> Ensure you also forward ports at your router. See [Quickstart](#quickstart)
 
 Spin up a container. You can omit `-p 8081:5000/tcp` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI, and should set `TZ` to be your timezone [according to this list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
 
