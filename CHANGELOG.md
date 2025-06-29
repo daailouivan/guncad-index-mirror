@@ -1,3 +1,5 @@
+* Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
+
 # 0.4.1
 
 * Fixed: API port bind issues on certain setups
