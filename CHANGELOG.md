@@ -1,3 +1,5 @@
+* Fixed: API port bind issues on certain setups
+
 # 0.4.0
 
 * Fixed: Erroneous inclusions in docker containers (small stuff, just noise)
