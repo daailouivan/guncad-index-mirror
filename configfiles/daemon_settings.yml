@@ -1,4 +1,6 @@
 # See https://lbry.tech/resources/daemon-settings for all configuration keys and values
+api: 127.0.0.1:5279
+streaming_server: 127.0.0.1:5280
 share_usage_data: false
 lbryum_servers:
   - a-hub1.odysee.com:50001
