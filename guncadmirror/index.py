@@ -1,8 +1,8 @@
 import json
 import logging
 import os
-import time
 import signal
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -11,7 +11,6 @@ from urllib3.util.retry import Retry
 
 from . import settings, stats, webui
 from .hashcache import SdHashCache
-
 
 # -----------------------------------------------------------------------------
 # Constants / globals
@@ -32,8 +31,19 @@ common_claim_search_args = {
 }
 
 default_tags = [
-    "2a3d", "3d2a", "3dg", "3dguns", "3dpg", "arewecoolyet?", "awcy",
-    "blc", "fosscad", "gatalog", "guncad", "guncadindex", "hoffmantactical",
+    "2a3d",
+    "3d2a",
+    "3dg",
+    "3dguns",
+    "3dpg",
+    "arewecoolyet?",
+    "awcy",
+    "blc",
+    "fosscad",
+    "gatalog",
+    "guncad",
+    "guncadindex",
+    "hoffmantactical",
 ]
 
 seen_sd_hashes = SdHashCache()
@@ -62,8 +72,11 @@ def resilient_post(session, url, **kwargs):
     for attempt in range(5):
         try:
             return session.post(url, **kwargs)
-        except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-            wait = 2 ** attempt
+        except (
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
+            wait = 2**attempt
             logger.warning(
                 f"[resilient_post] POST {url} failed ({e}); retrying in {wait}s... (attempt {attempt+1}/5)"
             )
@@ -83,7 +96,9 @@ def stream_is_complete(session, lbry_url, sd_hash):
         result = resp.json().get("result", {})
         items = result.get("items", []) if isinstance(result, dict) else []
         if not items:
-            logger.info(f"[verify] No local file entries for {sd_hash[:8]} — not yet assembled.")
+            logger.info(
+                f"[verify] No local file entries for {sd_hash[:8]} — not yet assembled."
+            )
             return False
 
         entry = items[0]
@@ -101,8 +116,12 @@ def stream_is_complete(session, lbry_url, sd_hash):
         return False
 
     try:
-        r = session.post(lbry_url, json={"method": "blob_list", "params": {}},
-                         headers=headers, timeout=(5, 30))
+        r = session.post(
+            lbry_url,
+            json={"method": "blob_list", "params": {}},
+            headers=headers,
+            timeout=(5, 30),
+        )
         r.raise_for_status()
         blob_items = r.json().get("result", {}).get("items", [])
         logger.info(f"[verify] Local blob inventory: {len(blob_items)} blobs on disk.")
@@ -110,13 +129,17 @@ def stream_is_complete(session, lbry_url, sd_hash):
         logger.warning(f"[verify] blob_list check failed for {sd_hash[:8]}: {e}")
 
     if remaining == 0 and total > 0:
-        logger.info(f"[verify] Stream {sd_hash[:8]} already fully assembled — skipping download.")
+        logger.info(
+            f"[verify] Stream {sd_hash[:8]} already fully assembled — skipping download."
+        )
         return True
     logger.info(f"[verify] Stream {sd_hash[:8]} incomplete — proceeding to download.")
     return False
 
 
-def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1, max_attempts=60):
+def wait_for_component(
+    component, lbry_url="http://localhost:5279", poll_wait=1, max_attempts=60
+):
     """
     Poll lbrynet 'status' until a particular startup_status component is true, or it’s missing.
     Returns True if the component initializes; False if the daemon reports no such component or timeout.
@@ -127,21 +150,31 @@ def wait_for_component(component, lbry_url="http://localhost:5279", poll_wait=1,
 
     for attempt in range(max_attempts):
         try:
-            response = session.post(lbry_url, json=payload, headers=headers, timeout=(5, 15))
+            response = session.post(
+                lbry_url, json=payload, headers=headers, timeout=(5, 15)
+            )
             response.raise_for_status()
             data = response.json()
             result = data.get("result", {}).get("startup_status", {})
             if result.get(component, False):
-                logger.info(f"[wait_for_component] '{component}' ready after {attempt+1} polls.")
+                logger.info(
+                    f"[wait_for_component] '{component}' ready after {attempt+1} polls."
+                )
                 return True
             elif component not in result:
-                logger.info(f"[wait_for_component] '{component}' not advertised in startup_status.")
+                logger.info(
+                    f"[wait_for_component] '{component}' not advertised in startup_status."
+                )
                 return False
         except (requests.ConnectionError, requests.Timeout) as e:
-            logger.debug(f"[wait_for_component] Connection issue ({e}) while waiting for '{component}'")
+            logger.debug(
+                f"[wait_for_component] Connection issue ({e}) while waiting for '{component}'"
+            )
         time.sleep(poll_wait)
 
-    logger.warning(f"[wait_for_component] Timeout waiting for component '{component}' to initialize after {max_attempts} tries.")
+    logger.warning(
+        f"[wait_for_component] Timeout waiting for component '{component}' to initialize after {max_attempts} tries."
+    )
     return False
 
 
@@ -151,18 +184,28 @@ def wait_for_lbry_ready(lbry_url="http://localhost:5279"):
     This mirrors the expectations from __main__.py before attempting to mirror/download.
     """
     logger = logging.getLogger("guncad-mirror")
-    logger.info("[init] Waiting for LBRY components to initialize (wallet, stream_manager)...")
-    wallet_ok = wait_for_component("wallet", lbry_url=lbry_url, poll_wait=1, max_attempts=60)
+    logger.info(
+        "[init] Waiting for LBRY components to initialize (wallet, stream_manager)..."
+    )
+    wallet_ok = wait_for_component(
+        "wallet", lbry_url=lbry_url, poll_wait=1, max_attempts=60
+    )
     if wallet_ok:
         logger.info("[init] Component 'wallet' ready.")
     else:
-        logger.warning("[init] 'wallet' not ready — continuing anyway (daemon may still resolve).")
+        logger.warning(
+            "[init] 'wallet' not ready — continuing anyway (daemon may still resolve)."
+        )
 
-    sm_ok = wait_for_component("stream_manager", lbry_url=lbry_url, poll_wait=1, max_attempts=60)
+    sm_ok = wait_for_component(
+        "stream_manager", lbry_url=lbry_url, poll_wait=1, max_attempts=60
+    )
     if sm_ok:
         logger.info("[init] Component 'stream_manager' ready.")
     else:
-        logger.warning("[init] 'stream_manager' not ready — continuing anyway (will rely on retries).")
+        logger.warning(
+            "[init] 'stream_manager' not ready — continuing anyway (will rely on retries)."
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -178,16 +221,28 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     session = make_session()
 
     claimid = release.get("id")
-    author_handle = release.get("channel", {}).get("handle", "Unknown").replace(":", "#").replace("@", "")
+    author_handle = (
+        release.get("channel", {})
+        .get("handle", "Unknown")
+        .replace(":", "#")
+        .replace("@", "")
+    )
 
     # blacklist check
     for pattern in stats.extrastats["mirror_blacklisted_handles"]:
         if pattern and author_handle.startswith(pattern):
-            logger.info(f"[mirror] Channel blacklisted: {author_handle} (rule '{pattern}')")
+            logger.info(
+                f"[mirror] Channel blacklisted: {author_handle} (rule '{pattern}')"
+            )
             return False
 
     # assemble paths, write meta
-    release_handle = release.get("url_lbry", claimid).replace("lbry://", "").replace(":", "#").replace("@", "")
+    release_handle = (
+        release.get("url_lbry", claimid)
+        .replace("lbry://", "")
+        .replace(":", "#")
+        .replace("@", "")
+    )
     downloaddir = f"/data/mirror/{author_handle}/{release_handle}"
     os.makedirs(downloaddir, exist_ok=True)
     with open(os.path.join(downloaddir, "meta.json"), "w") as metajson:
@@ -208,7 +263,9 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     if not sd_hash:
         logger.info("[mirror] Missing sd_hash; asking LBRY daemon via 'get'.")
         wait_for_component("wallet")
-        response = resilient_post(session, lbry_url, json=payload, headers=headers, timeout=(5, 60))
+        response = resilient_post(
+            session, lbry_url, json=payload, headers=headers, timeout=(5, 60)
+        )
         sd_hash = response.json().get("result", {}).get("sd_hash")
 
     if not sd_hash:
@@ -218,7 +275,9 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     # dedupe/cache gate
     if not seen_sd_hashes.should_download(sd_hash):
         if store_file:
-            logger.info(f"[mirror] sd_hash {sd_hash[:8]} known; verifying completeness before skipping...")
+            logger.info(
+                f"[mirror] sd_hash {sd_hash[:8]} known; verifying completeness before skipping..."
+            )
         else:
             logger.info(f"[mirror] sd_hash {sd_hash[:8]} known; skipping.")
             return False
@@ -233,7 +292,9 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
 
     # short-circuit if already complete
     if stream_is_complete(session, lbry_url, sd_hash):
-        logger.info(f"[mirror] Stream {sd_hash[:8]} verified complete — skipping download.")
+        logger.info(
+            f"[mirror] Stream {sd_hash[:8]} verified complete — skipping download."
+        )
         return False
 
     # set file write flags
@@ -248,8 +309,12 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
     # try up to 3 internal attempts for this release
     for attempt in range(3):
         try:
-            logger.info(f"[mirror][attempt {attempt+1}/3] Downloading {release.get('url_lbry')}")
-            response = resilient_post(session, lbry_url, json=payload, headers=headers, timeout=(5, 120))
+            logger.info(
+                f"[mirror][attempt {attempt+1}/3] Downloading {release.get('url_lbry')}"
+            )
+            response = resilient_post(
+                session, lbry_url, json=payload, headers=headers, timeout=(5, 120)
+            )
             response.raise_for_status()
             j = response.json()
 
@@ -266,21 +331,29 @@ def mirror(release, lbry_url="http://localhost:5279", store_file=False):
             return True
 
         except requests.exceptions.Timeout:
-            wait = 5 * (2 ** attempt)
-            logger.warning(f"[mirror][timeout] {release.get('url_lbry')} (attempt {attempt+1}/3); retrying in {wait}s...")
+            wait = 5 * (2**attempt)
+            logger.warning(
+                f"[mirror][timeout] {release.get('url_lbry')} (attempt {attempt+1}/3); retrying in {wait}s..."
+            )
             time.sleep(wait)
 
         except RuntimeError as e:
             if "ResolveTimeoutError" in str(e):
-                wait = 5 * (2 ** attempt)
-                logger.warning(f"[mirror][ResolveTimeoutError] {release.get('url_lbry')} (attempt {attempt+1}/3); retrying in {wait}s...")
+                wait = 5 * (2**attempt)
+                logger.warning(
+                    f"[mirror][ResolveTimeoutError] {release.get('url_lbry')} (attempt {attempt+1}/3); retrying in {wait}s..."
+                )
                 time.sleep(wait)
             else:
-                logger.warning(f"[mirror][daemon-error] {e} — aborting this release early.")
+                logger.warning(
+                    f"[mirror][daemon-error] {e} — aborting this release early."
+                )
                 break
 
         except Exception as e:
-            logger.warning(f"[mirror][unexpected] {type(e).__name__}: {e} — aborting this release early.")
+            logger.warning(
+                f"[mirror][unexpected] {type(e).__name__}: {e} — aborting this release early."
+            )
             break
 
     # internal 3 tries exhausted for this release
@@ -306,39 +379,55 @@ def mirror_with_recovery(release, lbry_url="http://localhost:5279", store_file=F
     successful = False
 
     for attempt in range(1, max_total_attempts + 1):
-        logger.info(f"[supervisor][attempt {attempt}/{max_total_attempts}] Starting mirror() for {release.get('url_lbry')}")
+        logger.info(
+            f"[supervisor][attempt {attempt}/{max_total_attempts}] Starting mirror() for {release.get('url_lbry')}"
+        )
         ok = mirror(release, lbry_url, store_file)
         if ok:
-            logger.info(f"[supervisor][success] {release.get('url_lbry')} succeeded on attempt {attempt}.")
+            logger.info(
+                f"[supervisor][success] {release.get('url_lbry')} succeeded on attempt {attempt}."
+            )
             SPV_FAIL_COUNT = 0
             successful = True
             break
 
         SPV_FAIL_COUNT += 1
-        logger.warning(f"[supervisor][fail {SPV_FAIL_COUNT}] mirror() failed for {release.get('url_lbry')}")
+        logger.warning(
+            f"[supervisor][fail {SPV_FAIL_COUNT}] mirror() failed for {release.get('url_lbry')}"
+        )
 
         # Every 5 failures, rebuild context by invoking mirror() again (fresh session inside)
         if attempt % recovery_interval == 0:
-            logger.warning(f"[supervisor][reset] {recovery_interval} consecutive failures; rebuilding session and re-invoking mirror().")
+            logger.warning(
+                f"[supervisor][reset] {recovery_interval} consecutive failures; rebuilding session and re-invoking mirror()."
+            )
             time.sleep(10)
             try:
                 ok = mirror(release, lbry_url=lbry_url, store_file=store_file)
                 if ok:
-                    logger.info(f"[supervisor][recovery-success] {release.get('url_lbry')} recovered after rebuild.")
+                    logger.info(
+                        f"[supervisor][recovery-success] {release.get('url_lbry')} recovered after rebuild."
+                    )
                     SPV_FAIL_COUNT = 0
                     successful = True
                     break
                 else:
-                    logger.warning("[supervisor][recovery-fail] mirror() still failing after rebuild.")
+                    logger.warning(
+                        "[supervisor][recovery-fail] mirror() still failing after rebuild."
+                    )
             except Exception as e:
-                logger.error(f"[supervisor][recovery-exception] {type(e).__name__}: {e}")
+                logger.error(
+                    f"[supervisor][recovery-exception] {type(e).__name__}: {e}"
+                )
 
         wait_time = min(60, 5 * attempt)
         logger.info(f"[supervisor][wait] Sleeping {wait_time}s before next attempt.")
         time.sleep(wait_time)
 
     if not successful:
-        logger.error(f"[supervisor][fatal] mirror() failed {max_total_attempts} times. Initiating graceful shutdown.")
+        logger.error(
+            f"[supervisor][fatal] mirror() failed {max_total_attempts} times. Initiating graceful shutdown."
+        )
         os.kill(os.getpid(), signal.SIGTERM)
         return False
 
@@ -397,12 +486,21 @@ def get_releases_lbry(tags=default_tags):
     Build faux-Index release objects by enumerating claims from tagged channels via LBRY.
     """
     for channelid, channeldata in channel_search(tags):
-        handle = channeldata.get("canonical_url", "").replace("lbry://", "").replace("#", ":")
+        handle = (
+            channeldata.get("canonical_url", "")
+            .replace("lbry://", "")
+            .replace("#", ":")
+        )
         # blacklist
         is_blacklisted = False
         for pattern in stats.extrastats["mirror_blacklisted_handles"]:
-            if pattern and handle.replace("@", "").replace(":", "#").startswith(pattern):
-                stats.log(f'Skipping blacklisted channel: {handle} (rule "{pattern}")', stdout=True)
+            if pattern and handle.replace("@", "").replace(":", "#").startswith(
+                pattern
+            ):
+                stats.log(
+                    f'Skipping blacklisted channel: {handle} (rule "{pattern}")',
+                    stdout=True,
+                )
                 is_blacklisted = True
                 break
         if is_blacklisted:
@@ -415,7 +513,9 @@ def get_releases_lbry(tags=default_tags):
                 "id": claimid,
                 "synthetic_api_object": True,
                 "name": data.get("title", "Unnamed release"),
-                "url": claimdata.get("short_url", "").replace("#", ":").replace("lbry://", "https://odysee.com/"),
+                "url": claimdata.get("short_url", "")
+                .replace("#", ":")
+                .replace("lbry://", "https://odysee.com/"),
                 "url_lbry": claimdata.get("short_url", "").replace("#", ":"),
                 "size": int(data_source.get("size", 0)),
                 "sd_hash": data_source.get("sd_hash"),
@@ -431,14 +531,20 @@ def claim_search(handle, maxpages=20, lbry_url="http://localhost:5279"):
     assert maxpages > 0
     claims = {}
     for i in range(1, maxpages):
-        payload = {"method": "claim_search",
-                   "params": {"channel": handle, "page_size": 50, "page": i} | common_claim_search_args}
+        payload = {
+            "method": "claim_search",
+            "params": {"channel": handle, "page_size": 50, "page": i}
+            | common_claim_search_args,
+        }
         response = requests.post(lbry_url, json=payload, timeout=(5, 30))
         response.raise_for_status()
         data = response.json()
         for item in data.get("result", {}).get("items", []):
-            if (item.get("value_type") in common_claim_search_bad_value_types or
-                item.get("value", {}).get("stream_type") in common_claim_search_bad_stream_types):
+            if (
+                item.get("value_type") in common_claim_search_bad_value_types
+                or item.get("value", {}).get("stream_type")
+                in common_claim_search_bad_stream_types
+            ):
                 continue
             claims[item["claim_id"]] = item
         if i == data.get("result", {}).get("total_pages", 1):
@@ -458,9 +564,14 @@ def channel_search(tags=None, maxqueries=5000, lbry_url="http://localhost:5279")
 
     def fetch_page(page, first_payload):
         with make_session() as s:
-            resp = s.post(lbry_url,
-                          json={**first_payload, "params": {**first_payload["params"], "page": page}},
-                          timeout=(5, 30))
+            resp = s.post(
+                lbry_url,
+                json={
+                    **first_payload,
+                    "params": {**first_payload["params"], "page": page},
+                },
+                timeout=(5, 30),
+            )
             resp.raise_for_status()
             return resp.json()
 
@@ -480,7 +591,9 @@ def channel_search(tags=None, maxqueries=5000, lbry_url="http://localhost:5279")
             first_payload["params"]["any_tags"] = tags
 
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(fetch_page, i, first_payload): i for i in range(1, 11)}
+            futures = {
+                executor.submit(fetch_page, i, first_payload): i for i in range(1, 11)
+            }
             for future in as_completed(futures):
                 data = future.result()
                 items = data.get("result", {}).get("items", [])
