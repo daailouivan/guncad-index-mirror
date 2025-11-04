@@ -3,6 +3,9 @@
 > [!warning]
 > We have yet to have a first release, this is all draft shit. Don't take it at its word.
 
+> [!warning]
+> This software downloads and redistributes 3D printable gun designs. If possession and/or distribution of those files is illegal in your jurisdiction, please refrain from running this software.
+
 GunCAD Mirror is a small piece of software that watches out for content on a GunCAD Index instance and mirrors it, offering it to the LBRY network for increased resiliency and redundancy.
 
 [TOC]
