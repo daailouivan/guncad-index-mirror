@@ -1,4 +1,5 @@
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
+* Added: More tracker announcement hosts and a script to pull a list from an authoritative source
 
 # 0.4.1
 
