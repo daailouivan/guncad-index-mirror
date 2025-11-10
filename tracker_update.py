@@ -10,9 +10,9 @@ hosts = []
 for line in lines:
     line = line.strip()
     if line.startswith("udp://"):
-        line = line[len("udp://"):]
+        line = line[len("udp://") :]
     if line.endswith("/announce"):
-        line = line[:-len("/announce")]
+        line = line[: -len("/announce")]
     hosts.append(line)
 
 # Deduplicate and sort
@@ -20,4 +20,3 @@ hosts = sorted(set(hosts))
 
 for host in hosts:
     print(host)
-
