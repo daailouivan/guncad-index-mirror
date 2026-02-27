@@ -69,6 +69,7 @@ def main():
         stats.extrastats["mirror_state"] = "Acquiring releases"
         starttime = time.perf_counter()
         try:
+            index.wait_for_lbry_ready()
             for i, release in enumerate(index.get_releases(url=settings.endpoint)):
                 try:
                     logger.info(f"Mirroring #{i + 1}: {release.get('name')}")
