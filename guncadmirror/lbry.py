@@ -188,12 +188,29 @@ class LbryAcquirer:
                 )
 
         deadline = self.monotonic() + self.download_timeout
+        last_blobs_remaining = _blobs_remaining(existing)
         save_restarted = False
         while self.monotonic() < deadline:
             entry = self.client.file_for_sd_hash(release.sd_hash)
             path = self._completed_path(entry, release)
             if path is not None:
                 return path
+            blobs_remaining = _blobs_remaining(entry)
+            if (
+                blobs_remaining is not None
+                and last_blobs_remaining is not None
+                and blobs_remaining < last_blobs_remaining
+            ):
+                self.logger.debug(
+                    "Stream %s advanced from %d to %d blobs remaining",
+                    release.sd_hash[:12],
+                    last_blobs_remaining,
+                    blobs_remaining,
+                )
+                deadline = self.monotonic() + self.download_timeout
+                last_blobs_remaining = blobs_remaining
+            elif last_blobs_remaining is None and blobs_remaining is not None:
+                last_blobs_remaining = blobs_remaining
             if (
                 entry is not None
                 and entry.get("stopped") is True
@@ -204,7 +221,8 @@ class LbryAcquirer:
             self.sleep(self.poll_interval)
         self._stop_timed_out_stream(release)
         raise LbryTimeout(
-            f"stream {release.sd_hash} did not finish in {self.download_timeout:.1f}s"
+            f"stream {release.sd_hash} made no blob progress for "
+            f"{self.download_timeout:.1f}s"
         )
 
     def _start_unknown_stream(self, release: Release, output_directory: Path) -> Any:
@@ -297,6 +315,15 @@ def _is_ready(status: Any) -> bool:
         startup.get(component) is True
         for component in ("database", "blob_manager", "file_manager")
     )
+
+
+def _blobs_remaining(entry: Mapping[str, Any] | None) -> int | None:
+    if entry is None:
+        return None
+    value = entry.get("blobs_remaining")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 def _error_text(value: Any) -> str:

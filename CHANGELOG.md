@@ -10,6 +10,7 @@
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
 * Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit
 * Removed the recursive startup ownership walk and decoupled hourly log rotation from lbrynet restarts
+* Changed stream timeouts to measure time without blob progress so large healthy downloads are not rejected by a wall-clock deadline
 * Removed the optional assembly, pickle cache, and Index-failure claim-search paths; plaintext assembly is now required for verified torrent generation
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right

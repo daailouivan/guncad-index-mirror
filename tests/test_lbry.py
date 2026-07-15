@@ -318,6 +318,34 @@ class LbryAcquirerTests(unittest.TestCase):
         )
         self.assertEqual(client.call.call_args.kwargs["attempts"], 1)
 
+    def test_active_blob_progress_renews_the_timeout(self) -> None:
+        payload = self.root / "release" / "payload.zip"
+        payload.parent.mkdir()
+        payload.write_bytes(b"payload")
+        running = {
+            "sd_hash": self.release.sd_hash,
+            "status": "running",
+            "stopped": False,
+        }
+        client = Mock()
+        client.file_for_sd_hash.side_effect = [
+            None,
+            {**running, "blobs_remaining": 3},
+            {**running, "blobs_remaining": 2},
+            self._entry(payload),
+        ]
+        client.call.return_value = {"sd_hash": self.release.sd_hash}
+        ticks = iter([0, 0, 1, 2, 3])
+
+        result = self._acquirer(
+            client,
+            download_timeout=2,
+            monotonic=lambda: next(ticks),
+        ).acquire(self.release, payload.parent)
+
+        self.assertEqual(result, payload)
+        self.assertEqual(client.file_for_sd_hash.call_count, 4)
+
     def test_completed_entry_must_be_safe_real_and_exact_size(self) -> None:
         valid = self.root / "valid.zip"
         valid.write_bytes(b"wrong")

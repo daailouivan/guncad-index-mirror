@@ -173,9 +173,9 @@
                                 <td>Time between completed Index scans.</td>
                             </tr>
                             <tr>
-                                <th scope="row">Download timeout</th>
+                                <th scope="row">Download stall timeout</th>
                                 <td>{{ mirror_download_timeout | humanize_seconds }}</td>
-                                <td>Deadline for one LBRY stream acquisition.</td>
+                                <td>Stops a stream only after this long without blob progress.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Torrent piece length</th>
