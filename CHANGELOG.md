@@ -15,6 +15,8 @@
 * Add a range-resumable Odysee CDN recovery transport that requires exact claim, descriptor, size, and plaintext-hash agreement after LBRY failure
 * Add a read-only archive audit that emits summary, artifact, failure, and integrity-issue reports, with an optional full payload rehash
 * Report the active release, transport, byte or blob progress, transfer rate, and estimated time remaining in the web UI
+* Run four LBRY acquisitions, two Odysee fallbacks, and two local finalization jobs in separate bounded worker pools
+* Show every active job in the web UI and record release failures, fallback transitions, cancellation, and storage pressure in notable events
 * Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
 * Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit

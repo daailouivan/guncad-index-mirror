@@ -120,8 +120,11 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_API_MAX_PAGES` | `1000` | Maximum pages followed in one scan. |
 | `MIRROR_MAX_RELEASES_PER_RUN` | `0` | Maximum supported releases yielded per scan. Zero disables the cap. |
 | `MIRROR_LBRY_URL` | `http://127.0.0.1:5279` | lbrynet JSON-RPC endpoint. |
+| `MIRROR_LBRY_CONCURRENCY` | `4` | Maximum simultaneous LBRY stream acquisitions. |
 | `MIRROR_ODYSEE_FALLBACK` | `true` | After LBRY acquisition fails, permit a range-resumable download from Odysee when claim ID, descriptor, size, and hash all match. |
 | `MIRROR_ODYSEE_PROXY_URL` | `https://api.na-backend.odysee.com/api/v1/proxy` | Public Odysee SDK proxy used only for the verified fallback. Embedded credentials are rejected. |
+| `MIRROR_ODYSEE_CONCURRENCY` | `2` | Maximum simultaneous Odysee CDN fallback downloads. |
+| `MIRROR_FINALIZE_CONCURRENCY` | `2` | Maximum simultaneous plaintext verification and torrent-hashing jobs. |
 | `MIRROR_BLACKLISTED_HANDLES` | empty | Comma-separated channel-handle prefixes. Replace the claim delimiter `:` with `#`, as in `@author#a`. |
 | `MIRROR_RELEASE_MAX_SIZE` | `10737418240` | Maximum accepted payload size. Zero disables the limit. |
 | `MIRROR_MIN_FREE_SPACE` | `5368709120` | Bytes reserved after budgeting for blobs and plaintext. |
@@ -154,7 +157,9 @@ pending -> acquiring -> verified -> awaiting_index
 
 `awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
 
-The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. Operator cancellation is not a failed transition: work interrupted before payload verification remains `acquiring`, while work interrupted during torrent hashing remains `verified`. The next scan starts another attempt, reuses the local SDK stream or Odysee partial, and runs every verification step again.
+The scheduler has three separate worker pools: four LBRY acquisitions, two Odysee fallbacks, and two local finalization jobs by default. A release gives up its LBRY slot before entering the Odysee queue, so two slow CDN transfers don't reduce the four LBRY slots. Mirror reserves space for encrypted blobs & plaintext before submitting work. A release waits when another active reservation is the only reason it can't start; actual free-space shortage records a skip and an operator event.
+
+Each worker handles one release per stage. A failure does not discard completed jobs or stop later releases on the same Index scan. Operator cancellation is not a failed transition: work interrupted before payload verification remains `acquiring`, while work interrupted during torrent hashing remains `verified`. The next scan starts another attempt, reuses the local SDK stream or Odysee partial, and runs every verification step again.
 
 On termination, Tini forwards the container signal. Mirror returns after the current network call or file chunk, then the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
 
