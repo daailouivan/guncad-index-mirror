@@ -14,15 +14,15 @@ It is not a replacement for a BitTorrent client. It does not seed the generated 
 
 For every valid API v2 release whose `origin.platform` is `lbry`, Mirror performs these steps:
 
-1. Validate the claim ID, `sd_hash`, payload SHA-384, size, channel, and LBRY source link. An Odysee HTTP link is retained when present but is not required.
+1. Validate the claim ID, `sd_hash`, channel, and LBRY source link. Index payload size and SHA-384 values are validated when present. An Odysee HTTP link is retained when present but is not required.
 2. Acquire the stream directly by `sd_hash` through the patched lbry-sdk daemon packaged in the container.
 3. Assemble the plaintext file under `/data/releases`.
-4. Verify exact size and SHA-384. Mirror also records SHA-256 for downstream tooling.
+4. Compute the exact size, SHA-384, and SHA-256. When the Index supplies size or SHA-384 values, require an exact match.
 5. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
 6. Atomically write the torrent and `manifest.json` under `/data/outbox`.
 7. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
 
-Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that cannot be viewed on Odysee remain eligible because Mirror acquires them by `sd_hash`. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
+Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that cannot be viewed on Odysee remain eligible because Mirror acquires them by `sd_hash`. Some early LBRY claims contain neither source size nor source hash. Mirror preserves those descriptor-authenticated payloads and records computed values, but leaves `claimed_sha384` null instead of presenting them as independently corroborated. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
 ## Quick start
 
@@ -156,7 +156,7 @@ Mirror therefore keeps three separate identifiers:
 
 - Index release ID: metadata/job identity.
 - LBRY `sd_hash`: acquisition identity for one encrypted stream.
-- Index `origin.checksum`: expected SHA-384 of the assembled plaintext.
+- Index `origin.checksum`: expected SHA-384 of the assembled plaintext when the legacy claim provides one.
 
 The torrent BTIH is computed from canonical bencoding of the BitTorrent v1 `info` dictionary. The outbox manifest also records SHA-256 of the plaintext and torrent file.
 

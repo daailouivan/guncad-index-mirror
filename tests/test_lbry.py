@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -413,6 +414,21 @@ class LbryAcquirerTests(unittest.TestCase):
                         self._acquirer(client).acquire(
                             self.release, self.root / "release"
                         )
+
+    def test_completed_legacy_entry_accepts_unknown_nonzero_size(self) -> None:
+        payload = self.root / "legacy.zip"
+        payload.write_bytes(b"legacy")
+        release = replace(self.release, size=None, sha384=None)
+        client = FakeLbryClient([self._entry(payload)])
+
+        self.assertEqual(
+            self._acquirer(client).acquire(release, self.root / "release"), payload
+        )
+
+        payload.write_bytes(b"")
+        client = FakeLbryClient([self._entry(payload)])
+        with self.assertRaisesRegex(LbryProtocolError, "empty"):
+            self._acquirer(client).acquire(release, self.root / "release")
 
 
 if __name__ == "__main__":

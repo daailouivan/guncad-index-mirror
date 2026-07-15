@@ -46,12 +46,12 @@ Mirror currently accepts GunCAD Index API v2 records only. A supported record mu
 - `origin.platform` equal to `lbry`;
 - a 40-character lowercase claim ID, also present as `origin.external_id`;
 - a 96-character lowercase `origin.extra.sd_hash`;
-- a 96-character lowercase plaintext SHA-384 in `origin.checksum`;
-- a positive integer `origin.size`;
+- a 96-character lowercase plaintext SHA-384 in `origin.checksum`, or null for a legacy claim that did not publish one;
+- a positive integer `origin.size`, or zero/null when the legacy claim did not publish a size;
 - an LBRY source link; an HTTP or HTTPS Odysee link is retained when present but may be absent for LBRY-only claims;
 - a non-empty release name and channel handle.
 
-Printables and other origins are expected in API v2 responses. They are skipped at DEBUG level before LBRY-specific fields are evaluated. Malformed LBRY rows are logged as errors and isolated from valid rows.
+Printables and other origins are expected in API v2 responses. They are skipped at DEBUG level before LBRY-specific fields are evaluated. Malformed LBRY rows are logged as errors and isolated from valid rows. A missing legacy size or checksum is not treated as malformed: Mirror derives the actual values from the assembled artifact and retains null in `claimed_sha384`. This records a weaker evidence class without discarding the payload or overstating verification.
 
 The implemented sequence is:
 
@@ -88,10 +88,11 @@ Mirror does not consider lbrynet's `finished` string sufficient proof. A complet
 - `file_list(sd_hash=...)` returns exactly one matching stream;
 - status is `finished` and `blobs_remaining` is zero;
 - the reported path resolves beneath the configured data root;
-- the file exists and has the exact Index size;
-- a streaming SHA-384 equals the Index checksum.
+- the file exists and is nonempty;
+- its size equals the Index size when the Index supplies one;
+- a streaming SHA-384 equals the Index checksum when the Index supplies one.
 
-Mirror then records SHA-256 and creates a single-file BitTorrent v1 torrent. Bencoding dictionaries are sorted bytewise. Piece hashes use SHA-1 because BitTorrent v1 requires it; the plaintext and torrent files retain SHA-384 and SHA-256 checksums outside that legacy field.
+Mirror always records the computed size, SHA-384, and SHA-256 before creating a single-file BitTorrent v1 torrent. Bencoding dictionaries are sorted bytewise. Piece hashes use SHA-1 because BitTorrent v1 requires it; the plaintext and torrent files retain SHA-384 and SHA-256 checksums outside that legacy field. For a legacy claim without an Index checksum, content-addressed descriptor and blob validation still protects the acquisition path, but the computed plaintext SHA-384 has no independent Index value to compare against.
 
 Determinism is scoped to the same plaintext bytes, filename, piece length, and tracker list. Operators can choose different piece lengths or filenames and produce different valid BTIH values for the same plaintext. Index must therefore key the handoff by release ID and plaintext checksum, not assume one globally canonical torrent.
 

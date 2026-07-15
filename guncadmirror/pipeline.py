@@ -75,6 +75,7 @@ class MirrorPipeline:
             return "skipped"
         if (
             self.settings.max_release_size
+            and release.size is not None
             and release.size > self.settings.max_release_size
         ):
             self.logger.info(
@@ -83,7 +84,7 @@ class MirrorPipeline:
                 release.size,
             )
             return "skipped"
-        required_space = self.settings.min_free_space + 2 * release.size
+        required_space = self.settings.min_free_space + 2 * (release.size or 0)
         available_space = self.disk_free(self.settings.data_dir)
         if available_space < required_space:
             self.logger.warning(
@@ -115,6 +116,14 @@ class MirrorPipeline:
             _atomic_json(directory / "release.json", release.raw)
             file_path = self.acquirer.acquire(release, directory)
             hashes = verify_file(release, file_path)
+            if (
+                self.settings.max_release_size
+                and hashes.size > self.settings.max_release_size
+            ):
+                raise ValueError(
+                    f"assembled payload has {hashes.size} bytes, exceeding configured "
+                    f"maximum {self.settings.max_release_size}"
+                )
             self.store.mark_verified(
                 release,
                 file_path=file_path,
@@ -170,7 +179,7 @@ class MirrorPipeline:
             not file_path
             or not torrent_path
             or not sha384
-            or sha384 != release.sha384
+            or (release.sha384 is not None and sha384 != release.sha384)
             or not sha256
             or not info_hash
             or not magnet_uri
@@ -182,9 +191,11 @@ class MirrorPipeline:
         try:
             safe_file = ensure_within(self.settings.data_dir, Path(file_path))
             safe_torrent = ensure_within(self.settings.outbox_dir, Path(torrent_path))
+            actual_size = safe_file.stat().st_size if safe_file.is_file() else 0
             if (
                 not safe_file.is_file()
-                or safe_file.stat().st_size != release.size
+                or actual_size == 0
+                or (release.size is not None and actual_size != release.size)
                 or not safe_torrent.is_file()
                 or safe_torrent.stat().st_size == 0
             ):
@@ -216,16 +227,16 @@ class MirrorPipeline:
                 and release_document.get("url_lbry") == release.url_lbry
                 and lbry_document.get("sd_hash") == release.sd_hash
                 and lbry_document.get("claimed_sha384") == release.sha384
-                and artifact_document.get("size") == release.size
+                and artifact_document.get("size") == actual_size
                 and artifact_document.get("file_name") == safe_file.name
-                and artifact_document.get("sha384") == release.sha384
+                and artifact_document.get("sha384") == sha384
                 and artifact_document.get("sha256") == sha256
                 and torrent_document.get("btih") == info_hash
                 and torrent_document.get("file_name") == safe_torrent.name
                 and torrent_document.get("piece_length")
                 == self.settings.torrent_piece_length
                 and torrent_document.get("piece_count")
-                == _piece_count(release.size, self.settings.torrent_piece_length)
+                == _piece_count(actual_size, self.settings.torrent_piece_length)
                 and torrent_document.get("magnet_uri") == magnet_uri
                 and torrent_document.get("trackers")
                 == list(self.settings.torrent_trackers)

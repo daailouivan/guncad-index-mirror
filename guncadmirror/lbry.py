@@ -308,10 +308,13 @@ class LbryAcquirer:
         path = ensure_within(self.data_root, Path(raw_path))
         if not path.is_file():
             return None
-        if path.stat().st_size != release.size:
+        actual_size = path.stat().st_size
+        if release.size is not None and actual_size != release.size:
             raise LbryProtocolError(
-                f"completed file has size {path.stat().st_size}, expected {release.size}"
+                f"completed file has size {actual_size}, expected {release.size}"
             )
+        if actual_size == 0:
+            raise LbryProtocolError("completed file is empty")
         return path
 
 

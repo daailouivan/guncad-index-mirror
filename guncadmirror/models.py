@@ -36,8 +36,8 @@ class Release:
     url_lbry: str
     channel_handle: str
     sd_hash: str
-    sha384: str
-    size: int
+    sha384: str | None
+    size: int | None
     raw: Mapping[str, Any] = field(repr=False, compare=False)
 
     @classmethod
@@ -71,15 +71,26 @@ class Release:
         if not SHA384_RE.fullmatch(sd_hash):
             raise ReleaseValidationError("sd_hash must be a lowercase SHA-384 digest")
 
-        sha384 = _required_string(origin, "checksum")
-        if not SHA384_RE.fullmatch(sha384):
+        raw_sha384 = origin.get("checksum")
+        sha384 = None if raw_sha384 is None or raw_sha384 == "" else raw_sha384
+        if sha384 is not None and (
+            not isinstance(sha384, str) or not SHA384_RE.fullmatch(sha384)
+        ):
             raise ReleaseValidationError(
                 "origin checksum must be a lowercase SHA-384 digest"
             )
 
-        size = origin.get("size")
-        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
-            raise ReleaseValidationError("origin size must be a positive integer")
+        raw_size = origin.get("size")
+        if raw_size is None:
+            size = None
+        elif (
+            isinstance(raw_size, bool) or not isinstance(raw_size, int) or raw_size < 0
+        ):
+            raise ReleaseValidationError(
+                "origin size must be a nonnegative integer or null"
+            )
+        else:
+            size = raw_size or None
 
         links = origin.get("links")
         if not isinstance(links, list):

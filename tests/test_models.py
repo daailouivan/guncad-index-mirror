@@ -58,6 +58,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertIsNone(release.url)
         self.assertEqual(release.url_lbry, "lbry://release#r")
 
+    def test_accepts_legacy_release_without_size_or_checksum(self) -> None:
+        payload = release_payload()
+        payload["origin"]["size"] = 0  # type: ignore[index]
+        payload["origin"]["checksum"] = None  # type: ignore[index]
+
+        release = Release.from_api(payload)
+
+        self.assertIsNone(release.size)
+        self.assertIsNone(release.sha384)
+
     def test_rejects_malformed_v2_lbry_releases(self) -> None:
         valid = release_payload()
         cases: list[tuple[object, str]] = []
@@ -83,7 +93,7 @@ class ReleaseTests(unittest.TestCase):
                 (changed(("origin", "extra", "sd_hash"), "BAD"), "sd_hash"),
                 (changed(("origin", "checksum"), "BAD"), "origin checksum"),
                 (changed(("origin", "size"), True), "origin size"),
-                (changed(("origin", "size"), 0), "origin size"),
+                (changed(("origin", "size"), -1), "origin size"),
                 (changed(("origin", "links"), None), "origin links"),
                 (changed(("origin", "links"), []), "LBRY"),
                 (

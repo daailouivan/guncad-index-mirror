@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from unittest.mock import Mock
@@ -172,6 +173,31 @@ class MirrorPipelineTests(unittest.TestCase):
             [first.id, second.id],
         )
 
+    def test_legacy_payload_records_computed_evidence_and_is_idempotent(self) -> None:
+        content = b"legacy payload"
+        release = replace(make_release(content), size=None, sha384=None)
+        payload = self.root / "legacy.zip"
+        payload.write_bytes(content)
+        acquirer = Mock()
+        acquirer.acquire.return_value = payload
+        pipeline = self._pipeline([release], acquirer)
+
+        self.assertEqual(pipeline.process(release), "ready")
+        job = self.store.get(release.id, release.sd_hash)
+        manifest = json.loads(
+            (
+                self.settings.outbox_dir
+                / release.id
+                / release.sd_hash
+                / "manifest.json"
+            ).read_text()
+        )
+        self.assertIsNone(manifest["lbry"]["claimed_sha384"])
+        self.assertEqual(manifest["artifact"]["size"], len(content))
+        self.assertEqual(manifest["artifact"]["sha384"], job.sha384)
+        self.assertEqual(pipeline.process(release), "skipped")
+        acquirer.acquire.assert_called_once()
+
     def test_release_failure_is_recorded_and_obeys_retry_backoff(self) -> None:
         content = b"payload"
         release = make_release(content)
@@ -220,6 +246,23 @@ class MirrorPipelineTests(unittest.TestCase):
         self.assertEqual(pipeline.process(release), "skipped")
         self.assertEqual(self.store.counts(), {})
         acquirer.acquire.assert_not_called()
+
+        unknown_size = replace(too_large, size=None, sha384=None)
+        pipeline.settings = Settings(
+            endpoint=self.settings.endpoint,
+            data_dir=self.root,
+            min_free_space=0,
+            max_release_size=7,
+        )
+        acquirer.acquire.return_value = self.root / "unknown.bin"
+        acquirer.acquire.return_value.write_bytes(b"12345678")
+        with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
+            self.assertEqual(pipeline.process(unknown_size), "failed")
+        self.assertIn(
+            "exceeding configured maximum",
+            self.store.get(unknown_size.id, unknown_size.sd_hash).last_error,
+        )
+        self.assertEqual(self.store.counts(), {"failed": 1})
 
     def test_cycle_isolates_release_failures_and_counts_outcomes(self) -> None:
         content = b"payload"
