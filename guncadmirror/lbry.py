@@ -11,8 +11,14 @@ import requests
 
 from .cancellation import check_cancelled, wait_or_cancel
 from .index_client import USER_AGENT
-from .models import Release
+from .models import AcquisitionTransport, Release
 from .paths import ensure_within
+from .progress import (
+    ActivityPhase,
+    ActivityUpdate,
+    NullProgressReporter,
+    ProgressReporter,
+)
 
 
 class LbryError(RuntimeError):
@@ -176,6 +182,7 @@ class LbryAcquirer:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         logger: logging.Logger | None = None,
+        progress: ProgressReporter | None = None,
     ):
         self.client = client
         self.data_root = data_root
@@ -184,6 +191,7 @@ class LbryAcquirer:
         self.sleep = sleep
         self.monotonic = monotonic
         self.logger = logger or logging.getLogger("guncad-mirror.acquire")
+        self.progress = progress or NullProgressReporter()
 
     def acquire(
         self,
@@ -193,8 +201,10 @@ class LbryAcquirer:
         stop: Event | None = None,
     ) -> Path:
         check_cancelled(stop)
+        self._report_progress(release)
         output_directory.mkdir(parents=True, exist_ok=True)
         existing = self.client.file_for_sd_hash(release.sd_hash, stop=stop)
+        self._report_progress(release, _blobs_remaining(existing))
         path = self._completed_path(existing, release)
         if path is not None:
             return path
@@ -220,6 +230,7 @@ class LbryAcquirer:
         while self.monotonic() < deadline:
             check_cancelled(stop)
             entry = self.client.file_for_sd_hash(release.sd_hash, stop=stop)
+            self._report_progress(release, _blobs_remaining(entry))
             path = self._completed_path(entry, release)
             if path is not None:
                 return path
@@ -258,6 +269,21 @@ class LbryAcquirer:
         raise LbryTimeout(
             f"stream {release.sd_hash} made no blob progress for "
             f"{self.download_timeout:.1f}s"
+        )
+
+    def _report_progress(
+        self,
+        release: Release,
+        blobs_remaining: int | None = None,
+    ) -> None:
+        self.progress.update_activity(
+            ActivityUpdate(
+                release=release,
+                phase=ActivityPhase.LBRY,
+                transport=AcquisitionTransport.LBRY,
+                total_bytes=release.size,
+                blobs_remaining=blobs_remaining,
+            )
         )
 
     def _start_unknown_stream(

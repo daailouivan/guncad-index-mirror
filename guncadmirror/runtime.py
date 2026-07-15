@@ -76,6 +76,7 @@ class Runtime:
 
 def build_runtime(settings: Settings) -> Runtime:
     store = JobStore(settings.state_path)
+    stats = StatsCollector(settings, store)
     lbry = LbryClient(
         settings.lbry_url,
         attempts=settings.retry_attempts,
@@ -93,6 +94,7 @@ def build_runtime(settings: Settings) -> Runtime:
         data_root=settings.data_dir,
         download_timeout=settings.download_timeout,
         poll_interval=settings.download_poll_interval,
+        progress=stats,
     )
     odysee = (
         OdyseeAcquirer(
@@ -101,6 +103,7 @@ def build_runtime(settings: Settings) -> Runtime:
             attempts=settings.retry_attempts,
             backoff=settings.retry_backoff,
             read_timeout=min(settings.download_timeout, 60),
+            progress=stats,
         )
         if settings.odysee_fallback
         else None
@@ -113,8 +116,8 @@ def build_runtime(settings: Settings) -> Runtime:
         store,
         publisher,
         fallback_acquirer=odysee,
+        progress=stats,
     )
-    stats = StatsCollector(settings, store)
     return Runtime(
         settings=settings,
         lbry=lbry,

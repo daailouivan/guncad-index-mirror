@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -150,7 +150,12 @@ class OdyseeAcquirerTests(unittest.TestCase):
         )
 
     def _acquirer(
-        self, session: FakeSession, *, attempts: int = 2, sleep=lambda _delay: None
+        self,
+        session: FakeSession,
+        *,
+        attempts: int = 2,
+        sleep=lambda _delay: None,
+        progress: object | None = None,
     ) -> OdyseeAcquirer:
         return OdyseeAcquirer(
             "https://api.example/proxy",
@@ -159,6 +164,7 @@ class OdyseeAcquirerTests(unittest.TestCase):
             backoff=1,
             session=session,
             sleep=sleep,
+            progress=progress,
         )
 
     def test_validates_claim_and_downloads_exact_ranged_plaintext(self) -> None:
@@ -180,6 +186,26 @@ class OdyseeAcquirerTests(unittest.TestCase):
         self.assertFalse((result.path.parent / ".payload.zip.odysee.part").exists())
         acquirer.close()
         self.assertTrue(session.closed)
+
+    def test_reports_resumable_byte_progress(self) -> None:
+        progress = Mock()
+        session = FakeSession(
+            posts=[self._resolve_response(), self._get_response()],
+            gets=[self._stream_response(0, [b"pay", b"load"])],
+        )
+
+        self._acquirer(session, progress=progress).acquire(
+            self.release,
+            self.root / "progress-callback",
+        )
+
+        updates = [call.args[0] for call in progress.update_activity.call_args_list]
+        self.assertEqual(
+            [update.completed_bytes for update in updates],
+            [None, 0, 3, 7],
+        )
+        self.assertTrue(all(update.release == self.release for update in updates))
+        self.assertTrue(all(update.transport == "odysee-cdn" for update in updates))
 
     def test_resumes_partial_file_after_transient_disconnect(self) -> None:
         partial = self.root / "release" / ".payload.zip.odysee.part"

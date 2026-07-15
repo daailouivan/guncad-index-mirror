@@ -266,6 +266,7 @@ class LbryAcquirerTests(unittest.TestCase):
             poll_interval=1,
             sleep=overrides.get("sleep", lambda _: None),
             monotonic=overrides.get("monotonic", lambda: 0),
+            progress=overrides.get("progress"),
         )
 
     def test_reuses_a_complete_verified_local_stream(self) -> None:
@@ -275,6 +276,23 @@ class LbryAcquirerTests(unittest.TestCase):
         result = self._acquirer(client).acquire(self.release, self.root / "release")
         self.assertEqual(result, payload)
         self.assertEqual(client.calls, [("file_list", self.release.sd_hash)])
+
+    def test_reports_release_identity_and_remaining_blobs(self) -> None:
+        payload = self.root / "existing.zip"
+        payload.write_bytes(b"payload")
+        progress = Mock()
+        client = FakeLbryClient([self._entry(payload)])
+
+        self._acquirer(client, progress=progress).acquire(
+            self.release,
+            self.root / "release",
+        )
+
+        updates = [call.args[0] for call in progress.update_activity.call_args_list]
+        self.assertEqual(updates[-1].release, self.release)
+        self.assertEqual(updates[-1].phase.value, "Acquiring from LBRY")
+        self.assertEqual(updates[-1].transport, "lbry")
+        self.assertEqual(updates[-1].blobs_remaining, 0)
 
     def test_resumes_known_stream_and_waits_for_truthful_completion(self) -> None:
         payload = self.root / "release" / "payload.zip"

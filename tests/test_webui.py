@@ -40,6 +40,7 @@ class WebUiTests(unittest.TestCase):
             "disk_space_used": 123,
             "job_counts": {"awaiting_index": 2},
             "known_jobs": 2,
+            "activity": None,
             "psutil_cpu": 1,
             "psutil_mem": 2,
             "psutil_disk": disk,
@@ -67,6 +68,44 @@ class WebUiTests(unittest.TestCase):
             self.assertEqual(humanize_bytes(1024**9), "1024.0 YiB")
             self.assertEqual(humanize_seconds(60), "1.0 minutes")
             self.assertEqual(humanize_seconds(60 * 60 * 24 * 7 * 52), "1.0 years")
+
+    def test_active_release_progress_and_lbry_blob_states_render(self) -> None:
+        activity = {
+            "release_name": "GATALOG",
+            "channel_handle": "@Prints.and.the.Revolution:c",
+            "release_id": "a" * 40,
+            "sd_hash": "b" * 96,
+            "phase": "Acquiring from Odysee CDN",
+            "transport": "odysee-cdn",
+            "completed_bytes": 512,
+            "total_bytes": 1024,
+            "bytes_per_second": 128,
+            "blobs_remaining": None,
+        }
+        self.collector.snapshot.return_value["activity"] = activity
+        app = create_app(self.collector)
+
+        response = app.test_client().get("/")
+        self.assertIn(b"GATALOG", response.data)
+        self.assertIn(b"Acquiring from Odysee CDN", response.data)
+        self.assertIn(b"50.0%", response.data)
+        self.assertIn(b"128.0 B/s", response.data)
+        self.assertIn(b"4.0 seconds remaining", response.data)
+
+        activity.update(
+            {
+                "phase": "Acquiring from LBRY",
+                "completed_bytes": None,
+                "bytes_per_second": None,
+                "blobs_remaining": 13,
+            }
+        )
+        response = app.test_client().get("/")
+        self.assertIn(b"13 LBRY blobs remaining", response.data)
+
+        activity["blobs_remaining"] = None
+        response = app.test_client().get("/")
+        self.assertIn(b"Advertised size: 1.0 KiB", response.data)
 
     @patch("guncadmirror.webui.Thread")
     @patch("guncadmirror.webui.serve")

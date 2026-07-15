@@ -23,6 +23,12 @@ from .models import (
 )
 from .odysee import OdyseeAcquirer
 from .paths import ensure_within, release_directory
+from .progress import (
+    ActivityPhase,
+    ActivityUpdate,
+    NullProgressReporter,
+    ProgressReporter,
+)
 from .publisher import Publisher
 from .settings import Settings
 from .state import Job, JobStore
@@ -61,6 +67,7 @@ class MirrorPipeline:
         fallback_acquirer: OdyseeAcquirer | None = None,
         disk_free: Callable[[Path], int] | None = None,
         logger: logging.Logger | None = None,
+        progress: ProgressReporter | None = None,
     ):
         self.settings = settings
         self.index_client = index_client
@@ -70,6 +77,7 @@ class MirrorPipeline:
         self.fallback_acquirer = fallback_acquirer
         self.disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self.logger = logger or logging.getLogger("guncad-mirror.pipeline")
+        self.progress = progress or NullProgressReporter()
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
         result = CycleResult()
@@ -176,7 +184,17 @@ class MirrorPipeline:
                     lbry_failure=f"{type(lbry_error).__name__}: {lbry_error}",
                 )
             try:
-                hashes = verify_file(release, file_path, stop=stop)
+                total_bytes = file_path.stat().st_size
+                hashes = verify_file(
+                    release,
+                    file_path,
+                    stop=stop,
+                    progress=self._byte_progress(
+                        release,
+                        ActivityPhase.VERIFY,
+                        total_bytes,
+                    ),
+                )
             except VerificationError:
                 if acquisition.transport is AcquisitionTransport.ODYSEE_CDN:
                     file_path.unlink(missing_ok=True)
@@ -207,6 +225,14 @@ class MirrorPipeline:
                 piece_length=self.settings.torrent_piece_length,
                 trackers=self.settings.torrent_trackers,
                 stop=stop,
+                progress=self._byte_progress(
+                    release,
+                    ActivityPhase.TORRENT,
+                    hashes.size,
+                ),
+            )
+            self.progress.update_activity(
+                ActivityUpdate(release=release, phase=ActivityPhase.OUTBOX)
             )
             bundle = self.publisher.publish(release, hashes, torrent, acquisition)
             self._validate_bundle(bundle)
@@ -224,6 +250,8 @@ class MirrorPipeline:
             )
             self.logger.exception("Failed to prepare %s", release.name)
             return "failed"
+        finally:
+            self.progress.clear_activity()
 
         self.logger.info(
             "Prepared %s for Index publication: %s",
@@ -231,6 +259,24 @@ class MirrorPipeline:
             bundle.manifest_path,
         )
         return "ready"
+
+    def _byte_progress(
+        self,
+        release: Release,
+        phase: ActivityPhase,
+        total_bytes: int,
+    ) -> Callable[[int], None]:
+        def report(completed_bytes: int) -> None:
+            self.progress.update_activity(
+                ActivityUpdate(
+                    release=release,
+                    phase=phase,
+                    completed_bytes=completed_bytes,
+                    total_bytes=total_bytes,
+                )
+            )
+
+        return report
 
     def _is_blacklisted(self, release: Release) -> bool:
         normalized = release.channel_handle.removeprefix("@").replace(":", "#")

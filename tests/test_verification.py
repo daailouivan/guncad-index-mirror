@@ -19,11 +19,13 @@ class VerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "payload.bin"
             path.write_bytes(content)
-            hashes = hash_file(path, chunk_size=3)
+            progress: list[int] = []
+            hashes = hash_file(path, chunk_size=3, progress=progress.append)
 
         self.assertEqual(hashes.size, len(content))
         self.assertEqual(hashes.sha384, hashlib.sha384(content).hexdigest())
         self.assertEqual(hashes.sha256, hashlib.sha256(content).hexdigest())
+        self.assertEqual(progress, [0, 3, 6, 9, 11])
 
     def test_verification_checks_size_and_external_sha384(self) -> None:
         content = b"payload"

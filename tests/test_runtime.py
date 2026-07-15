@@ -108,6 +108,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertIs(built.stats.store, built.pipeline.store)
         self.assertIsNotNone(built.odysee)
         self.assertIs(built.pipeline.fallback_acquirer, built.odysee)
+        self.assertIs(built.pipeline.progress, built.stats)
+        self.assertIs(built.pipeline.acquirer.progress, built.stats)
+        self.assertIs(built.odysee.progress, built.stats)
 
     def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
         self.stats.stop.side_effect = RuntimeError("thread stuck")

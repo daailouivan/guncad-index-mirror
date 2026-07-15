@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
@@ -60,6 +61,7 @@ def create_torrent(
     piece_length: int = 1024**2,
     trackers: tuple[str, ...] = (),
     stop: Event | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> TorrentArtifact:
     check_cancelled(stop)
     if not file_path.is_file():
@@ -67,7 +69,12 @@ def create_torrent(
     if piece_length < 16 * 1024 or piece_length & (piece_length - 1):
         raise TorrentError("piece length must be a power of two of at least 16 KiB")
 
-    pieces, piece_count = _hash_pieces(file_path, piece_length, stop=stop)
+    pieces, piece_count = _hash_pieces(
+        file_path,
+        piece_length,
+        stop=stop,
+        progress=progress,
+    )
     info: dict[bytes, Bencodable] = {
         b"length": file_path.stat().st_size,
         b"name": file_path.name,
@@ -103,14 +110,21 @@ def _hash_pieces(
     piece_length: int,
     *,
     stop: Event | None = None,
+    progress: Callable[[int], None] | None = None,
 ) -> tuple[bytes, int]:
     hashes = bytearray()
     piece_count = 0
+    completed = 0
+    if progress is not None:
+        progress(completed)
     with file_path.open("rb") as payload:
         while piece := payload.read(piece_length):
             check_cancelled(stop)
             hashes.extend(hashlib.sha1(piece, usedforsecurity=False).digest())
             piece_count += 1
+            completed += len(piece)
+            if progress is not None:
+                progress(completed)
     if piece_count == 0:
         raise TorrentError("cannot create a torrent for an empty file")
     return bytes(hashes), piece_count

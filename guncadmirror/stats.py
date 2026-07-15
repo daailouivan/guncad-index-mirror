@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -10,6 +12,7 @@ from typing import Any
 
 import psutil
 
+from .progress import ActivityUpdate
 from .settings import Settings
 from .state import JobStore
 
@@ -22,11 +25,13 @@ class StatsCollector:
         *,
         cheap_interval: float = 1,
         disk_interval: float = 30,
+        monotonic: Callable[[], float] = time.monotonic,
     ):
         self.settings = settings
         self.store = store
         self.cheap_interval = cheap_interval
         self.disk_interval = disk_interval
+        self.monotonic = monotonic
         self.events: deque[str] = deque(maxlen=512)
         self._snapshot: dict[str, Any] = {
             "version": os.getenv("GUNCAD_COMMIT_REF", "Unknown"),
@@ -49,7 +54,11 @@ class StatsCollector:
             "disk_space_used": 0,
             "job_counts": {},
             "known_jobs": 0,
+            "activity": None,
         }
+        self._activity_key: tuple[str, str, str, str | None] | None = None
+        self._activity_base_bytes: int | None = None
+        self._activity_base_time: float | None = None
         self._lock = Lock()
         self._stop = Event()
         self._threads: list[Thread] = []
@@ -57,6 +66,57 @@ class StatsCollector:
     def set_state(self, state: str) -> None:
         with self._lock:
             self._snapshot["mirror_state"] = state
+
+    def update_activity(self, update: ActivityUpdate) -> None:
+        transport = update.transport.value if update.transport is not None else None
+        key = (
+            update.release.id,
+            update.release.sd_hash,
+            update.phase.value,
+            transport,
+        )
+        now = self.monotonic()
+        if key != self._activity_key:
+            self._activity_key = key
+            self._activity_base_bytes = update.completed_bytes
+            self._activity_base_time = now
+        elif self._activity_base_bytes is None and update.completed_bytes is not None:
+            self._activity_base_bytes = update.completed_bytes
+            self._activity_base_time = now
+
+        rate = None
+        if (
+            update.completed_bytes is not None
+            and self._activity_base_bytes is not None
+            and self._activity_base_time is not None
+            and update.completed_bytes >= self._activity_base_bytes
+            and now > self._activity_base_time
+        ):
+            rate = (update.completed_bytes - self._activity_base_bytes) / (
+                now - self._activity_base_time
+            )
+
+        activity = {
+            "release_id": update.release.id,
+            "sd_hash": update.release.sd_hash,
+            "release_name": update.release.name,
+            "channel_handle": update.release.channel_handle,
+            "phase": update.phase.value,
+            "transport": transport,
+            "completed_bytes": update.completed_bytes,
+            "total_bytes": update.total_bytes,
+            "bytes_per_second": rate,
+            "blobs_remaining": update.blobs_remaining,
+        }
+        with self._lock:
+            self._snapshot["activity"] = activity
+
+    def clear_activity(self) -> None:
+        self._activity_key = None
+        self._activity_base_bytes = None
+        self._activity_base_time = None
+        with self._lock:
+            self._snapshot["activity"] = None
 
     def log(self, message: str, *, stdout: bool = False) -> None:
         if stdout:

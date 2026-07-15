@@ -6,9 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from guncadmirror.models import AcquisitionTransport
+from guncadmirror.progress import ActivityPhase, ActivityUpdate
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
 from guncadmirror.stats import StatsCollector, directory_size
+
+from .helpers import make_release
 
 
 class StatsCollectorTests(unittest.TestCase):
@@ -92,6 +96,65 @@ class StatsCollectorTests(unittest.TestCase):
             collector._run_collector(target, 1)
         self.assertIn("Statistics collection failed", logs.output[0])
         target.assert_called_once_with()
+
+    def test_activity_snapshot_reports_identity_rate_and_phase_changes(self) -> None:
+        ticks = iter([10.0, 11.0, 13.0, 14.0])
+        collector = StatsCollector(
+            self.settings,
+            self.store,
+            monotonic=lambda: next(ticks),
+        )
+        release = make_release(b"x" * 1124)
+        collector.update_activity(
+            ActivityUpdate(
+                release,
+                ActivityPhase.ODYSEE,
+                AcquisitionTransport.ODYSEE_CDN,
+                total_bytes=1124,
+            )
+        )
+        collector.update_activity(
+            ActivityUpdate(
+                release,
+                ActivityPhase.ODYSEE,
+                AcquisitionTransport.ODYSEE_CDN,
+                completed_bytes=100,
+                total_bytes=1124,
+            )
+        )
+        collector.update_activity(
+            ActivityUpdate(
+                release,
+                ActivityPhase.ODYSEE,
+                AcquisitionTransport.ODYSEE_CDN,
+                completed_bytes=1124,
+                total_bytes=1124,
+            )
+        )
+        activity = collector.snapshot()["activity"]
+        self.assertEqual(activity["release_name"], release.name)
+        self.assertEqual(activity["release_id"], release.id)
+        self.assertEqual(activity["sd_hash"], release.sd_hash)
+        self.assertEqual(activity["transport"], "odysee-cdn")
+        self.assertEqual(activity["completed_bytes"], 1124)
+        self.assertEqual(activity["bytes_per_second"], 512)
+
+        collector.update_activity(
+            ActivityUpdate(
+                release,
+                ActivityPhase.LBRY,
+                AcquisitionTransport.LBRY,
+                total_bytes=1124,
+                blobs_remaining=3,
+            )
+        )
+        activity = collector.snapshot()["activity"]
+        self.assertEqual(activity["phase"], "Acquiring from LBRY")
+        self.assertEqual(activity["blobs_remaining"], 3)
+        self.assertIsNone(activity["bytes_per_second"])
+
+        collector.clear_activity()
+        self.assertIsNone(collector.snapshot()["activity"])
 
     def test_directory_size_ignores_files_that_disappear(self) -> None:
         (self.root / "one").write_bytes(b"123")

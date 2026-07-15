@@ -138,6 +138,17 @@ main {
 	font-weight: 700;
 }
 
+.activity-phase,
+.activity-detail {
+	margin: 0.75rem 0;
+}
+
+progress {
+	width: min(100%, 64rem);
+	height: 1.25rem;
+	accent-color: var(--link);
+}
+
 .metric-grid,
 .job-grid {
 	display: grid;

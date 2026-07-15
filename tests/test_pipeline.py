@@ -54,6 +54,7 @@ class MirrorPipelineTests(unittest.TestCase):
         disk_free: int = 10**12,
         publisher: object | None = None,
         fallback: object | None = None,
+        progress: object | None = None,
     ) -> MirrorPipeline:
         return MirrorPipeline(
             self.settings,
@@ -63,6 +64,7 @@ class MirrorPipelineTests(unittest.TestCase):
             publisher or self.publisher,
             fallback_acquirer=fallback,
             disk_free=lambda _: disk_free,
+            progress=progress,
         )
 
     def test_happy_path_is_verified_durable_and_idempotent(self) -> None:
@@ -72,7 +74,8 @@ class MirrorPipelineTests(unittest.TestCase):
         payload.write_bytes(content)
         acquirer = Mock()
         acquirer.acquire.return_value = payload
-        pipeline = self._pipeline([release], acquirer)
+        progress = Mock()
+        pipeline = self._pipeline([release], acquirer, progress=progress)
 
         self.assertEqual(pipeline.process(release), "ready")
         job = self.store.get(release.id, release.sd_hash)
@@ -103,6 +106,20 @@ class MirrorPipelineTests(unittest.TestCase):
             self.store.get(release.id, release.sd_hash).attempts,
             1,
         )
+        phases = [
+            call.args[0].phase.value for call in progress.update_activity.call_args_list
+        ]
+        self.assertEqual(
+            phases,
+            [
+                "Verifying plaintext",
+                "Verifying plaintext",
+                "Hashing BitTorrent pieces",
+                "Hashing BitTorrent pieces",
+                "Writing local outbox",
+            ],
+        )
+        progress.clear_activity.assert_called_once_with()
 
     def test_missing_or_structurally_invalid_artifact_is_rebuilt(self) -> None:
         content = b"payload"

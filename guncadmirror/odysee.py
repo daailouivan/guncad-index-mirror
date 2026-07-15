@@ -15,8 +15,14 @@ import requests
 
 from .cancellation import check_cancelled, wait_or_cancel
 from .index_client import USER_AGENT
-from .models import Release
+from .models import AcquisitionTransport, Release
 from .paths import ensure_within, safe_component
+from .progress import (
+    ActivityPhase,
+    ActivityUpdate,
+    NullProgressReporter,
+    ProgressReporter,
+)
 
 PLAYER_HOST = "player.odycdn.com"
 CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
@@ -56,6 +62,7 @@ class OdyseeAcquirer:
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
         logger: logging.Logger | None = None,
+        progress: ProgressReporter | None = None,
     ):
         self.proxy_url = proxy_url
         self.data_root = data_root
@@ -65,6 +72,7 @@ class OdyseeAcquirer:
         self.session = session or requests.Session()
         self.sleep = sleep
         self.logger = logger or logging.getLogger("guncad-mirror.odysee")
+        self.progress = progress or NullProgressReporter()
 
     def close(self) -> None:
         self.session.close()
@@ -77,6 +85,7 @@ class OdyseeAcquirer:
         stop: Event | None = None,
     ) -> OdyseeAcquisition:
         check_cancelled(stop)
+        self._report_progress(release, completed=None)
         if release.size is None or release.sha384 is None:
             raise OdyseeProtocolError(
                 "Odysee fallback requires an independent Index size and SHA-384"
@@ -243,6 +252,7 @@ class OdyseeAcquirer:
         for attempt in range(1, self.attempts + 1):
             check_cancelled(stop)
             start = partial_path.stat().st_size if partial_path.exists() else 0
+            self._report_progress(release, completed=start)
             if start == expected_size:
                 partial_path.replace(output_path)
                 return
@@ -350,6 +360,7 @@ class OdyseeAcquirer:
                                 f"Odysee CDN exceeded expected size {expected_size}"
                             )
                         output.write(chunk)
+                        self._report_progress(release, completed=written)
                         if written >= next_progress:
                             self.logger.info(
                                 "Odysee fallback for %s reached %d/%d bytes",
@@ -361,6 +372,17 @@ class OdyseeAcquirer:
                 finally:
                     output.flush()
                     os.fsync(output.fileno())
+
+    def _report_progress(self, release: Release, *, completed: int | None) -> None:
+        self.progress.update_activity(
+            ActivityUpdate(
+                release=release,
+                phase=ActivityPhase.ODYSEE,
+                transport=AcquisitionTransport.ODYSEE_CDN,
+                completed_bytes=completed,
+                total_bytes=release.size,
+            )
+        )
 
     @staticmethod
     def _validate_stream_url(source_url: str, release: Release) -> None:

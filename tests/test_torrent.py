@@ -36,9 +36,14 @@ class TorrentTests(unittest.TestCase):
                 "udp://tracker.test:80/announce",
                 "https://tracker2.test/announce",
             )
+            progress: list[int] = []
 
             artifact = create_torrent(
-                payload, destination, piece_length=16384, trackers=trackers
+                payload,
+                destination,
+                piece_length=16384,
+                trackers=trackers,
+                progress=progress.append,
             )
             first_bytes = destination.read_bytes()
             second = create_torrent(
@@ -69,6 +74,7 @@ class TorrentTests(unittest.TestCase):
             self.assertEqual(query["xt"], [f"urn:btih:{artifact.info_hash}"])
             self.assertEqual(query["dn"], ["payload file.bin"])
             self.assertEqual(query["tr"], list(trackers))
+            self.assertEqual(progress, [0, 16384, 16388])
 
     def test_rejects_missing_empty_and_invalid_piece_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
