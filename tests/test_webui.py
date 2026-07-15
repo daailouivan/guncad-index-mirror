@@ -52,6 +52,8 @@ class WebUiTests(unittest.TestCase):
         response = app.test_client().get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"GunCAD Mirror test-ref", response.data)
+        self.assertIn(b"A well regulated Militia", response.data)
+        self.assertIn(b"shall not be infringed", response.data)
         self.assertIn(b"Sleeping", response.data)
         self.assertIn(b"Torrents staged", response.data)
         self.assertIn(b"Publication stops at the local outbox", response.data)
