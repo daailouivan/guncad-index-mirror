@@ -14,6 +14,7 @@ from guncadmirror.lbry import (
     LbryError,
     LbryMethodUnavailable,
     LbryProtocolError,
+    LbryStreamUnavailable,
     LbryTimeout,
 )
 
@@ -295,21 +296,58 @@ class LbryAcquirerTests(unittest.TestCase):
                 with self.assertRaises(LbryError):
                     self._acquirer(client).acquire(self.release, self.root / "release")
 
-    def test_restarts_stopped_stream_once_and_times_out(self) -> None:
+    def test_restarts_stopped_stream_once_then_reports_unavailable(self) -> None:
         stopped = {
             "sd_hash": self.release.sd_hash,
-            "status": "running",
+            "status": "stopped",
+            "stopped": True,
+            "blobs_remaining": 3,
+        }
+        client = Mock()
+        client.file_for_sd_hash.side_effect = [stopped, stopped]
+        client.call.return_value = True
+        ticks = iter([0, 0])
+        with self.assertRaisesRegex(LbryStreamUnavailable, "3 blobs remaining"):
+            self._acquirer(
+                client, download_timeout=2, monotonic=lambda: next(ticks)
+            ).acquire(self.release, self.root / "release")
+        client.call.assert_called_once()
+        self.assertEqual(client.call.call_args.args[0], "file_save")
+
+    def test_stopped_stream_reports_unknown_remaining_count(self) -> None:
+        stopped = {
+            "sd_hash": self.release.sd_hash,
+            "status": "stopped",
             "stopped": True,
         }
         client = Mock()
-        client.file_for_sd_hash.side_effect = [stopped, stopped, stopped]
+        client.file_for_sd_hash.side_effect = [None, stopped, stopped]
+        client.call.side_effect = [
+            {"sd_hash": self.release.sd_hash},
+            True,
+        ]
+        ticks = iter([0, 0, 1])
+        with self.assertLogs("guncad-mirror.acquire", level="WARNING"):
+            with self.assertRaisesRegex(LbryStreamUnavailable, "unknown blob count"):
+                self._acquirer(
+                    client, download_timeout=2, monotonic=lambda: next(ticks)
+                ).acquire(self.release, self.root / "release")
+
+    def test_running_stream_still_uses_stall_timeout_and_is_stopped(self) -> None:
+        running = {
+            "sd_hash": self.release.sd_hash,
+            "status": "running",
+            "stopped": False,
+        }
+        client = Mock()
+        client.file_for_sd_hash.side_effect = [running, running, running]
         client.call.return_value = True
         ticks = iter([0, 0, 1, 2])
         with self.assertRaises(LbryTimeout):
             self._acquirer(
                 client, download_timeout=2, monotonic=lambda: next(ticks)
             ).acquire(self.release, self.root / "release")
-        self.assertEqual(client.call.call_count, 3)
+        self.assertEqual(client.call.call_count, 2)
         method, params = client.call.call_args.args
         self.assertEqual(method, "file_set_status")
         self.assertEqual(

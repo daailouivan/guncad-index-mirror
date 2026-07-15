@@ -162,7 +162,7 @@ supervise_lbrynet() {
 			--save-blobs \
 			--track-bandwidth \
 			--use-upnp \
-			> /data/log/lbrynet.log 2>&1 &
+			>> /data/log/lbrynet.log 2>&1 &
 		child_pid=$!
 		printf '%s\n' "$child_pid" > "$lbrynet_pid_file"
 		wait_for_child

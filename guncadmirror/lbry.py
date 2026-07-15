@@ -29,6 +29,10 @@ class LbryMethodUnavailable(LbryError):
     """The connected daemon does not provide an optional Mirror RPC."""
 
 
+class LbryStreamUnavailable(LbryError):
+    """A stream stopped after the daemon exhausted its peer search."""
+
+
 class LbryClient:
     def __init__(
         self,
@@ -189,7 +193,7 @@ class LbryAcquirer:
 
         deadline = self.monotonic() + self.download_timeout
         last_blobs_remaining = _blobs_remaining(existing)
-        save_restarted = False
+        save_restarted = existing is not None
         while self.monotonic() < deadline:
             entry = self.client.file_for_sd_hash(release.sd_hash)
             path = self._completed_path(entry, release)
@@ -211,11 +215,17 @@ class LbryAcquirer:
                 last_blobs_remaining = blobs_remaining
             elif last_blobs_remaining is None and blobs_remaining is not None:
                 last_blobs_remaining = blobs_remaining
-            if (
-                entry is not None
-                and entry.get("stopped") is True
-                and not save_restarted
-            ):
+            if entry is not None and entry.get("stopped") is True:
+                if save_restarted:
+                    raise LbryStreamUnavailable(
+                        f"stream {release.sd_hash} stopped after a resume attempt "
+                        f"with {_remaining_description(blobs_remaining)}"
+                    )
+                self.logger.warning(
+                    "Stream %s stopped with %s; making one final resume attempt",
+                    release.sd_hash[:12],
+                    _remaining_description(blobs_remaining),
+                )
                 self._save_existing(release, output_directory)
                 save_restarted = True
             self.sleep(self.poll_interval)
@@ -324,6 +334,14 @@ def _blobs_remaining(entry: Mapping[str, Any] | None) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     return None
+
+
+def _remaining_description(value: int | None) -> str:
+    return (
+        "an unknown blob count remaining"
+        if value is None
+        else f"{value} blobs remaining"
+    )
 
 
 def _error_text(value: Any) -> str:

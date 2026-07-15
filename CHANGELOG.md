@@ -6,6 +6,8 @@
 * Made direct stream acquisition return after scheduling plaintext assembly so Mirror owns the full download deadline
 * Added exact payload size and SHA-384 verification, recorded SHA-256, and deterministic single-file BitTorrent v1 generation
 * Added a SQLite job ledger with retry backoff and an atomic local publication outbox
+* Fail confirmed stopped LBRY streams after one resume attempt instead of idling until the stall deadline
+* Keep lbrynet log writes in append mode so `copytruncate` rotation cannot create sparse holes
 * Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
 * Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit
