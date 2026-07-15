@@ -56,9 +56,13 @@ class LbryClient:
         params: Mapping[str, Any] | None = None,
         *,
         read_timeout: float = 60,
+        attempts: int | None = None,
     ) -> Any:
+        operation_attempts = self.attempts if attempts is None else attempts
+        if operation_attempts < 1:
+            raise ValueError("attempts must be positive")
         last_error: Exception | None = None
-        for attempt in range(1, self.attempts + 1):
+        for attempt in range(1, operation_attempts + 1):
             try:
                 response = self.session.post(
                     self.url,
@@ -90,19 +94,21 @@ class LbryClient:
                 raise
             except (requests.RequestException, LbryError) as error:
                 last_error = error
-                if attempt == self.attempts:
+                if attempt == operation_attempts:
                     break
                 delay = self.backoff * (2 ** (attempt - 1))
                 self.logger.warning(
                     "LBRY %s attempt %d/%d failed: %s; retrying in %.1fs",
                     method,
                     attempt,
-                    self.attempts,
+                    operation_attempts,
                     error,
                     delay,
                 )
                 self.sleep(delay)
-        raise LbryError(f"{method} failed after {self.attempts} attempts: {last_error}")
+        raise LbryError(
+            f"{method} failed after {operation_attempts} attempts: {last_error}"
+        )
 
     def wait_until_ready(
         self,
@@ -196,6 +202,7 @@ class LbryAcquirer:
                 self._save_existing(release, output_directory)
                 save_restarted = True
             self.sleep(self.poll_interval)
+        self._stop_timed_out_stream(release)
         raise LbryTimeout(
             f"stream {release.sd_hash} did not finish in {self.download_timeout:.1f}s"
         )
@@ -239,6 +246,21 @@ class LbryAcquirer:
         )
         if result is False or result is None:
             raise LbryError(f"file_save could not resume {release.sd_hash}")
+
+    def _stop_timed_out_stream(self, release: Release) -> None:
+        try:
+            self.client.call(
+                "file_set_status",
+                {"status": "stop", "sd_hash": release.sd_hash},
+                read_timeout=30,
+                attempts=1,
+            )
+        except LbryError as error:
+            self.logger.warning(
+                "Could not stop timed-out stream %s: %s",
+                release.sd_hash[:12],
+                error,
+            )
 
     def _completed_path(
         self, entry: Mapping[str, Any] | None, release: Release

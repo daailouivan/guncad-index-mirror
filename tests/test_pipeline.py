@@ -124,6 +124,10 @@ class MirrorPipelineTests(unittest.TestCase):
         self.assertEqual(pipeline.process(release), "ready")
         self.assertEqual(acquirer.acquire.call_count, 4)
 
+        torrent_path.write_bytes(b"nonempty corruption")
+        self.assertEqual(pipeline.process(release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 5)
+
         payload.write_bytes(b"x")
 
         def restore_payload(*_args: object) -> Path:
@@ -132,18 +136,18 @@ class MirrorPipelineTests(unittest.TestCase):
 
         acquirer.acquire.side_effect = restore_payload
         self.assertEqual(pipeline.process(release), "ready")
-        self.assertEqual(acquirer.acquire.call_count, 5)
+        self.assertEqual(acquirer.acquire.call_count, 6)
 
         renamed_release = make_release(content, name="Renamed Release")
         self.assertEqual(pipeline.process(renamed_release), "ready")
-        self.assertEqual(acquirer.acquire.call_count, 6)
+        self.assertEqual(acquirer.acquire.call_count, 7)
         self.assertEqual(
             json.loads(manifest_path.read_text())["release"]["name"],
             "Renamed Release",
         )
         self.assertEqual(
             self.store.get(release.id, release.sd_hash).attempts,
-            6,
+            7,
         )
 
     def test_identical_payloads_keep_distinct_publication_jobs(self) -> None:

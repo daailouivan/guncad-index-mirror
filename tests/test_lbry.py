@@ -87,6 +87,17 @@ class LbryClientTests(unittest.TestCase):
             with self.assertRaisesRegex(LbryError, "after 2 attempts"):
                 client.call("status")
 
+        one_shot = LbryClient(
+            "http://lbry:5279",
+            attempts=5,
+            backoff=0,
+            session=QueueSession(requests.ConnectionError("nope")),
+        )
+        with self.assertRaisesRegex(LbryError, "after 1 attempts"):
+            one_shot.call("status", attempts=1)
+        with self.assertRaisesRegex(ValueError, "positive"):
+            one_shot.call("status", attempts=0)
+
     def test_optional_method_absence_is_not_retried(self) -> None:
         session = QueueSession(
             FakeResponse(
@@ -298,7 +309,14 @@ class LbryAcquirerTests(unittest.TestCase):
             self._acquirer(
                 client, download_timeout=2, monotonic=lambda: next(ticks)
             ).acquire(self.release, self.root / "release")
-        self.assertEqual(client.call.call_count, 2)
+        self.assertEqual(client.call.call_count, 3)
+        method, params = client.call.call_args.args
+        self.assertEqual(method, "file_set_status")
+        self.assertEqual(
+            params,
+            {"status": "stop", "sd_hash": self.release.sd_hash},
+        )
+        self.assertEqual(client.call.call_args.kwargs["attempts"], 1)
 
     def test_completed_entry_must_be_safe_real_and_exact_size(self) -> None:
         valid = self.root / "valid.zip"

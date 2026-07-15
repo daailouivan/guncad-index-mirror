@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -158,13 +159,17 @@ class MirrorPipeline:
         file_path = job.file_path
         torrent_path = job.torrent_path
         sha384 = job.sha384
+        sha256 = job.sha256
         info_hash = job.info_hash
+        magnet_uri = job.magnet_uri
         if (
             not file_path
             or not torrent_path
             or not sha384
             or sha384 != release.sha384
+            or not sha256
             or not info_hash
+            or not magnet_uri
         ):
             return False
         manifest = (
@@ -208,9 +213,19 @@ class MirrorPipeline:
                 and lbry_document.get("sd_hash") == release.sd_hash
                 and lbry_document.get("claimed_sha384") == release.sha384
                 and artifact_document.get("size") == release.size
+                and artifact_document.get("file_name") == safe_file.name
                 and artifact_document.get("sha384") == release.sha384
+                and artifact_document.get("sha256") == sha256
                 and torrent_document.get("btih") == info_hash
                 and torrent_document.get("file_name") == safe_torrent.name
+                and torrent_document.get("piece_length")
+                == self.settings.torrent_piece_length
+                and torrent_document.get("piece_count")
+                == _piece_count(release.size, self.settings.torrent_piece_length)
+                and torrent_document.get("magnet_uri") == magnet_uri
+                and torrent_document.get("trackers")
+                == list(self.settings.torrent_trackers)
+                and torrent_document.get("sha256") == _sha256_file(safe_torrent)
             )
         except (OSError, RuntimeError, UnicodeError, ValueError, TypeError):
             return False
@@ -239,3 +254,15 @@ def _atomic_json(path: Path, value: object) -> None:
         temp.flush()
         os.fsync(temp.fileno())
     temporary_path.replace(path)
+
+
+def _piece_count(size: int, piece_length: int) -> int:
+    return (size + piece_length - 1) // piece_length
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024**2):
+            digest.update(chunk)
+    return digest.hexdigest()

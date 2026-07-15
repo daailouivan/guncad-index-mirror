@@ -28,6 +28,8 @@ Unsupported origins, including Printables, are logged and skipped. A malformed r
 
 Mirror needs a persistent `/data` volume. A complete LBRY evacuation stores both encrypted blobs and assembled plaintext, so budget close to twice the advertised Index payload corpus. Do not put `/data` on an ephemeral container layer.
 
+The container runs as UID 1000 after creating the top-level data directories. Existing bind-mounted data must be writable by that UID. Startup does not recursively change ownership because doing so would walk the entire archive on every restart.
+
 The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. Forward those ports if this node should contribute data to other LBRY peers. The web UI is exposed on host port 8081 by the supplied Compose file.
 
 ```bash

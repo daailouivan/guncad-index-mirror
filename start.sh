@@ -21,9 +21,19 @@ fi
 # When we drop privs we'll just reexec the script as the target user, specified above
 if [ "$(id -u)" -eq "0" ]; then
 	echo "Running as root -- doing some preambulatory configuration"
-	echo "  Changing ownership of /data..."
-	mkdir -p /var/lib/logrotate
-	chown -R "$targetuser": /data /home/"$targetuser" /var/lib/logrotate
+	echo "  Preparing writable data roots..."
+	mkdir -p /data/lbry /data/log /data/outbox /data/releases /var/lib/logrotate
+	# Every file created by Mirror already belongs to UID 1000. Recursively
+	# walking a hundreds-of-GB archive on every restart is both unnecessary and
+	# catastrophically slow, so only repair the directories we must write into.
+	chown "$targetuser:$targetuser" \
+		/data \
+		/data/lbry \
+		/data/log \
+		/data/outbox \
+		/data/releases \
+		/home/"$targetuser" \
+		/var/lib/logrotate
 	ls -alh /data
 	echo "Pivoting to $targetuser"
 	printf "Current args:"
@@ -80,6 +90,43 @@ cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_setti
 
 lbrynet_pid_file="/tmp/guncad-mirror-lbrynet.pid"
 lbrynet_supervisor_pid=""
+logrotate_pid=""
+
+rotate_logs() {
+	set +e
+	stop_requested=0
+	sleep_pid=""
+
+	# shellcheck disable=SC2329  # Called indirectly by the signal trap below.
+	request_stop() {
+		stop_requested=1
+		if [ -n "$sleep_pid" ] && kill -0 "$sleep_pid" 2>/dev/null; then
+			kill -TERM "$sleep_pid" 2>/dev/null
+		fi
+	}
+
+	trap request_stop TERM INT HUP
+
+	while [ "$stop_requested" -eq 0 ]; do
+		if ! logrotate /etc/logrotate.d/lbrynet; then
+			echo "logrotate failed; retrying in one hour" >&2
+		fi
+		if [ "$stop_requested" -ne 0 ]; then
+			break
+		fi
+
+		sleep 3600 &
+		sleep_pid=$!
+		while true; do
+			wait "$sleep_pid"
+			# A trapped signal interrupts wait before sleep necessarily exits.
+			if ! kill -0 "$sleep_pid" 2>/dev/null; then
+				break
+			fi
+		done
+		sleep_pid=""
+	done
+}
 
 supervise_lbrynet() {
 	set +e
@@ -109,7 +156,6 @@ supervise_lbrynet() {
 	trap request_stop TERM INT HUP
 
 	while [ "$stop_requested" -eq 0 ]; do
-		logrotate -f /etc/logrotate.d/lbrynet
 		lbrynet start \
 			--no-save-files \
 			--no-share-usage-data \
@@ -137,6 +183,11 @@ supervise_lbrynet() {
 stop_lbrynet() {
 	app_status=$?
 	trap - EXIT INT TERM HUP
+
+	if [ -n "$logrotate_pid" ] && kill -0 "$logrotate_pid" 2>/dev/null; then
+		kill -TERM "$logrotate_pid" 2>/dev/null || true
+		wait "$logrotate_pid" 2>/dev/null || true
+	fi
 
 	if [ -n "$lbrynet_supervisor_pid" ] && kill -0 "$lbrynet_supervisor_pid" 2>/dev/null; then
 		echo "Stopping lbrynet and flushing its persistent state"
@@ -167,6 +218,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
+rotate_logs &
+logrotate_pid=$!
 supervise_lbrynet &
 lbrynet_supervisor_pid=$!
 
