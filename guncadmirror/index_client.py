@@ -66,7 +66,7 @@ class IndexClient:
                 try:
                     release = Release.from_api(raw_release)
                 except UnsupportedOriginError as error:
-                    self.logger.info("Skipping Index release: %s", error)
+                    self.logger.debug("Skipping Index release: %s", error)
                     continue
                 except ReleaseValidationError as error:
                     self.logger.error("Skipping malformed Index release: %s", error)

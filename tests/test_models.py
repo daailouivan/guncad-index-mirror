@@ -46,6 +46,18 @@ class ReleaseTests(unittest.TestCase):
         ):
             Release.from_api(payload)
 
+    def test_accepts_lbry_only_release_without_an_odysee_link(self) -> None:
+        payload = release_payload()
+        payload["origin"]["links"] = [  # type: ignore[index]
+            {"name": "Cannot be viewed on Odysee"},
+            {"name": "LBRY Desktop", "url": "lbry://release#r"},
+        ]
+
+        release = Release.from_api(payload)
+
+        self.assertIsNone(release.url)
+        self.assertEqual(release.url_lbry, "lbry://release#r")
+
     def test_rejects_malformed_v2_lbry_releases(self) -> None:
         valid = release_payload()
         cases: list[tuple[object, str]] = []
@@ -73,13 +85,13 @@ class ReleaseTests(unittest.TestCase):
                 (changed(("origin", "size"), True), "origin size"),
                 (changed(("origin", "size"), 0), "origin size"),
                 (changed(("origin", "links"), None), "origin links"),
-                (changed(("origin", "links"), []), "HTTP"),
+                (changed(("origin", "links"), []), "LBRY"),
                 (
                     changed(
                         ("origin", "links"),
                         [{"url": "https://user:pass@odysee.example/release"}],
                     ),
-                    "HTTP",
+                    "LBRY",
                 ),
                 (
                     changed(

@@ -31,7 +31,7 @@ class IndexClientTests(unittest.TestCase):
             self.endpoint, max_pages=2, max_releases=None, session=session
         )
 
-        with self.assertLogs("guncad-mirror.index", level="INFO") as logs:
+        with self.assertLogs("guncad-mirror.index", level="DEBUG") as logs:
             releases = list(client.releases())
 
         self.assertEqual([release.name for release in releases], ["First", "Second"])

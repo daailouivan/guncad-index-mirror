@@ -14,7 +14,7 @@ It is not a replacement for a BitTorrent client. It does not seed the generated 
 
 For every valid API v2 release whose `origin.platform` is `lbry`, Mirror performs these steps:
 
-1. Validate the claim ID, `sd_hash`, payload SHA-384, size, channel, and source links.
+1. Validate the claim ID, `sd_hash`, payload SHA-384, size, channel, and LBRY source link. An Odysee HTTP link is retained when present but is not required.
 2. Acquire the stream directly by `sd_hash` through the patched lbry-sdk daemon packaged in the container.
 3. Assemble the plaintext file under `/data/releases`.
 4. Verify exact size and SHA-384. Mirror also records SHA-256 for downstream tooling.
@@ -22,7 +22,7 @@ For every valid API v2 release whose `origin.platform` is `lbry`, Mirror perform
 6. Atomically write the torrent and `manifest.json` under `/data/outbox`.
 7. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
 
-Unsupported origins, including Printables, are logged and skipped. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
+Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that cannot be viewed on Odysee remain eligible because Mirror acquires them by `sd_hash`. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
 ## Quick start
 

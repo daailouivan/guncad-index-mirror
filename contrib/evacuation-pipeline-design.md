@@ -48,10 +48,10 @@ Mirror currently accepts GunCAD Index API v2 records only. A supported record mu
 - a 96-character lowercase `origin.extra.sd_hash`;
 - a 96-character lowercase plaintext SHA-384 in `origin.checksum`;
 - a positive integer `origin.size`;
-- an HTTP or HTTPS source link and an LBRY source link;
+- an LBRY source link; an HTTP or HTTPS Odysee link is retained when present but may be absent for LBRY-only claims;
 - a non-empty release name and channel handle.
 
-Printables and other origins are expected in API v2 responses. They are skipped at INFO level before LBRY-specific fields are evaluated. Malformed LBRY rows are logged as errors and isolated from valid rows.
+Printables and other origins are expected in API v2 responses. They are skipped at DEBUG level before LBRY-specific fields are evaluated. Malformed LBRY rows are logged as errors and isolated from valid rows.
 
 The implemented sequence is:
 

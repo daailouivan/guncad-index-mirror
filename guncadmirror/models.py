@@ -32,7 +32,7 @@ class JobState(StrEnum):
 class Release:
     id: str
     name: str
-    url: str
+    url: str | None
     url_lbry: str
     channel_handle: str
     sd_hash: str
@@ -84,7 +84,7 @@ class Release:
         links = origin.get("links")
         if not isinstance(links, list):
             raise ReleaseValidationError("release origin links must be a list")
-        url = _link_for_schemes(links, ("https", "http"), "HTTP(S)")
+        url = _optional_link_for_schemes(links, ("https", "http"))
         url_lbry = unquote(_link_for_schemes(links, ("lbry",), "LBRY"))
 
         return cls(
@@ -138,6 +138,15 @@ def _required_string(value: Mapping[str, Any], key: str) -> str:
 
 
 def _link_for_schemes(links: list[Any], schemes: tuple[str, ...], label: str) -> str:
+    result = _optional_link_for_schemes(links, schemes)
+    if result is not None:
+        return result
+    raise ReleaseValidationError(f"release origin has no valid {label} link")
+
+
+def _optional_link_for_schemes(
+    links: list[Any], schemes: tuple[str, ...]
+) -> str | None:
     for scheme in schemes:
         for link in links:
             if not isinstance(link, Mapping):
@@ -150,4 +159,4 @@ def _link_for_schemes(links: list[Any], schemes: tuple[str, ...], label: str) ->
                 if parsed.username or parsed.password:
                     continue
                 return url
-    raise ReleaseValidationError(f"release origin has no valid {label} link")
+    return None

@@ -10,6 +10,7 @@
 * Keep lbrynet log writes in append mode so `copytruncate` rotation cannot create sparse holes
 * Keep production logging at `INFO`; the bounded smoke test remains verbose
 * Move image build metadata after runtime dependency layers so ordinary commits retain the package cache
+* Accept LBRY-only Index rows without an Odysee HTTP link and silence expected non-LBRY skips at production log level
 * Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
 * Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit
