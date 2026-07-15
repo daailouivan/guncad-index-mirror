@@ -13,6 +13,7 @@
 * Accept LBRY-only Index rows without an Odysee HTTP link and silence expected non-LBRY skips at production log level
 * Preserve legacy claims without advertised size/checksum while keeping computed and independently claimed evidence distinct
 * Add a range-resumable Odysee CDN recovery transport that requires exact claim, descriptor, size, and plaintext-hash agreement after LBRY failure
+* Add a read-only archive audit that emits summary, artifact, failure, and integrity-issue reports, with an optional full payload rehash
 * Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
 * Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit

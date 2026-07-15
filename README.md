@@ -99,6 +99,7 @@ Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` 
 | `/data/releases/<channel>/<release>-<sd-prefix>/` | Assembled plaintext payload and the raw API v2 `release.json`. |
 | `/data/outbox/<release-id>/<sd-hash>/` | Deterministic `.torrent` file and `manifest.json` prepared for the future Index publication API. |
 | `/data/mirror-state.sqlite3` | Durable job state, attempts, retry deadlines, verified hashes, torrent paths, BTIH values, and magnet URIs. |
+| `/data/reports` | Consolidated archive audit output when `python -m guncadmirror.audit` is run. |
 | `/data/log` | Mirror and lbrynet logs. |
 
 Do not delete `/data/lbry` to clear a failed job. Delete or repair only the affected release/outbox artifacts, then let the next cycle retry. Removing LBRY state forces a chain-header sync and discards useful blobs.
@@ -150,6 +151,29 @@ pending -> acquiring -> verified -> awaiting_index
 `awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
 
 The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. On termination, Tini forwards the container signal and the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
+
+## Archive inventory and integrity audit
+
+Mirror can consolidate the SQLite ledger and per-release manifests into four operator-facing files:
+
+- `archive-summary.json`: counts, bytes, unique payloads, evidence classes, transports, and integrity totals.
+- `archive-artifacts.csv`: one row per `awaiting_index` job, including hashes, paths, BTIH, magnet URI, and acquisition evidence.
+- `archive-failures.csv`: typed acquisition failures and retry state.
+- `archive-issues.csv`: missing files, path escapes, manifest contradictions, hash failures, unfinished jobs, and orphaned outbox files.
+
+Run the fast audit after a scan reaches its sleep interval:
+
+```bash
+python -m guncadmirror.audit --data-dir /data
+```
+
+The fast pass validates the ledger, paths, file sizes, manifests, magnets, and SHA-256 of every torrent. It does not reread every assembled payload. Use `--rehash` for a bit-rot scrub that recomputes SHA-384 and SHA-256 over the complete plaintext corpus:
+
+```bash
+python -m guncadmirror.audit --data-dir /data --rehash
+```
+
+Reports are written atomically under `/data/reports` by default. The audit opens Mirror's database read-only and never changes job state. A concurrent acquisition is safe, but it is reported as unfinished; run after a completed scan for a stable catalog census.
 
 ## What the hashes mean
 
