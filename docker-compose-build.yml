@@ -4,10 +4,10 @@ services:
     env_file: guncad-mirror.env
     environment:
       MIRROR_API_ENDPOINT: "${MIRROR_SMOKE_API_ENDPOINT:?contrib/test-docker.sh must set a narrow API query}"
-      MIRROR_API_MAX_PAGES: "${MIRROR_API_MAX_PAGES:-2}"
+      MIRROR_API_MAX_PAGES: "${MIRROR_SMOKE_MAX_PAGES:-2}"
       MIRROR_ENABLE_WEBUI: "false"
       MIRROR_MAX_RELEASES_PER_RUN: "${MIRROR_SMOKE_RELEASES:-1}"
-      MIRROR_MIN_FREE_SPACE: "${MIRROR_MIN_FREE_SPACE:-1073741824}"
+      MIRROR_MIN_FREE_SPACE: "${MIRROR_SMOKE_MIN_FREE_SPACE:-1073741824}"
     command:
       - "-v"
       - "--once"

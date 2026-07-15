@@ -1,157 +1,174 @@
 # GunCAD Mirror
 
-> [!warning]
-> We have yet to have a first release, this is all draft shit. Don't take it at its word.
+> [!WARNING]
+> GunCAD Mirror has not had a stable release. Its current publication boundary is a local outbox. It does not upload torrents to GunCAD Index yet.
 
-> [!warning]
-> This software downloads and redistributes 3D printable gun designs. If possession and/or distribution of those files is illegal in your jurisdiction, please refrain from running this software.
->
-> Additionally, some files obtained via this software may be export-controlled. The user is responsible for ensuring they do not violate any export regulations.
+> [!WARNING]
+> This software downloads and prepares redistribution metadata for 3D-printable firearm files. Possession, export, or distribution may be illegal where you live. The operator is responsible for complying with applicable law.
 
-GunCAD Mirror is a small piece of software that watches out for content on a GunCAD Index instance and mirrors it, offering it to the LBRY network for increased resiliency and redundancy.
+GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD Index API v2 releases, downloads each supported LBRY stream by its stream descriptor hash, verifies the assembled bytes against the Index checksum and size, and writes deterministic BitTorrent v1 artifacts.
 
-[TOC]
+It is not a replacement for a BitTorrent client. It does not seed the generated torrents. The intended post-Odysee seeder is an ordinary client such as qBittorrent or Transmission, eventually fed by a query-filterable torrent RSS feed from GunCAD Index.
 
-## Quickstart
+## Current data path
 
->>> [!important]
-You are going to have to port-forward these at your router no matter which route you take:
+For every valid API v2 release whose `origin.platform` is `lbry`, Mirror performs these steps:
 
-* 5567 TCP
-* 4444 TCP & UDP
->>>
+1. Validate the claim ID, `sd_hash`, payload SHA-384, size, channel, and source links.
+2. Acquire the stream directly by `sd_hash` through the patched lbry-sdk daemon packaged in the container.
+3. Assemble the plaintext file under `/data/releases`.
+4. Verify exact size and SHA-384. Mirror also records SHA-256 for downstream tooling.
+5. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
+6. Atomically write the torrent and `manifest.json` under `/data/outbox`.
+7. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
 
-Select your preferred deployment method below and follow it. Afterward, view the web UI at `http://localhost:8081` (or whatever your IP is) to view its status. It'll transition pretty quickly from "Waiting for LBRY" to "Mirroring (something)".
+Unsupported origins, including Printables, are logged and skipped. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
+## Quick start
 
-### Unraid
+Mirror needs a persistent `/data` volume. A complete LBRY evacuation stores both encrypted blobs and assembled plaintext, so budget close to twice the advertised Index payload corpus. Do not put `/data` on an ephemeral container layer.
 
-> [!important]
-> The Unraid template is **community-contributed**. Additionally, ensure you also forward ports at your router. See [Quickstart](#quickstart)
-
-Download the [GunCAD-Mirror-Unraid.xml](/GunCAD-Mirror-Unraid.xml) template file and move it to the `/boot/config/plugins/dockerMan/templates-user` directory on your Unraid server.
-
-Once the file is in place, go to the "Docker" tab in the Unraid Web UI and click "Add Container" at the bottom of the page. From the Template dropdown menu, select GunCAD-Mirror-Unraid, then configure the container using the settings provided below.
-
-### Docker Compose
-
-> [!important]
-> Ensure you also forward ports at your router. See [Quickstart](#quickstart)
-
-Clone the repo and pull 'er up:
+The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. Forward those ports if this node should contribute data to other LBRY peers. The web UI is exposed on host port 8081 by the supplied Compose file.
 
 ```bash
-docker compose --env-file guncad-mirror.env up
+docker compose --env-file guncad-mirror.env up -d
 ```
 
-You can also use `docker-compose-build.yml` instead of `docker-compose.yml` if you're interested in running bleeding-edge builds or want to hack on it.
-
-This file is also verifiably compatible with Podman.
-
-### Docker
-
-> [!important]
-> Ensure you also forward ports at your router. See [Quickstart](#quickstart)
-
-Spin up a container. You can omit `-p 8081:5000/tcp` and `-e MIRROR_ENABLE_WEBUI=True` if you don't want the web UI, and should set `TZ` to be your timezone [according to this list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
+Podman Compose can use the same file:
 
 ```bash
-docker run \
-    --detach \
-    --name guncad-mirror \
-    -e TZ="America/Chicago" \
-    -e MIRROR_ENABLE_WEBUI=True \
-    -v guncad-mirror:/data \
-    -p 8081:5000/tcp \
-    -p 5567:5567/tcp \
-    -p 4444:4444/tcp \
-    -p 4444:4444/udp \
-    registry.gitlab.com/guncad-index/mirror:latest
+podman compose --env-file guncad-mirror.env up -d
 ```
 
-This command is also verifiably compatible with Podman.
+The default endpoint scans the full GunCAD Index API v2 catalog. Edit `MIRROR_API_ENDPOINT` in `guncad-mirror.env` before startup if you want a filtered mirror.
 
-## Detailed Configuration
+### Running the local development image
 
-Here are the volume mountpoints you're probably interested in. If you mount `/data` you're good:
+Build and tag the current checkout:
 
-| Mountpoint | Description |
-| ---------- | ----------- |
-| `/data/lbry` | All LBRY blobs and configuration. This is the core data used in mirroring content. |
-| `/data/log` | All logs, both from LBRY and GunCAD Mirror. |
-| `/data/mirror` | Metadata generated by GunCAD Mirror and any files saved via the `MIRROR_ASSEMBLE_FILES` envvar. Sorted by `/data/mirror/channelname#a/releasename#a`. |
-| `/data/sd_hash_cache.pkl` | A cache of seen `sd_hash`es used to prevent lbrynet from doing unnecessary writes. Can be deleted if you ever need to without much consequence, but you shouldn't have to. |
-
-And here are some envvars you can use to configure the instance:
-
-| Environment Variable | Description | Default Value |
-| -------------------- | ----------- | ------------- |
-| `MIRROR_API_ENDPOINT` | The URL to the `releases` API endpoint of a GunCAD Index instance to monitor. The default value is the primary production instance, but you can configure this to point to a private/alternative/development instance. You can also add a query here to filter your results (ex. `?query=ar-15`). | `https://guncadindex.com/api/releases` |
-| `MIRROR_ASSEMBLE_FILES` | Set this variable to assemble files. By default, the Mirror only stores blobs, as that's the native unit of reflecting a file back out to LBRY. If you'd like to have the files -- for your own archival or so you can automatically mirror them elsewhere, you can turn this feature on. Be warned that doing so **DOUBLES YOUR DISK USAGE**. | Unset |
-| `MIRROR_BLACKLISTED_HANDLES` | Set this variable to a colon-separated list of handles (ex. `someguy#a:someoneelse:somethirdguy#b15`) that you'd like to ignore. Uploads from those channels will be ignored. | Unset |
-| `MIRROR_ENABLE_WEBUI` | Set this variable to enable a lightweight web UI for monitoring. | Unset |
-| `MIRROR_RELEASE_MAX_SIZE` | The maximum size of a release (in bytes) we're comfortable mirroring. Any file above this size will be ignored. If unset or set to `0`, this feature is disabled. | `10737418240` (10GB) |
-
-## FAQ
-
-**Q: I need help! Where do I go?**
-
-A: Hit up the Matrix space: https://matrix.to/#/#guncad-index:matrix.org
-
-**Q: How much traffic should I expect?**
-
-A: While Odysee is still alive? Very little, except to those who are also using GunCAD Mirror. If Odysee ever kicks the bucket? Hard to tell, but it won't be bad for most residential connections.
-
-**Q: How much does disk usage grow by over time?**
-
-A: On average, the GunCAD Index sees about 4 releases per day, with an average size of ~30MB (excluding outliers). This results in a growth rate somewhere in the ballpark of ~3.6GiB/mo. This figure has pretty high volatility in the short term -- if we discover a new channel, you could get 50 releases in a day.
-
-**Q: My instance says it's in "LBRY-only mode" -- what is that and why is it happening?**
-
-A: In the event that GunCAD Mirror is not able to talk to the GunCAD Index -- be it because you misconfigured the settings, because the instance is down, or because your search API query returned no releases (which we interpret as misbehavior and assume the site is malfunctioning) -- GunCAD Mirror will recognize the situation and fall back to doing its own query against the LBRY blockchain to find GunCAD content. Double-check that the site is up (especially if you're self-hosting an Index instance) and that your `MIRROR_API_ENDPOINT` does actually return at least one release; visit it in your web browser to confirm.
-
-**Q: How do I construct queries for `MIRROR_API_ENDPOINT` to only mirror some things but not others?**
-
-A: Pretty simple. First, go to [GunCAD Index](https://guncadindex.com) and type in a search. For the sake of example, let's search up `ar-15`. This directs us to a page with this URL:
-
-```
-https://guncadindex.com/search?query=ar-15&format=list&sort=rank
+```bash
+podman build --tag localhost/guncad-mirror:codex .
 ```
 
-The `format` query arg can be ignored, but the other two are important. Simply attach them to the end of the API endpoint for releases -- in this case, `https://guncadindex.com/api/releases`:
+Then select that image and a named data volume:
 
+```bash
+MIRROR_IMAGE=localhost/guncad-mirror:codex \
+MIRROR_DATA_VOLUME=guncad-mirror-data \
+podman compose --env-file guncad-mirror.env up -d
 ```
-https://guncadindex.com/api/releases?query=ar-15&sort=rank
+
+To reuse the data produced by `contrib/test-docker.sh`, set `MIRROR_DATA_VOLUME` to the smoke volume's exact name. Never attach the same Mirror data volume to two running containers. Both lbrynet and Mirror keep SQLite databases there.
+
+### Narrow live smoke test
+
+`contrib/test-docker.sh` builds the checkout and runs one release from a hard-coded, mixed-origin API query. The script refuses endpoints without a `query=` parameter. It uses a separate persistent volume so subsequent tests do not resync LBRY headers.
+
+```bash
+./contrib/test-docker.sh
 ```
 
-Take that value and stuff it in `MIRROR_API_ENDPOINT` to mirror just those search results.
+Do not turn that script into a full-corpus runner. Use the production Compose file for a long-running backfill.
 
-This supports all constructors you can use on the main website, so if you wanted to exclude certain categories of content, you could do so by searching `-glock` or whatever and using those params with the API.
+## Filtering the Index
 
-**Q: I turned `MIRROR_ASSEMBLE_FILES` on and have decided that was a bad idea. What do I do?**
+GunCAD Index search parameters work on the API v2 releases endpoint. Build a search in the Index UI, then apply its `query` and `sort` parameters to `/api/v2/releases/`.
 
-A: Delete all files from `/data/mirror` that are not `.json` files or directories. In a pinch, you can nuke the whole directory -- it will be regenerated. Under **no circumstances** should you **ever** do the same for `/data/lbry` -- you will nuke the data you want to mirror and resyncing it will take forever.
+For example, this UI search:
 
-**Q: I didn't turn `MIRROR_ASSEMBLE_FILES` on and want to do so. Can I turn it on after the fact?**
+```text
+https://guncadindex.com/search?query=channel%3A%22%40Decimal_Dot%3Ad%22&sort=rank
+```
 
-A: Yes! If you do so, LBRY will rapidly (and I mean *rapidly*) assemble files using your cached blobs.
+becomes:
 
-**Q: I set `MIRROR_ASSEMBLE_FILES` but I'm not getting anything! Why?**
+```text
+https://guncadindex.com/api/v2/releases/?format=json&limit=100&query=channel%3A%22%40Decimal_Dot%3Ad%22&sort=rank
+```
 
-A: Set it to some variable that's obviously truthy, like `True`. There's a narrow set we accept, otherwise we default to `False`.
+Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` and `MIRROR_MAX_RELEASES_PER_RUN` provide separate bounds for testing and staged deployment.
 
-**Q: Why is my downloaded collection smaller than the size on the Index?**
+## Data layout
 
-A: We have `MIRROR_RELEASE_MAX_SIZE` turned on by default, as there can be some pretty huge outliers at the far end of the dataset. If you'd like to download them too, set this envvar to `0`.
+| Path | Contents |
+| --- | --- |
+| `/data/lbry` | lbrynet configuration, chain headers, stream database, stream descriptors, and encrypted blobs. Preserve this directory between runs. |
+| `/data/releases/<channel>/<release>-<sd-prefix>/` | Assembled plaintext payload and the raw API v2 `release.json`. |
+| `/data/outbox/<release-id>/<sd-hash>/` | Deterministic `.torrent` file and `manifest.json` prepared for the future Index publication API. |
+| `/data/mirror-state.sqlite3` | Durable job state, attempts, retry deadlines, verified hashes, torrent paths, BTIH values, and magnet URIs. |
+| `/data/log` | Mirror and lbrynet logs. |
 
-**Q: Can I set this up behind a VPN?**
+Do not delete `/data/lbry` to clear a failed job. Delete or repair only the affected release/outbox artifacts, then let the next cycle retry. Removing LBRY state forces a chain-header sync and discards useful blobs.
 
-A: You *must* be able to port-forward, and your external ports *must* match the defaults. Unless you're hosting your own VPN, this is going to be a tough ask. If you're able to do so, consider plumbing traffic through something like [gluetun](https://github.com/qdm12/gluetun).
+## Configuration
 
-## License
+All byte values are integers. All time values are seconds. Boolean values accept `true`, `false`, `1`, `0`, `yes`, `no`, `on`, and `off`, without regard to case.
 
-This software is distributed under the terms of the [GNU Affero General Public License](/LICENSE.md).
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `MIRROR_API_ENDPOINT` | `https://guncadindex.com/api/v2/releases/?format=json&limit=100` | API v2 release list or filtered search. Embedded credentials are rejected. |
+| `MIRROR_API_MAX_PAGES` | `1000` | Maximum pages followed in one scan. |
+| `MIRROR_MAX_RELEASES_PER_RUN` | `0` | Maximum supported releases yielded per scan. Zero disables the cap. |
+| `MIRROR_LBRY_URL` | `http://127.0.0.1:5279` | lbrynet JSON-RPC endpoint. |
+| `MIRROR_BLACKLISTED_HANDLES` | empty | Comma-separated channel-handle prefixes. Replace the claim delimiter `:` with `#`, as in `@author#a`. |
+| `MIRROR_RELEASE_MAX_SIZE` | `10737418240` | Maximum accepted payload size. Zero disables the limit. |
+| `MIRROR_MIN_FREE_SPACE` | `5368709120` | Bytes reserved after budgeting for blobs and plaintext. |
+| `MIRROR_LOOP_INTERVAL` | `14400` | Delay between completed scans. |
+| `MIRROR_LBRY_STARTUP_TIMEOUT` | `300` | Deadline for required lbrynet components to start. |
+| `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | Deadline for one stream acquisition. |
+| `MIRROR_DOWNLOAD_POLL_INTERVAL` | `2` | Delay between completion checks. |
+| `MIRROR_RETRY_ATTEMPTS` | `5` | HTTP and JSON-RPC attempts per operation. |
+| `MIRROR_RETRY_BACKOFF` | `2` | Initial exponential-backoff delay. |
+| `MIRROR_ENABLE_WEBUI` | `false` | Serve the local status page on container port 5000. |
+| `MIRROR_TORRENT_PIECE_LENGTH` | `1048576` | BitTorrent v1 piece length. Must be a power of two and at least 16 KiB. |
+| `MIRROR_TORRENT_TRACKERS` | empty | Comma-separated HTTP, HTTPS, or UDP announce URLs. Empty creates trackerless metainfo. |
 
-### Third-Party Licenses
+The command-line entry point also accepts:
 
-"IBM Plex Sans" and "IBM Plex Mono" Copyright © 2017 IBM Corp. with Reserved Font Name "Plex" licensed under the terms of [SIL Open Font License, Version 1.1](https://openfontlicense.org/open-font-license-official-text/)
+| Argument | Effect |
+| --- | --- |
+| `-v`, `--verbose` | Enable debug logging. |
+| `--once` | Run one Index scan and exit. |
+| `--max-releases N` | Override the environment release cap for this process. |
+
+## Durable states and retries
+
+Each job is keyed by `(release_id, sd_hash)`. The current state machine is:
+
+```text
+pending -> acquiring -> verified -> awaiting_index
+                   +-> failed -> acquiring (after backoff)
+```
+
+`awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
+
+The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. Process termination waits for the current operation where possible, while Tini forwards container signals to both Mirror and lbrynet.
+
+## What the hashes mean
+
+The LBRY `sd_hash` addresses one encrypted stream descriptor. It is not the canonical identity of the plaintext file. The same plaintext can have multiple valid stream descriptors because encryption material and stream metadata can differ.
+
+Mirror therefore keeps three separate identifiers:
+
+- Index release ID: metadata/job identity.
+- LBRY `sd_hash`: acquisition identity for one encrypted stream.
+- Index `origin.checksum`: expected SHA-384 of the assembled plaintext.
+
+The torrent BTIH is computed from canonical bencoding of the BitTorrent v1 `info` dictionary. The outbox manifest also records SHA-256 of the plaintext and torrent file.
+
+## Known limits
+
+- Mirror does not POST to GunCAD Index. The outbox is the handoff point for that future work.
+- Mirror does not run a BitTorrent client or seed generated torrents.
+- The patched RPC removes claim resolution from normal acquisition, but lbry-sdk's file manager still depends on wallet startup. A fresh data volume therefore pays the LBRY chain-header sync before downloads begin.
+- When connected to an unpatched stock daemon, Mirror falls back to claim URI resolution only if `stream_get` is absent. It rejects the result if the resolved `sd_hash` differs from the Index value.
+- Normal scans check that completed artifacts still exist. They do not perform a scheduled full-corpus bit-rot scrub.
+- The container's patched legacy lbrynet build is currently amd64-only.
+
+The immediate migration design and remaining Index work are recorded in [contrib/evacuation-pipeline-design.md](contrib/evacuation-pipeline-design.md).
+
+## Support and license
+
+For operator help, join the [GunCAD Index Matrix space](https://matrix.to/#/#guncad-index:matrix.org).
+
+GunCAD Mirror is distributed under the [GNU Affero General Public License](LICENSE.md). The bundled IBM Plex fonts remain under the SIL Open Font License 1.1.

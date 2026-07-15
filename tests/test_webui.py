@@ -22,12 +22,21 @@ class WebUiTests(unittest.TestCase):
         self.collector.snapshot.return_value = {
             "version": "test-ref",
             "mirror_state": "Sleeping",
-            "mirror_api_endpoint": "https://index.example/api/releases/",
+            "mirror_api_endpoint": "https://index.example/api/v2/releases/",
+            "mirror_api_max_pages": 2,
+            "mirror_max_releases_per_run": None,
+            "mirror_lbry_url": "http://127.0.0.1:5279",
             "mirror_enable_webui": True,
+            "mirror_blacklisted_handles": (),
             "mirror_release_max_size": 1024,
             "mirror_min_free_space": 512,
-            "mirror_api_max_pages": 2,
+            "mirror_loop_interval": 3600,
+            "mirror_download_timeout": 600,
             "mirror_torrent_piece_length": 1024**2,
+            "mirror_torrent_trackers": (),
+            "mirror_data_dir": "/data",
+            "mirror_releases_dir": "/data/releases",
+            "mirror_outbox_dir": "/data/outbox",
             "disk_space_used": 123,
             "job_counts": {"awaiting_index": 2},
             "known_jobs": 2,
@@ -44,6 +53,10 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"GunCAD Mirror test-ref", response.data)
         self.assertIn(b"Sleeping", response.data)
+        self.assertIn(b"Torrents staged", response.data)
+        self.assertIn(b"Publication stops at the local outbox", response.data)
+        self.assertNotIn(b"LBRY-only mode", response.data)
+        self.assertNotIn(b"Assemble Files", response.data)
 
         with app.app_context():
             humanize_bytes = app.jinja_env.filters["humanize_bytes"]

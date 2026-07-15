@@ -17,7 +17,7 @@ class StatsCollectorTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.settings = Settings(
-            endpoint="https://index.example/api/releases/",
+            endpoint="https://index.example/api/v2/releases/",
             data_dir=self.root,
             enable_webui=True,
         )
@@ -49,6 +49,12 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["psutil_net"], "net")
         self.assertEqual(snapshot["psutil_disk"], "disk")
         self.assertEqual(snapshot["known_jobs"], 0)
+        self.assertEqual(snapshot["mirror_api_max_pages"], 1000)
+        self.assertIsNone(snapshot["mirror_max_releases_per_run"])
+        self.assertEqual(snapshot["mirror_lbry_url"], "http://127.0.0.1:5279")
+        self.assertEqual(snapshot["mirror_blacklisted_handles"], ())
+        self.assertEqual(snapshot["mirror_releases_dir"], str(self.root / "releases"))
+        self.assertEqual(snapshot["mirror_outbox_dir"], str(self.root / "outbox"))
         self.assertIn("hello", snapshot["extralog"][0])
         cpu.assert_called_once_with(interval=None)
         disk.assert_called_once_with(self.root)

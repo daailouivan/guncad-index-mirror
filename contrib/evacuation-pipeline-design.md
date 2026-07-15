@@ -1,0 +1,263 @@
+# Odysee evacuation and torrent handoff design
+
+Status: implementation checkpoint, July 2026
+
+## Why this work moved to the front
+
+[Julian Chandra's departure notice](https://x.com/julianpchandra/status/2077177321531093471) is not proof that Odysee will shut down. It is a credible warning that the people, funding, and plans behind the service have changed again, and that the remaining timetable is unknowable from outside the company.
+
+That distinction matters. Panic would mean declaring the service dead on one post. The justified response is to stop treating Odysee as an indefinite storage guarantee while its API, LBRY peers, and Index records are still available.
+
+The LBRY blockchain is not a safe continuity plan by itself. A small community cannot assume it can keep enough mining hardware online, defend a thinly mined chain from a majority attack, or operate the chain services needed by old clients. The useful part for evacuation is below the claim layer: stream descriptors, encrypted content-addressed blobs, peer discovery, and deterministic plaintext verification after assembly.
+
+GESTALT remains a possible long-term replacement for the metadata and discovery plane. It is not the emergency path. Designing signed actor feeds, social discovery, trust traversal, metadata replication, moderation, and a replacement chain interface is a multi-month project before deployment and migration work begins. The short path uses software the community already runs: GunCAD Index, lbry-sdk, and ordinary BitTorrent clients.
+
+## Decision
+
+Use GunCAD Index as the migration catalog and eventual upload pane. Use GunCAD Mirror as a temporary LBRY extraction and verification tool. Use BitTorrent clients as the post-LBRY distribution layer.
+
+| Component | Immediate responsibility | Post-Odysee responsibility |
+| --- | --- | --- |
+| GunCAD Index | Select releases, retain source metadata and checksums, expose API v2 | Creator identity, upload intake, torrent discovery, query-filtered RSS, public recovery data |
+| GunCAD Mirror | Resolve LBRY stream descriptors, fetch blobs, assemble and verify files, generate torrents | Operate as a legacy migration utility until useful LBRY sources are exhausted |
+| LBRY peers | Supply stream descriptors and encrypted blobs | Declining legacy source pool, with no assumption that the chain remains trustworthy |
+| qBittorrent, Transmission, and similar clients | Optional downstream seeding during migration | Main payload seeding and retrieval system |
+| GESTALT | Design work only | Possible signed metadata, social discovery, and trust layer if the community still needs it |
+
+This does make the Index a discovery and intake dependency at first. It does not make the Index the only holder of payload bytes. The recovery work below is required to keep that distinction real.
+
+## Two separate identities
+
+An LBRY `sd_hash` is not a plaintext file hash. It identifies one encrypted stream descriptor. That descriptor supplies the encryption key and ordered blob references needed to reconstruct a stream. The same plaintext file can have multiple valid descriptors and therefore multiple valid `sd_hash` values.
+
+Mirror treats the identifiers separately:
+
+- The Index release ID identifies the catalog record and migration job.
+- The `sd_hash` identifies one LBRY acquisition route.
+- The Index `origin.checksum` is the expected SHA-384 of the assembled plaintext.
+- The torrent BTIH identifies one BitTorrent `info` dictionary.
+
+This prevents a convenient transport locator from becoming accidental metadata authority. If a creator publishes a release, the creator's future signed feed or verified Index account is authoritative for that release's metadata. LBRY and BitTorrent hashes identify byte representations, not authorship.
+
+## Implemented Mirror boundary
+
+Mirror currently accepts GunCAD Index API v2 records only. A supported record must contain:
+
+- `origin.platform` equal to `lbry`;
+- a 40-character lowercase claim ID, also present as `origin.external_id`;
+- a 96-character lowercase `origin.extra.sd_hash`;
+- a 96-character lowercase plaintext SHA-384 in `origin.checksum`;
+- a positive integer `origin.size`;
+- an HTTP or HTTPS source link and an LBRY source link;
+- a non-empty release name and channel handle.
+
+Printables and other origins are expected in API v2 responses. They are skipped at INFO level before LBRY-specific fields are evaluated. Malformed LBRY rows are logged as errors and isolated from valid rows.
+
+The implemented sequence is:
+
+```text
+Index API v2
+    -> validate one LBRY origin
+    -> register (release_id, sd_hash) in SQLite
+    -> direct stream_get(sd_hash)
+    -> fetch descriptor and encrypted blobs
+    -> decrypt and assemble plaintext
+    -> verify exact size and SHA-384
+    -> record SHA-256
+    -> create BitTorrent v1 metainfo and magnet URI
+    -> atomically write torrent and manifest
+    -> awaiting_index
+```
+
+The final state is named `awaiting_index` on purpose. There is no Index torrent-ingestion endpoint, credential, or POST request in this repository yet. The local outbox is a testable stopping point that prevents an unfinished client from silently publishing data.
+
+## Direct stream acquisition
+
+Stock lbry-sdk exposes claim-oriented `get` calls even though its internal stream classes can start from a descriptor hash. Mirror carries a small patch against the exact lbry-sdk v0.113.0 commit `a2da86d4b576bf316560a123cb568d8e1826d5b3`.
+
+The patch adds `stream_get(sd_hash, ...)` to the daemon. It constructs a managed stream from the descriptor hash, uses the existing DHT, tracker, and fixed-peer downloader, reads the descriptor's encryption material, downloads the referenced blobs, decrypts the stream, writes the plaintext, and registers the stream in the existing file database.
+
+Mirror first calls this RPC. It falls back to claim URI resolution only when the daemon reports JSON-RPC method-not-found. Even then, it compares the returned descriptor hash with the Index value and rejects claim drift.
+
+This removes claim resolution from the normal data path. It does not yet remove every chain startup dependency from lbry-sdk: the daemon's file manager still waits on wallet startup, so a new data volume synchronizes chain headers before the RPC is ready. Persisting `/data/lbry` avoids paying that cost on each container start.
+
+## Verification and torrent rules
+
+Mirror does not consider lbrynet's `finished` string sufficient proof. A completed acquisition must satisfy all of these checks:
+
+- `file_list(sd_hash=...)` returns exactly one matching stream;
+- status is `finished` and `blobs_remaining` is zero;
+- the reported path resolves beneath the configured data root;
+- the file exists and has the exact Index size;
+- a streaming SHA-384 equals the Index checksum.
+
+Mirror then records SHA-256 and creates a single-file BitTorrent v1 torrent. Bencoding dictionaries are sorted bytewise. Piece hashes use SHA-1 because BitTorrent v1 requires it; the plaintext and torrent files retain SHA-384 and SHA-256 checksums outside that legacy field.
+
+Determinism is scoped to the same plaintext bytes, filename, piece length, and tracker list. Operators can choose different piece lengths or filenames and produce different valid BTIH values for the same plaintext. Index must therefore key the handoff by release ID and plaintext checksum, not assume one globally canonical torrent.
+
+The default one-MiB piece length makes the observed 25,918,984-byte smoke payload a 25-piece torrent. Tracker URLs are optional and do not enter the `info` dictionary, but they do change the complete `.torrent` file checksum. With no trackers configured, the metainfo is intended for BitTorrent DHT.
+
+## Durable state and failure behavior
+
+Jobs are stored in SQLite using WAL mode and `synchronous=FULL`. The key is `(release_id, sd_hash)`, so a changed descriptor for an existing release becomes a distinct migration job instead of overwriting the old one.
+
+```text
+pending -> acquiring -> verified -> awaiting_index
+                   +-> failed -> acquiring after backoff
+```
+
+One release failure does not abort later releases. Failed jobs retain their typed error and retry deadline. HTTP and JSON-RPC operations use bounded exponential retry. API pagination is bounded, rejects loops, and cannot leave the configured scheme and host. The process budgets two copies of each advertised payload plus a free-space reserve before starting acquisition.
+
+Outbox identity is stable:
+
+```text
+/data/outbox/<release-id>/<sd-hash>/
+    <plaintext-sha384>.torrent
+    manifest.json
+```
+
+Plaintext identity is human-readable but collision-resistant within the release tree:
+
+```text
+/data/releases/<channel>/<release-name>-<sd-hash-prefix>/
+    release.json
+    <assembled payload>
+```
+
+The current fast idempotence check confirms that the payload, torrent, and manifest still exist. It does not hash an entire completed corpus on every four-hour scan. Scheduled bit-rot scrubbing is separate future work; a BitTorrent client's piece verification can cover the seeded copy in the meantime.
+
+## Outbox contract
+
+`manifest.json` uses schema name `guncad-mirror-publication-v1`. Its required information is:
+
+```json
+{
+  "schema": "guncad-mirror-publication-v1",
+  "status": "awaiting-index",
+  "release": {
+    "id": "<40-character release ID>",
+    "name": "<release name>",
+    "channel_handle": "<channel handle>",
+    "url": "<historic HTTP source>",
+    "url_lbry": "<historic LBRY source>"
+  },
+  "lbry": {
+    "sd_hash": "<96-character descriptor hash>",
+    "claimed_sha384": "<Index plaintext checksum>"
+  },
+  "artifact": {
+    "file_name": "<assembled filename>",
+    "size": 123,
+    "sha384": "<verified plaintext SHA-384>",
+    "sha256": "<plaintext SHA-256>"
+  },
+  "torrent": {
+    "file_name": "<torrent filename>",
+    "piece_length": 1048576,
+    "piece_count": 1,
+    "btih": "<40-character BTIH>",
+    "sha256": "<torrent-file SHA-256>",
+    "magnet_uri": "magnet:?xt=urn:btih:...",
+    "trackers": []
+  }
+}
+```
+
+The future Index endpoint should accept the torrent file and manifest as one idempotent request. A repeated submission with the same release ID, descriptor hash, plaintext checksum, and torrent checksum should return the existing record. A conflicting checksum should be rejected and retained for operator review, not overwritten.
+
+## Planned Index work
+
+### Creator continuity before a shutdown
+
+The highest-value work while Odysee remains writable is binding existing channels to accounts controlled on GunCAD Index:
+
+1. Add Index logins with recoverable, low-friction authentication.
+2. Verify Odysee channel ownership by asking the user to place a nonce in the public channel description.
+3. Store the verified channel binding and the evidence needed to audit it later.
+4. Give verified creators direct control over release tags, thumbnails, visibility, and requests for manual verification.
+
+Those controls provide a reason to complete verification before an emergency. The nonce path stops working when Odysee channel editing stops, so it has a different deadline from bulk payload evacuation.
+
+### Torrent records before torrent uploads
+
+Index should first learn how to describe a torrent mirror without exposing a public upload form:
+
+- add torrent, magnet, plaintext checksum, size, and seeding-status fields to a release origin or mirror record;
+- add an origin state for releases uploaded through Index so external synchronization does not overwrite them;
+- expose torrent metadata through API v2;
+- add authenticated, idempotent ingestion for Mirror's outbox contract;
+- keep public UI controls behind a feature flag until the storage, moderation, and legal procedures exist.
+
+### Emergency feature flag
+
+If Odysee becomes unavailable, one feature flag can expose the prepared system:
+
+- accept creator uploads that have no surviving external origin;
+- show torrent and magnet download controls;
+- publish query-filterable torrent RSS feeds;
+- advertise how to add a filtered feed to qBittorrent or another client.
+
+The Index already passes arbitrary search parameters through its feed views. A torrent feed can preserve that behavior, allowing a seeder to select channels, tags, platforms, or other Index queries without new policy code in Mirror.
+
+## Recovery from an Index outage
+
+Torrent payload distribution removes one central byte host, but discovery can still collapse if every magnet and release mapping exists only in the live Index database. The emergency design is incomplete until Index publishes enough data to rebuild that mapping.
+
+A recoverable torrent feed or snapshot should include, for each item:
+
+- stable release ID, name, channel, and origin;
+- plaintext size and legacy SHA-384;
+- `sd_hash` when one exists;
+- BTIH and magnet URI;
+- a torrent-file URL and torrent SHA-256;
+- publication and update timestamps;
+- deletion or supersession state.
+
+Periodic static snapshots should be easy to mirror without credentials. If the Index disappears, a snapshot plus surviving torrent seeders can reconstruct discovery. A snapshot cannot rescue payloads after the last seeder disappears, so this is a distribution plan, not a promise of permanent storage.
+
+Creator-upload metadata eventually needs signatures outside the Index database if the project wants authorship to survive an Index loss. That is where GESTALT's signed actor feeds may return. It is not required to evacuate bytes from LBRY now.
+
+## Mirror after Odysee
+
+Mirror is intentionally LBRY-centric. Once Odysee and useful LBRY peers are gone, running it on every seeder would add a Python daemon, a frozen legacy lbrynet binary, chain state, and duplicate storage without improving BitTorrent.
+
+The sensible steady state is:
+
+```text
+GunCAD Index filtered torrent RSS
+    -> qBittorrent or another normal client
+    -> selected payloads remain seeded
+```
+
+Mirror then becomes a migration and forensic tool, possibly run by one or a few archive operators against remaining LBRY blobs. Its extraction path does not need to become a polished end-user product if it is reliable, inspectable, and reproducible.
+
+## Observed live checkpoint
+
+The July 2026 smoke query intentionally mixed two LBRY channels with one Printables channel. A complete API v2 enumeration returned 74 rows: 69 supported LBRY origins and 5 Printables origins skipped as unsupported.
+
+The first container smoke run selected Decimal's `MMMIIT v1` release and completed this path:
+
+- descriptor hash acquisition without claim fallback;
+- 13 payload blobs plus the stream descriptor;
+- 25,918,984-byte assembled RAR;
+- exact match to the Index SHA-384;
+- independent SHA-256 calculation;
+- 25-piece BitTorrent v1 metainfo at one MiB per piece;
+- independent recalculation of BTIH from the raw bencoded `info` slice;
+- durable torrent, manifest, release metadata, payload, and SQLite `awaiting_index` state in the named volume.
+
+The fresh smoke volume synchronized LBRY headers before acquisition. Later runs reuse that volume. The test did not contact a future Index upload endpoint because none exists.
+
+## Unresolved work
+
+The next external contract is on the Index side, not Mirror:
+
+1. Define the torrent record and origin model.
+2. Define authenticated, idempotent outbox ingestion.
+3. Add creator accounts and Odysee nonce verification while channel editing still works.
+4. Expose torrent metadata in API v2.
+5. Produce query-filtered torrent RSS and static recovery snapshots.
+6. Decide moderation, takedown, access-control, and legal procedures before accepting bespoke uploads.
+7. Connect at least one BitTorrent client to the feed and prove retrieval from a second peer.
+
+Mirror still needs long-duration full-corpus testing, restart testing during acquisition, scheduled integrity-scrub policy, and measurement of LBRY peer failures across the catalog. None of those require changing the current boundary: verified bytes and torrent artifacts stop in the local outbox until Index is ready to receive them.

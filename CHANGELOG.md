@@ -1,3 +1,14 @@
+# Unreleased
+
+* Replaced the legacy reflection loop with a durable LBRY-to-BitTorrent evacuation pipeline
+* Added strict GunCAD Index API v2 parsing, bounded same-origin pagination, and clean handling of non-LBRY origins
+* Added a pinned lbry-sdk patch for direct stream-descriptor acquisition without normal claim resolution
+* Added exact payload size and SHA-384 verification, recorded SHA-256, and deterministic single-file BitTorrent v1 generation
+* Added a SQLite job ledger with retry backoff and an atomic local publication outbox
+* Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
+* Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
+* Removed the optional assembly, pickle cache, and Index-failure claim-search paths; plaintext assembly is now required for verified torrent generation
+
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
 * Added: More tracker announcement hosts and a script to pull a list from an authoritative source
 

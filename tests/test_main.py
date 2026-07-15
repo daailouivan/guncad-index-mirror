@@ -21,7 +21,7 @@ class ArgumentTests(unittest.TestCase):
 
 class MainTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.settings = Settings(endpoint="https://index.example/api/releases/")
+        self.settings = Settings(endpoint="https://index.example/api/v2/releases/")
         self.runtime = Mock()
 
     @patch("guncadmirror.__main__.signal.signal")

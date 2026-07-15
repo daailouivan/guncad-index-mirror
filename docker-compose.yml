@@ -1,6 +1,6 @@
 services:
   guncad-mirror:
-    image: registry.gitlab.com/guncad-index/mirror:latest
+    image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
     env_file: guncad-mirror.env
     command:
       - "-v"
@@ -25,3 +25,4 @@ services:
 
 volumes:
   guncad-mirror:
+    name: "${MIRROR_DATA_VOLUME:-guncad-mirror}"

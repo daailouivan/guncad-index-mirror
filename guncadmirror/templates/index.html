@@ -1,217 +1,257 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta http-equiv="refresh" content="60" />
         <style>
-					@font-face {
-						font-display: block;
-						font-family: 'IBM Plex Mono';
-						font-style: normal;
-						font-weight: 400;
-						src: url('/static/fonts/ibm-plex-mono-v19-latin-regular.woff2') format('woff2');
-					}
-					@font-face {
-						font-display: block;
-						font-family: 'IBM Plex Mono';
-						font-style: normal;
-						font-weight: 700;
-						src: url('/static/fonts/ibm-plex-mono-v19-latin-700.woff2') format('woff2');
-					}
+            @font-face {
+                font-display: block;
+                font-family: "IBM Plex Mono";
+                font-style: normal;
+                font-weight: 400;
+                src: url("/static/fonts/ibm-plex-mono-v19-latin-regular.woff2") format("woff2");
+            }
 
+            @font-face {
+                font-display: block;
+                font-family: "IBM Plex Mono";
+                font-style: normal;
+                font-weight: 700;
+                src: url("/static/fonts/ibm-plex-mono-v19-latin-700.woff2") format("woff2");
+            }
         </style>
         <link rel="stylesheet"
-              href="{{ url_for('static', filename='styles.css') }}{{ cachebuster }}">
+              href="{{ url_for('static', filename='styles.css') }}{{ cachebuster }}" />
         <link rel="icon"
               type="image/x-icon"
-              href="{{ url_for('static', filename='favicon.png') }}{{ cachebuster }}">
-        <title>GunCAD Mirror Stats Page</title>
+              href="{{ url_for('static', filename='favicon.png') }}{{ cachebuster }}" />
+        <title>GunCAD Mirror {{ version }}</title>
     </head>
     <body>
-        <div class="header">
+        {% set pending = job_counts.get('pending', 0) %}
+        {% set acquiring = job_counts.get('acquiring', 0) %}
+        {% set verified = job_counts.get('verified', 0) %}
+        {% set awaiting_index = job_counts.get('awaiting_index', 0) %}
+        {% set failed = job_counts.get('failed', 0) %}
+        <header class="header">
             <img src="{{ url_for('static', filename='logo.png') }}"
                  class="logo"
                  width="128"
                  height="128"
                  alt="GunCAD Mirror logo" />
-            <h1>GunCAD Mirror {{ version }}</h1>
-            <p>
-                A well regulated Militia, being necessary to the security of a free State, the right of the people to keep and bear Arms, shall not be infringed.
-            </p>
-        </div>
-        {% if mirror_fallback_mode %}
-            <div class="subcontainer banner">
-                <p>GunCAD Mirror is running in LBRY-only mode. See documentation for details.</p>
-            </div>
-        {% endif %}
-        <div class="subcontainer">
-            <div class="glance">
-                <span class="glance-caption">GunCAD Mirror is currently:</span>
-                <span class="glance-stat">{{ mirror_state }}</span>
-            </div>
-            <div class="glances">
-                <div class="glance">
-                    <span class="glance-stat">{{ seen_sd_hashes }}</span>
-                    <span class="glance-caption">Known hashes</span>
+            <h1>GunCAD Mirror <span class="version">{{ version }}</span></h1>
+            <p>LBRY acquisition, payload verification, and torrent staging.</p>
+        </header>
+        <main>
+            {% if failed %}
+                <div class="banner banner-error">
+                    <strong>{{ failed }} job{% if failed != 1 %}s{% endif %} failed.</strong>
+                    Mirror will retry after backoff. Check the event log and container log for the cause.
                 </div>
-                <div class="glance">
-                    <span class="glance-stat">{{ disk_space_used | humanize_bytes }}</span>
-                    <span class="glance-caption">Space used</span>
-                </div>
-                <div class="glance">
-                    <span class="glance-stat">{{ psutil_disk.free | humanize_bytes }}</span>
-                    <span class="glance-caption">Space free</span>
-                </div>
+            {% endif %}
+            <div class="banner banner-note">
+                <strong>Publication stops at the local outbox.</strong>
+                A job in <code>awaiting_index</code> has a verified payload, torrent, magnet URI, and manifest. Mirror does not POST any of them yet.
             </div>
-            <h1>Notable Events</h1>
-            <p class="center">This is a very narrow view of the logs. For more info, see the container output and /data/log:</p>
-            <div class="codeblock">
-                {% for log in extralog|reverse %}<p>{{ log }}</p>{% endfor %}
-            </div>
-            <table>
-                <caption>GunCAD Mirror configuration</caption>
-                <thead>
-                    <tr>
-                        <th>Configuration Variable</th>
-                        <th>Value</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <th>API Endpoint</th>
-                        <td>{{ mirror_api_endpoint }}</td>
-                        <td>
-                            The API endpoint to check for releases. Defaults to the main production GunCAD Index instance. Can be changed if you want to mirror a subset of releases.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Assemble Files</th>
-                        <td>{{ mirror_assemble_files }}</td>
-                        <td>
-                            Whether or not files should be assembled in addition to being stored as blobs. This feature doubles disk space usage.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Blacklisted Channels</th>
-                        <td>
-                            {% if mirror_blacklisted_handles %}
-                                <ul>
-                                    {% for channel in mirror_blacklisted_handles %}<li>{{ channel }}</li>{% endfor %}
-                                </ul>
-                            {% else %}
-                                No blacklist configured
-                            {% endif %}
-                        </td>
-                        <td>
-                            A list of patterns to blacklist channels. If we would mirror a release from a channel that starts with any of these patterns, it is skipped instead.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Enable web UI</th>
-                        <td>{{ mirror_enable_webui }}</td>
-                        <td>If this is disabled you should have several concerning questions.</td>
-                    </tr>
-                    <tr>
-                        <th>Maximum filesize</th>
-                        <td>{{ mirror_release_max_size | humanize_bytes }}</td>
-                        <td>If not set to 0, this is the maximum size of a file we'll accept</td>
-                    </tr>
-                </tbody>
-            </table>
-            <table>
-                <caption>Basic system/application statistics</caption>
-                <thead>
-                    <tr>
-                        <th>Stat</th>
-                        <th>Value</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <th>Known sd_hashes</th>
-                        <td>{{ seen_sd_hashes }} hashes</td>
-                        <td>
-                            <b>This is the number of files you're seeding.</b> Number of known sd_hash variations. This will likely be lower than the number of files on GunCAD Index since duplicates share the same sd_hash.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>CPU Usage</th>
-                        <td>{{ psutil_cpu }}%</td>
-                        <td>Overall system CPU usage across all cores.</td>
-                    </tr>
-                    <tr>
-                        <th>Memory Usage</th>
-                        <td>{{ psutil_mem }}%</td>
-                        <td>Overall system memory usage.</td>
-                    </tr>
-                    <tr>
-                        <th>Disk Usage</th>
-                        <td>{{ psutil_disk.percent }}%, {{ psutil_disk.free | humanize_bytes }} free</td>
-                        <td>
-                            Overall system disk space usage for whatever filesystem is at /data. Directly governs how much space GunCAD Mirror has to play with.
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            <table>
-                <caption>Network statistics</caption>
-                <thead>
-                    <tr>
-                        <th>Stat</th>
-                        <th>Value</th>
-                        <th>Description</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <th>Bytes Out</th>
-                        <td>{{ psutil_net.bytes_sent | humanize_bytes }}</td>
-                        <td>
-                            Number of bytes sent out since the application was started. Resets if you restart GunCAD Mirror. Also counts hits against this web UI, bear in mind.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Bytes In</th>
-                        <td>{{ psutil_net.bytes_recv | humanize_bytes }}</td>
-                        <td>Number of bytes received from the network since the application was started.</td>
-                    </tr>
-                    <tr>
-                        <th>Errors Out</th>
-                        <td>{{ psutil_net.errout }} errors</td>
-                        <td>Number of errors encountered when attempting to send data to the network.</td>
-                    </tr>
-                    <tr>
-                        <th>Errors In</th>
-                        <td>{{ psutil_net.errin }} errors</td>
-                        <td>Number of errors encountered when attempting to download data from the network.</td>
-                    </tr>
-                    <tr>
-                        <th>Drops Out</th>
-                        <td>{{ psutil_net.dropout }} packets</td>
-                        <td>
-                            Number of packets that we attempted to send but were dropped by the network. High amounts of these indicate a pretty serious network connectivity issue.
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Drops In</th>
-                        <td>{{ psutil_net.dropin }} packets</td>
-                        <td>Number of packets dropped we attempted to download but were dropped for some reason or another.</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="footer">
+            <section class="panel state-panel">
+                <p class="eyebrow">Current activity</p>
+                <p class="current-state">{{ mirror_state }}</p>
+            </section>
+            <section class="metric-grid" aria-label="Mirror summary">
+                <div class="metric">
+                    <span class="metric-value">{{ awaiting_index }}</span>
+                    <span class="metric-label">Torrents staged</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value">{{ failed }}</span>
+                    <span class="metric-label">Failed jobs</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value">{{ known_jobs }}</span>
+                    <span class="metric-label">Durable jobs</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value">{{ disk_space_used | humanize_bytes }}</span>
+                    <span class="metric-label">Data volume used</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-value">{{ psutil_disk.free | humanize_bytes }}</span>
+                    <span class="metric-label">Data volume free</span>
+                </div>
+            </section>
+            <section class="panel">
+                <h2>Pipeline jobs</h2>
+                <div class="job-grid">
+                    <div><span>{{ pending }}</span> pending</div>
+                    <div><span>{{ acquiring }}</span> acquiring</div>
+                    <div><span>{{ verified }}</span> verified</div>
+                    <div><span>{{ awaiting_index }}</span> awaiting Index</div>
+                    <div><span>{{ failed }}</span> failed</div>
+                </div>
+                <p class="fine-print">
+                    Jobs are keyed by the Index release ID and LBRY stream descriptor hash. State is stored in <code>{{ mirror_data_dir }}/mirror-state.sqlite3</code>.
+                </p>
+            </section>
+            <section class="panel">
+                <h2>Notable events</h2>
+                <p class="center fine-print">
+                    This is a short in-memory event list. Full logs are in <code>{{ mirror_data_dir }}/log</code> and the container output.
+                </p>
+                <div class="codeblock" role="log">
+                    {% if extralog %}
+                        {% for log in extralog|reverse %}<p>{{ log }}</p>{% endfor %}
+                    {% else %}
+                        <p>No events recorded yet.</p>
+                    {% endif %}
+                </div>
+            </section>
+            <section class="panel">
+                <h2>Configuration</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Setting</th>
+                                <th scope="col">Value</th>
+                                <th scope="col">Effect</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th scope="row">Index API v2 endpoint</th>
+                                <td class="breakable">{{ mirror_api_endpoint }}</td>
+                                <td>Defines which Index releases enter this mirror.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">API page limit</th>
+                                <td>{{ mirror_api_max_pages }}</td>
+                                <td>Stops a bad or unexpectedly large pagination walk.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Per-cycle release cap</th>
+                                <td>{{ mirror_max_releases_per_run or 'No cap' }}</td>
+                                <td>Bounds work without changing the configured search.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">LBRY RPC</th>
+                                <td class="breakable">{{ mirror_lbry_url }}</td>
+                                <td>Daemon used for direct stream-descriptor acquisition.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Blacklisted channels</th>
+                                <td>
+                                    {% if mirror_blacklisted_handles %}
+                                        <ul>
+                                            {% for channel in mirror_blacklisted_handles %}<li>{{ channel }}</li>{% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        None
+                                    {% endif %}
+                                </td>
+                                <td>Matching channel-handle prefixes are skipped before a job is created.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Maximum payload size</th>
+                                <td>
+                                    {% if mirror_release_max_size %}
+                                        {{ mirror_release_max_size | humanize_bytes }}
+                                    {% else %}
+                                        Disabled
+                                    {% endif %}
+                                </td>
+                                <td>Rejects larger Index releases before acquisition.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Free-space reserve</th>
+                                <td>{{ mirror_min_free_space | humanize_bytes }}</td>
+                                <td>Kept free after budgeting for both LBRY blobs and plaintext.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Cycle interval</th>
+                                <td>{{ mirror_loop_interval | humanize_seconds }}</td>
+                                <td>Time between completed Index scans.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Download timeout</th>
+                                <td>{{ mirror_download_timeout | humanize_seconds }}</td>
+                                <td>Deadline for one LBRY stream acquisition.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Torrent piece length</th>
+                                <td>{{ mirror_torrent_piece_length | humanize_bytes }}</td>
+                                <td>Fixed v1 torrent piece size.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Torrent trackers</th>
+                                <td>
+                                    {% if mirror_torrent_trackers %}
+                                        <ul>
+                                            {% for tracker in mirror_torrent_trackers %}<li class="breakable">{{ tracker }}</li>{% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        None; DHT-only metainfo
+                                    {% endif %}
+                                </td>
+                                <td>Optional announce URLs embedded in new torrent files.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="panel">
+                <h2>Host counters</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Counter</th>
+                                <th scope="col">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th scope="row">CPU</th>
+                                <td>{{ psutil_cpu }}%</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Memory</th>
+                                <td>{{ psutil_mem }}%</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Data filesystem</th>
+                                <td>{{ psutil_disk.percent }}% used, {{ psutil_disk.free | humanize_bytes }} free</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Network received</th>
+                                <td>{{ psutil_net.bytes_recv | humanize_bytes }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Network sent</th>
+                                <td>{{ psutil_net.bytes_sent | humanize_bytes }}</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Network errors</th>
+                                <td>{{ psutil_net.errin }} in, {{ psutil_net.errout }} out</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Network drops</th>
+                                <td>{{ psutil_net.dropin }} in, {{ psutil_net.dropout }} out</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+        <footer class="footer">
             <p>
-                This page displays statistics for a locally-hosted GunCAD Mirror instance. For information on what these things do or for help configuring your instance, <a href="https://matrix.to/#/#guncad-index:matrix.org" target="_blank">join our Matrix Space</a> or <a href="https://x.com/theshittinator" target="_blank">ping me on Twitter</a>.
+                <a href="https://gitlab.com/guncad-index/mirror"
+                   target="_blank"
+                   rel="noreferrer">Source code</a>
+                · <a href="https://matrix.to/#/#guncad-index:matrix.org"
+    target="_blank"
+    rel="noreferrer">Matrix support</a>
             </p>
-            <p>
-                <a href="https://gitlab.com/guncad-index/mirror" target="_blank">View the source code</a>
-            </p>
-            <p>
-                <a href="https://ko-fi.com/theshittinator" target="_blank">Support development on Ko-Fi</a>
-            </p>
-        </div>
+        </footer>
     </body>
 </html>
