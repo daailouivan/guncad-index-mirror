@@ -35,6 +35,8 @@ class LbryClientTests(unittest.TestCase):
         self.assertEqual(url, "http://lbry:5279")
         self.assertEqual(kwargs["json"], {"method": "status", "params": {"x": 1}})
         self.assertEqual(kwargs["timeout"], (5, 60))
+        client.close()
+        self.assertTrue(session.closed)
 
     def test_call_retries_transport_and_rpc_errors_with_backoff(self) -> None:
         sleeps: list[float] = []

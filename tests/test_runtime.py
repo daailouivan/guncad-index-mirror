@@ -15,7 +15,7 @@ class RuntimeTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.settings = Settings(
-            endpoint="https://index.example/api/releases/",
+            endpoint="https://index.example/api/v2/releases/",
             data_dir=Path(self.temporary.name) / "data",
             min_free_space=0,
             loop_interval=1,
@@ -78,6 +78,8 @@ class RuntimeTests(unittest.TestCase):
     def test_stop_and_runtime_builder_wire_components(self) -> None:
         self.runtime.stop()
         self.stats.stop.assert_called_once_with()
+        self.pipeline.index_client.close.assert_called_once_with()
+        self.lbry.close.assert_called_once_with()
 
         built = build_runtime(self.settings)
         self.assertEqual(built.settings, self.settings)
@@ -85,6 +87,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(built.pipeline.index_client.endpoint, self.settings.endpoint)
         self.assertEqual(built.pipeline.store.path, self.settings.state_path)
         self.assertIs(built.stats.store, built.pipeline.store)
+
+    def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
+        self.stats.stop.side_effect = RuntimeError("thread stuck")
+        with self.assertLogs("guncad-mirror", level="ERROR"):
+            self.runtime.stop()
+        self.pipeline.index_client.close.assert_called_once_with()
+        self.lbry.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

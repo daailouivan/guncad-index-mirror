@@ -12,7 +12,7 @@ from tempfile import NamedTemporaryFile
 from .index_client import IndexClient
 from .lbry import LbryAcquirer
 from .models import JobState, PublicationBundle, Release
-from .paths import release_directory
+from .paths import ensure_within, release_directory
 from .publisher import Publisher
 from .settings import Settings
 from .state import Job, JobStore
@@ -90,7 +90,9 @@ class MirrorPipeline:
             return "skipped"
 
         job = self.store.register(release)
-        if job.state is JobState.AWAITING_INDEX and self._ready_artifacts_exist(job):
+        if job.state is JobState.AWAITING_INDEX and self._ready_artifacts_exist(
+            job, release
+        ):
             self.logger.debug("Already prepared %s", release.name)
             return "skipped"
         if not self.store.ready_for_attempt(job) and job.state is JobState.FAILED:
@@ -152,20 +154,66 @@ class MirrorPipeline:
             for pattern in self.settings.blacklisted_handles
         )
 
-    def _ready_artifacts_exist(self, job: Job) -> bool:
+    def _ready_artifacts_exist(self, job: Job, release: Release) -> bool:
         file_path = job.file_path
         torrent_path = job.torrent_path
         sha384 = job.sha384
-        if not file_path or not torrent_path or not sha384:
+        info_hash = job.info_hash
+        if (
+            not file_path
+            or not torrent_path
+            or not sha384
+            or sha384 != release.sha384
+            or not info_hash
+        ):
             return False
         manifest = (
             self.settings.outbox_dir / job.release_id / job.sd_hash / "manifest.json"
         )
-        return (
-            Path(file_path).is_file()
-            and Path(torrent_path).is_file()
-            and manifest.is_file()
-        )
+        try:
+            safe_file = ensure_within(self.settings.data_dir, Path(file_path))
+            safe_torrent = ensure_within(self.settings.outbox_dir, Path(torrent_path))
+            if (
+                not safe_file.is_file()
+                or safe_file.stat().st_size != release.size
+                or not safe_torrent.is_file()
+                or safe_torrent.stat().st_size == 0
+            ):
+                return False
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                return False
+            release_document = document.get("release")
+            lbry_document = document.get("lbry")
+            artifact_document = document.get("artifact")
+            torrent_document = document.get("torrent")
+            if not all(
+                isinstance(value, dict)
+                for value in (
+                    release_document,
+                    lbry_document,
+                    artifact_document,
+                    torrent_document,
+                )
+            ):
+                return False
+            return (
+                document.get("schema") == "guncad-mirror-publication-v1"
+                and document.get("status") == "awaiting-index"
+                and release_document.get("id") == release.id
+                and release_document.get("name") == release.name
+                and release_document.get("channel_handle") == release.channel_handle
+                and release_document.get("url") == release.url
+                and release_document.get("url_lbry") == release.url_lbry
+                and lbry_document.get("sd_hash") == release.sd_hash
+                and lbry_document.get("claimed_sha384") == release.sha384
+                and artifact_document.get("size") == release.size
+                and artifact_document.get("sha384") == release.sha384
+                and torrent_document.get("btih") == info_hash
+                and torrent_document.get("file_name") == safe_torrent.name
+            )
+        except (OSError, RuntimeError, UnicodeError, ValueError, TypeError):
+            return False
 
     @staticmethod
     def _validate_bundle(bundle: PublicationBundle) -> None:

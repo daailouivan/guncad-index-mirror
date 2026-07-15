@@ -66,6 +66,10 @@ class QueueSession:
     def __init__(self, *responses: Any):
         self.responses = deque(responses)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append(("get", url, kwargs))

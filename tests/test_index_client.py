@@ -43,6 +43,8 @@ class IndexClientTests(unittest.TestCase):
         )
         self.assertEqual(session.calls[0][2]["headers"]["User-Agent"], USER_AGENT)
         self.assertEqual(session.calls[0][2]["timeout"], (5, 60))
+        client.close()
+        self.assertTrue(session.closed)
 
     def test_release_cap_stops_without_fetching_another_page(self) -> None:
         session = QueueSession(

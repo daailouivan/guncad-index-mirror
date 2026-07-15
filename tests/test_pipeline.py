@@ -31,7 +31,7 @@ class MirrorPipelineTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.now = 100.0
         self.settings = Settings(
-            endpoint="https://index.example/api/releases/",
+            endpoint="https://index.example/api/v2/releases/",
             data_dir=self.root,
             min_free_space=0,
             retry_backoff=10,
@@ -97,7 +97,7 @@ class MirrorPipelineTests(unittest.TestCase):
             1,
         )
 
-    def test_missing_completed_artifact_is_rebuilt(self) -> None:
+    def test_missing_or_structurally_invalid_artifact_is_rebuilt(self) -> None:
         content = b"payload"
         release = make_release(content)
         payload = self.root / "payload.zip"
@@ -107,14 +107,43 @@ class MirrorPipelineTests(unittest.TestCase):
         pipeline = self._pipeline([release], acquirer)
         self.assertEqual(pipeline.process(release), "ready")
 
-        (
+        manifest_path = (
             self.settings.outbox_dir / release.id / release.sd_hash / "manifest.json"
-        ).unlink()
+        )
+        manifest_path.unlink()
         self.assertEqual(pipeline.process(release), "ready")
         self.assertEqual(acquirer.acquire.call_count, 2)
+
+        manifest_path.write_text("{}")
+        self.assertEqual(pipeline.process(release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 3)
+
+        torrent_path = self.store.get(release.id, release.sd_hash).torrent_path
+        self.assertIsNotNone(torrent_path)
+        torrent_path.write_bytes(b"")
+        self.assertEqual(pipeline.process(release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 4)
+
+        payload.write_bytes(b"x")
+
+        def restore_payload(*_args: object) -> Path:
+            payload.write_bytes(content)
+            return payload
+
+        acquirer.acquire.side_effect = restore_payload
+        self.assertEqual(pipeline.process(release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 5)
+
+        renamed_release = make_release(content, name="Renamed Release")
+        self.assertEqual(pipeline.process(renamed_release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 6)
+        self.assertEqual(
+            json.loads(manifest_path.read_text())["release"]["name"],
+            "Renamed Release",
+        )
         self.assertEqual(
             self.store.get(release.id, release.sd_hash).attempts,
-            2,
+            6,
         )
 
     def test_identical_payloads_keep_distinct_publication_jobs(self) -> None:

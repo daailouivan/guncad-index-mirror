@@ -47,6 +47,9 @@ class LbryClient:
         self.sleep = sleep
         self.logger = logger or logging.getLogger("guncad-mirror.lbry")
 
+    def close(self) -> None:
+        self.session.close()
+
     def call(
         self,
         method: str,

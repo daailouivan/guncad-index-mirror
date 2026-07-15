@@ -52,7 +52,16 @@ class Runtime:
             stop.wait(self.settings.loop_interval)
 
     def stop(self) -> None:
-        self.stats.stop()
+        logger = logging.getLogger("guncad-mirror")
+        for description, close in (
+            ("statistics collector", self.stats.stop),
+            ("Index HTTP session", self.pipeline.index_client.close),
+            ("LBRY HTTP session", self.lbry.close),
+        ):
+            try:
+                close()
+            except Exception:
+                logger.exception("Failed to close %s", description)
 
 
 def build_runtime(settings: Settings) -> Runtime:

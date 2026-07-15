@@ -40,6 +40,9 @@ class IndexClient:
         self.logger = logger or logging.getLogger("guncad-mirror.index")
         self._origin = _origin(endpoint)
 
+    def close(self) -> None:
+        self.session.close()
+
     def releases(self) -> Iterator[Release]:
         url: str | None = self.endpoint
         seen_urls: set[str] = set()
