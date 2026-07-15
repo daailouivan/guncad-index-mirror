@@ -1,15 +1,16 @@
-image: ubuntu:latest
+---
+image: python:3.14-slim
+
 stages:
   - Scan Early
-  - Lint
+  - Test
   - Build
   - Scan
-  - Test
   - Release
   - GitLab
-before_script:
-  - apt-get update && apt-get install -y python3 python3-venv
+
 variables:
+  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
   REGISTRY: registry.gitlab.com/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
   DOCKER_HOST: tcp://docker:2375/
   DOCKER_DRIVER: overlay2
@@ -19,24 +20,27 @@ variables:
   IMAGE_TAG_RELEASE: $REGISTRY:$CI_COMMIT_TAG
   IMAGE_TAG_BLEEDING: $REGISTRY:bleeding
   IMAGE_TAG_LATEST: $REGISTRY:latest
+
 default:
-  interruptible: yes
+  interruptible: true
   retry: 2
-  services:
-    - name: docker:dind
-      alias: docker
-      command: ["--tls=false"]
   cache:
-    - key: cache-venv-$CI_COMMIT_REF_SLUG
+    - key: pip-$CI_COMMIT_REF_SLUG
       paths:
-        - venv
+        - .cache/pip
     - key: trivy-db
       paths:
         - .trivy
-# Lightweight scanning where we check for repo misconfigs
+
+.python-job:
+  before_script:
+    - python --version
+    - python -m pip install --upgrade pip
+    - python -m pip install -r requirements.txt -r requirements-build.txt
+
 Trivy Secrets:
   image:
-    name: aquasec/trivy
+    name: ghcr.io/aquasecurity/trivy:0.69.3
     entrypoint: [""]
   stage: Scan Early
   retry: 0
@@ -44,9 +48,10 @@ Trivy Secrets:
     - trivy fs
         --exit-code 1
         ./
+
 Trivy Misconfiguration:
   image:
-    name: aquasec/trivy
+    name: ghcr.io/aquasecurity/trivy:0.69.3
     entrypoint: [""]
   stage: Scan Early
   retry: 0
@@ -56,69 +61,88 @@ Trivy Misconfiguration:
         --exit-code 1
         ./
 
-# Linting and preprocessing
-# All of these should be required for PRs and run on all branches
-Black:
-  stage: Lint
+Ruff:
+  extends: .python-job
+  stage: Test
   script:
-    - python3 -m venv venv
-    - . venv/bin/activate
-    - pip3 install --upgrade pip
-    - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
-    - python3 -m black --check .
-isort:
-  stage: Lint
+    - python -m ruff check .
+    - python -m ruff format --check .
+
+djLint:
+  extends: .python-job
+  stage: Test
   script:
-    - python3 -m venv venv
-    - . venv/bin/activate
-    - pip3 install --upgrade pip
-    - pip3 install --upgrade -r requirements.txt -r requirements-build.txt
-    - python3 -m isort --profile black --check-only .
+    - djlint guncadmirror/templates --check
+
+ShellCheck:
+  image:
+    name: koalaman/shellcheck-alpine:stable
+    entrypoint: [""]
+  stage: Test
+  before_script: []
+  script:
+    - shellcheck contrib/*.sh start.sh
+
 YAML Lint:
-  stage: Lint
   image:
     name: ghcr.io/google/yamlfmt:latest
     entrypoint: [""]
+  stage: Test
   cache: []
   before_script:
     - apk add git
   script:
-    - echo "Formatting..."
     - yamlfmt
     - git diff --exit-code
-    - echo "Formatting complete"
-# Building
+
+Unit Tests:
+  extends: .python-job
+  stage: Test
+  script:
+    - python -W error::ResourceWarning -m coverage run -m unittest discover -v
+    - python -m coverage report --show-missing --skip-covered --fail-under=95
+    - python -m coverage xml
+  coverage: '/TOTAL.+ ([0-9]{1,3}%)/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
 Build Container:
   image: docker:latest
-  cache: []
-  before_script: []
   stage: Build
+  cache: []
+  services:
+    - name: docker:dind
+      alias: docker
+      command: ["--tls=false"]
+  before_script: []
   script:
-    # Basic Docker setup
     - docker --version
-    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $REGISTRY
-    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
-    # Set up build environment
+    - echo "$CI_REGISTRY_PASSWORD" | docker login
+        "$CI_REGISTRY"
+        -u "$CI_REGISTRY_USER"
+        --password-stdin
     - docker buildx create --use
     - docker buildx inspect --bootstrap
-    # Build the container
+    # The patched legacy lbrynet build is currently amd64-only.
     - docker buildx build
-        --platform linux/amd64,linux/arm64
+        --platform linux/amd64
         --build-arg commit_sha=$CI_COMMIT_SHORT_SHA
         --build-arg commit_tag=$CI_COMMIT_TAG
         --tag=$IMAGE_TAG
         --output type=oci,dest=$IMAGE_TARBALL
         .
-    # Last-minute debug info
-    - docker images
   artifacts:
     paths:
       - $IMAGE_TARBALL
     expire_in: 1h
-# The real meaty scanning where we check for package vulns
+
 Scan Container:
   image:
-    name: aquasec/trivy
+    name: ghcr.io/aquasecurity/trivy:0.69.3
     entrypoint: [""]
   stage: Scan
   allow_failure: true
@@ -134,53 +158,54 @@ Scan Container:
         --severity HIGH,CRITICAL
         --ignore-unfixed
         --exit-code 1
-    - trivy image
-        --input container
-        --platform linux/arm64
-        --scanners vuln,secret,misconfig
-        --severity HIGH,CRITICAL
-        --ignore-unfixed
-        --exit-code 1
-# Tagging
-Tag SHA:
+
+Publish SHA:
   image:
     name: quay.io/containers/skopeo:latest
     entrypoint: [""]
-  interruptible: no
+  stage: Release
+  interruptible: false
   cache: []
   before_script: []
-  stage: Release
   script:
-    - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - echo "$CI_REGISTRY_PASSWORD" | skopeo login
+        "$CI_REGISTRY"
+        -u "$CI_REGISTRY_USER"
+        --password-stdin
     - skopeo inspect oci-archive:$IMAGE_TARBALL
     - skopeo copy --all oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG
     - skopeo copy --all oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_BLEEDING
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
-Tag Release:
+
+Publish Release:
   image:
     name: quay.io/containers/skopeo:latest
     entrypoint: [""]
-  interruptible: no
+  stage: Release
+  interruptible: false
   cache: []
   before_script: []
-  stage: Release
   script:
-    - echo "$CI_REGISTRY_PASSWORD" | skopeo login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    - echo "$CI_REGISTRY_PASSWORD" | skopeo login
+        "$CI_REGISTRY"
+        -u "$CI_REGISTRY_USER"
+        --password-stdin
     - skopeo inspect oci-archive:$IMAGE_TARBALL
     - skopeo copy --all oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_RELEASE
     - skopeo copy --all oci-archive:$IMAGE_TARBALL docker://$IMAGE_TAG_LATEST
   rules:
     - if: $CI_COMMIT_TAG
-Release:
+
+Release Notes:
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  interruptible: no
+  stage: GitLab
+  interruptible: false
   cache: []
   before_script: []
-  stage: GitLab
   script:
-    - echo "Running release job..."
+    - echo "Running release job"
   rules:
     - if: $CI_COMMIT_TAG
   release:

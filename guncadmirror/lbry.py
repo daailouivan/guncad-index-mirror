@@ -263,12 +263,15 @@ class LbryAcquirer:
 
 
 def _is_ready(status: Any) -> bool:
-    if not isinstance(status, Mapping) or status.get("is_running") is not True:
+    if not isinstance(status, Mapping):
         return False
     startup = status.get("startup_status")
     if not isinstance(startup, Mapping):
         return False
-    return startup.get("stream_manager") is True
+    return all(
+        startup.get(component) is True
+        for component in ("database", "blob_manager", "file_manager")
+    )
 
 
 def _error_text(value: Any) -> str:

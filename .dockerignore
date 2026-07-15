@@ -9,7 +9,8 @@ venv
 *.env*
 .git*
 .trivyignore
-contrib
+contrib/*
+!contrib/lbry-sdk-direct-sd.patch
 data-dumps
 data*.json
 docker-data

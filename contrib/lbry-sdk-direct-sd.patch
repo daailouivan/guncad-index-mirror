@@ -1,0 +1,99 @@
+diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
+--- a/lbry/extras/daemon/daemon.py
++++ b/lbry/extras/daemon/daemon.py
+@@ -53,6 +53,7 @@ from lbry.extras.daemon.undecorated import undecorated
+ from lbry.extras.daemon.security import ensure_request_allowed
+ from lbry.file_analysis import VideoFileAnalyzer
+ from lbry.schema.claim import Claim
++from lbry.stream.managed_stream import ManagedStream
+ from lbry.schema.url import URL
+ 
+ 
+@@ -1153,6 +1154,65 @@ class Daemon(metaclass=JSONRPCServerType):
+             return {"error": str(e)}
+         return stream
+ 
++    @requires(BLOB_COMPONENT, DATABASE_COMPONENT, FILE_MANAGER_COMPONENT)
++    async def jsonrpc_stream_get(
++            self, sd_hash, file_name=None, download_directory=None, timeout=None, save_file=True):
++        """
++        Download a stream directly from its descriptor hash, without resolving a claim.
++
++        Usage:
++            stream_get <sd_hash> [<file_name> | --file_name=<file_name>]
++             [<download_directory> | --download_directory=<download_directory>]
++             [<timeout> | --timeout=<timeout>] [--save_file=<save_file>]
++
++        Options:
++            --sd_hash=<sd_hash>      : (str) stream descriptor hash to download
++            --file_name=<file_name>  : (str) optional output file name
++            --download_directory=<download_directory> : (str) output directory
++            --timeout=<timeout>      : (int) download timeout in seconds
++            --save_file=<save_file>  : (bool) save the decrypted stream to disk
++
++        Returns: {File}
++        """
++        if not is_valid_blobhash(sd_hash):
++            return {"error": "sd_hash must be a valid blob hash"}
++        if download_directory and not os.path.isdir(download_directory):
++            return {"error": f"specified download directory \"{download_directory}\" does not exist"}
++
++        timeout = timeout or self.conf.download_timeout
++        source_manager = self.file_manager.source_managers['stream']
++        existing = source_manager.get_filtered(sd_hash=sd_hash)
++        if len(existing) > 1:
++            return {"error": f"multiple local streams matched {sd_hash}"}
++
++        stream = existing[0] if existing else None
++        try:
++            started = source_manager.loop.time()
++            if stream is None:
++                stream = ManagedStream(
++                    source_manager.loop, self.conf, source_manager.blob_manager, sd_hash,
++                    download_directory, file_name, ManagedStream.STATUS_STOPPED,
++                    analytics_manager=self.analytics_manager
++                )
++                stream.downloader.node = source_manager.node
++                await stream.start(timeout=timeout, save_now=save_file)
++                source_manager.add(stream)
++            elif stream.output_file_exists and stream.completed:
++                return stream
++            else:
++                stream.downloader.node = source_manager.node
++                await stream.start(timeout=timeout, save_now=save_file)
++
++            if save_file and not stream.output_file_exists:
++                remaining = max(0.1, timeout - (source_manager.loop.time() - started))
++                await asyncio.wait_for(
++                    stream.save_file(file_name, download_directory), remaining
++                )
++        except Exception as e:
++            log.warning("Error downloading stream %s: %s", sd_hash, str(e))
++            return {"error": str(e)}
++        return stream
++
+     SETTINGS_DOC = """
+     Settings management.
+     """
+diff --git a/lbry/extras/daemon/json_response_encoder.py b/lbry/extras/daemon/json_response_encoder.py
+--- a/lbry/extras/daemon/json_response_encoder.py
++++ b/lbry/extras/daemon/json_response_encoder.py
+@@ -284,7 +284,7 @@ class JSONResponseEncoder(JSONEncoder):
+ 
+     def encode_file(self, managed_stream):
+         output_exists = managed_stream.output_file_exists
+-        tx_height = managed_stream.stream_claim_info.height
++        tx_height = managed_stream.claim_height or 0
+-        best_height = self.ledger.headers.height
++        best_height = self.ledger.headers.height if self.ledger else 0
+         is_stream = hasattr(managed_stream, 'stream_hash')
+         if is_stream:
+@@ -328,7 +328,7 @@ class JSONResponseEncoder(JSONEncoder):
+             'added_on': managed_stream.added_on,
+             'height': tx_height,
+             'confirmations': (best_height + 1) - tx_height if tx_height > 0 else tx_height,
+-            'timestamp': self.ledger.headers.estimated_timestamp(tx_height),
++            'timestamp': self.ledger.headers.estimated_timestamp(tx_height) if self.ledger and tx_height > 0 else None,
+             'is_fully_reflected': False,
+             'reflector_progress': False,
+             'uploading_to_reflector': False

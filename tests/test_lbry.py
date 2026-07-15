@@ -102,7 +102,7 @@ class LbryClientTests(unittest.TestCase):
             client.call("stream_get")
         self.assertEqual(len(session.calls), 1)
 
-    def test_wait_until_ready_requires_wallet_and_stream_manager(self) -> None:
+    def test_wait_until_ready_requires_direct_stream_components(self) -> None:
         sleeps: list[float] = []
         client = LbryClient(
             "http://lbry:5279", attempts=1, backoff=0, sleep=sleeps.append
@@ -110,10 +110,21 @@ class LbryClientTests(unittest.TestCase):
         client.call = Mock(
             side_effect=[
                 LbryError("booting"),
-                {"is_running": True, "startup_status": {"wallet": True}},
                 {
                     "is_running": True,
-                    "startup_status": {"stream_manager": True},
+                    "startup_status": {
+                        "database": True,
+                        "blob_manager": True,
+                        "stream_manager": True,
+                    },
+                },
+                {
+                    "is_running": False,
+                    "startup_status": {
+                        "database": True,
+                        "blob_manager": True,
+                        "file_manager": True,
+                    },
                 },
             ]
         )

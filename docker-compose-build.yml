@@ -1,27 +1,25 @@
-version: "3.8"
 services:
   guncad-mirror:
     build: .
     env_file: guncad-mirror.env
+    environment:
+      MIRROR_API_ENDPOINT: "${MIRROR_SMOKE_API_ENDPOINT:?contrib/test-docker.sh must set a narrow API query}"
+      MIRROR_API_MAX_PAGES: "${MIRROR_API_MAX_PAGES:-2}"
+      MIRROR_ENABLE_WEBUI: "false"
+      MIRROR_MAX_RELEASES_PER_RUN: "${MIRROR_SMOKE_RELEASES:-1}"
+      MIRROR_MIN_FREE_SPACE: "${MIRROR_MIN_FREE_SPACE:-1073741824}"
     command:
       - "-v"
+      - "--once"
     volumes:
-      - guncad-mirror:/data:Z
-    ports:
-      # LBRY uses this port to serve rehosted content. If not exposed, you're
-      # just leeching.
-      - 5567:5567/tcp
-      # This is to participate in the DHT. Needs both TCP and UDP
-      - 4444:4444/tcp
-      - 4444:4444/udp
-      # This is for the web UI. You can omit if you don't want it
-      - 8081:5000/tcp
+      - guncad-mirror-smoke:/data:Z
     healthcheck:
       test: |
         curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
+      start_period: 300s
       interval: 5s
       timeout: 15s
-      retries: 3
+      retries: 12
 
 volumes:
-  guncad-mirror:
+  guncad-mirror-smoke:

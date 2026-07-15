@@ -1,8 +1,9 @@
 #
 # GunCAD Mirror MSB Dockerfile
 #
-ARG python=3.13
+ARG python=3.14
 ARG lbrynet=v0.113.0
+ARG lbrynet_commit=a2da86d4b576bf316560a123cb568d8e1826d5b3
 ARG commit_sha=master
 ARG commit_tag=
 
@@ -16,6 +17,8 @@ ARG commit_tag=
 # but honestly the bigger fish is that lbrynet is on Py3.8 still. Ugh.
 #
 FROM docker.io/ubuntu:20.04 AS lbrynet
+ARG lbrynet
+ARG lbrynet_commit
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
@@ -24,22 +27,37 @@ ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
 RUN	apt-get update && \
-	apt-get install -y wget file unzip python3-launchpadlib software-properties-common build-essential git libssl-dev libffi-dev && \
-	add-apt-repository ppa:deadsnakes/ppa && \
-	apt-get update && \
-	apt-get install -y python3.8 python3.8-dev python3.8-venv python3-protobuf
+	apt-get install -y --no-install-recommends \
+		build-essential \
+		file \
+		git \
+		libffi-dev \
+		libssl-dev \
+		python3.8 \
+		python3.8-dev \
+		python3.8-venv \
+		python3-protobuf \
+		unzip \
+		wget && \
+	rm -rf /var/lib/apt/lists/*
+COPY contrib/lbry-sdk-direct-sd.patch /tmp/lbry-sdk-direct-sd.patch
 # Build LBRY. Note that we have to pull Py3.8(!) because they don't support
 # anything newer. Which blows ass. Oh well.
 RUN	mkdir /root/buildlbrynet && \
 	cd /root/buildlbrynet && \
-	git clone https://github.com/lbryio/lbry-sdk && \
+	git clone --branch "$lbrynet" --depth 1 https://github.com/lbryio/lbry-sdk && \
 	cd lbry-sdk && \
-	git checkout $lbrynet && \
+	test "$(git rev-parse HEAD)" = "$lbrynet_commit" && \
+	git apply /tmp/lbry-sdk-direct-sd.patch && \
 	python3.8 -m venv venv && \
 	. venv/bin/activate && \
-	pip install pyinstaller wheel && \
+	pip install \
+		'pyinstaller==6.21.0' \
+		'pyinstaller-hooks-contrib==2026.6' \
+		'wheel==0.41.2' && \
 	make install && \
-	pyinstaller --onefile --name lbrynet lbry/extras/cli.py && \
+	python -c "from lbry.extras.daemon.daemon import Daemon; assert 'stream_get' in Daemon.callable_methods" && \
+	pyinstaller --onefile --hidden-import ipaddress --name lbrynet lbry/extras/cli.py && \
 	./dist/lbrynet --version
 
 # STAGE 2: Building the app
@@ -49,14 +67,12 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEBCONF_NONINTERACTIVE_SEEN=true
-COPY start.sh /usr/local/bin/start-guncad-mirror
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 RUN mkdir /app
 WORKDIR /app
 COPY requirements.txt /app/
-RUN	apt-get update && \
-	apt-get install -y wget unzip
 RUN	pip install --upgrade pip && \
-	pip install wheel && \
 	pip install --no-cache-dir -r requirements.txt
 COPY ./ /app/
 
@@ -69,17 +85,20 @@ ENV PYTHONUNBUFFERED=1
 ENV GUNCAD_COMMIT_SHA=$commit_sha
 ENV GUNCAD_COMMIT_TAG=$commit_tag
 ENV GUNCAD_IN_DOCKER=True
+ENV PATH="/opt/venv/bin:$PATH"
 RUN	apt-get update && \
 	apt-get upgrade -y && \
-	apt-get install -y curl logrotate
-RUN	adduser mirror --uid 1000 && \
+	apt-get install -y --no-install-recommends curl logrotate tini && \
+	rm -rf /var/lib/apt/lists/* && \
+	rm -rf /var/cache/apt/archives/*
+RUN	adduser --disabled-password --gecos "" --uid 1000 mirror && \
 	mkdir /app /data && \
-	chown -R mirror: /app
-COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
-COPY --from=builder /usr/local/bin/start-guncad-mirror /usr/local/bin/start-guncad-mirror
+	chown -R mirror: /app /data
+COPY --from=builder /opt/venv /opt/venv
+COPY start.sh /usr/local/bin/start-guncad-mirror
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 COPY configfiles/logrotate.conf /etc/logrotate.d/lbrynet
 WORKDIR /app
 EXPOSE 5567
-ENTRYPOINT [ "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]
+ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]
