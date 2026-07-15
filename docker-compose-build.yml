@@ -1,10 +1,12 @@
+---
 services:
   guncad-mirror:
     build: .
     stop_grace_period: 2m
     env_file: guncad-mirror.env
     environment:
-      MIRROR_API_ENDPOINT: "${MIRROR_SMOKE_API_ENDPOINT:?contrib/test-docker.sh must set a narrow API query}"
+      MIRROR_API_ENDPOINT: "${MIRROR_SMOKE_API_ENDPOINT:?contrib/test-docker.sh must
+        set a narrow API query}"
       MIRROR_API_MAX_PAGES: "${MIRROR_SMOKE_MAX_PAGES:-2}"
       MIRROR_ENABLE_WEBUI: "false"
       MIRROR_MAX_RELEASES_PER_RUN: "${MIRROR_SMOKE_RELEASES:-1}"
@@ -21,6 +23,5 @@ services:
       interval: 5s
       timeout: 15s
       retries: 12
-
 volumes:
   guncad-mirror-smoke:

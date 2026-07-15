@@ -1,3 +1,4 @@
+---
 services:
   guncad-mirror:
     image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
@@ -21,7 +22,6 @@ services:
       interval: 5s
       timeout: 15s
       retries: 12
-
 volumes:
   guncad-mirror:
     name: "${MIRROR_DATA_VOLUME:-guncad-mirror}"

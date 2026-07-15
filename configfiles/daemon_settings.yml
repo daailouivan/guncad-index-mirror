@@ -1,3 +1,4 @@
+---
 # See https://lbry.tech/resources/daemon-settings for all configuration keys and values
 api: 127.0.0.1:5279
 streaming_server: 127.0.0.1:5280
@@ -5,9 +6,9 @@ share_usage_data: false
 save_blobs: true
 save_files: false
 lbryum_servers:
-# SPV wallet servers
-# https://github.com/lbryio/lbry-sdk/blob/master/lbry/conf.py#L696
-# https://github.com/open-lbry/lbry-docs/blob/main/pages/faq.md
+  # SPV wallet servers
+  # https://github.com/lbryio/lbry-sdk/blob/master/lbry/conf.py#L696
+  # https://github.com/open-lbry/lbry-docs/blob/main/pages/faq.md
   - a-hub1.odysee.com:50001
   - lbryumx1.lbry.com:50001
   - spv11.lbry.com:50001
@@ -26,7 +27,6 @@ lbryum_servers:
   - b-hub1.odysee.com:50001
   - c-hub1.odysee.com:50001
   - s-hub1.odysee.com:50001
-
 tracker_servers:
   # https://github.com/lbryio/lbry-sdk/blob/master/lbry/conf.py#L688
   #
@@ -35,7 +35,6 @@ tracker_servers:
   - tracker.lbry.pigg.es:9252
   - tracker.lizard.technology:9252
   - s1.lbry.network:9252
-
   #
   # These trackers are the ones that ship with lbrynet and still work
   #
