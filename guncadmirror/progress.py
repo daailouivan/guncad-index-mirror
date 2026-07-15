@@ -28,12 +28,12 @@ class ActivityUpdate:
 class ProgressReporter(Protocol):
     def update_activity(self, update: ActivityUpdate) -> None: ...
 
-    def clear_activity(self) -> None: ...
+    def clear_activity(self, release: Release | None = None) -> None: ...
 
 
 class NullProgressReporter:
     def update_activity(self, update: ActivityUpdate) -> None:
         pass
 
-    def clear_activity(self) -> None:
+    def clear_activity(self, release: Release | None = None) -> None:
         pass

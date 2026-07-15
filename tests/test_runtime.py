@@ -35,7 +35,7 @@ class RuntimeTests(unittest.TestCase):
             self.settings.lbry_startup_timeout,
             stop=None,
         )
-        self.stats.log.assert_called_once_with("LBRY daemon is ready", stdout=True)
+        self.stats.log.assert_not_called()
 
     @patch("guncadmirror.runtime.start_webui")
     def test_start_optionally_launches_webui(self, start_webui: Mock) -> None:
@@ -109,6 +109,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertIsNotNone(built.odysee)
         self.assertIs(built.pipeline.fallback_acquirer, built.odysee)
         self.assertIs(built.pipeline.progress, built.stats)
+        self.assertEqual(built.pipeline.record_event, built.stats.log)
         self.assertIs(built.pipeline.acquirer.progress, built.stats)
         self.assertIs(built.odysee.progress, built.stats)
 

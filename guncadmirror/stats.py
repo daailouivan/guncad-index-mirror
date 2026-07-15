@@ -12,6 +12,7 @@ from typing import Any
 
 import psutil
 
+from .models import Release
 from .progress import ActivityUpdate
 from .settings import Settings
 from .state import JobStore
@@ -40,6 +41,9 @@ class StatsCollector:
             "mirror_api_max_pages": settings.api_max_pages,
             "mirror_max_releases_per_run": settings.max_releases_per_run,
             "mirror_lbry_url": settings.lbry_url,
+            "mirror_lbry_concurrency": settings.lbry_concurrency,
+            "mirror_odysee_concurrency": settings.odysee_concurrency,
+            "mirror_finalize_concurrency": settings.finalize_concurrency,
             "mirror_enable_webui": settings.enable_webui,
             "mirror_blacklisted_handles": settings.blacklisted_handles,
             "mirror_release_max_size": settings.max_release_size,
@@ -55,10 +59,13 @@ class StatsCollector:
             "job_counts": {},
             "known_jobs": 0,
             "activity": None,
+            "activities": [],
         }
-        self._activity_key: tuple[str, str, str, str | None] | None = None
-        self._activity_base_bytes: int | None = None
-        self._activity_base_time: float | None = None
+        self._activities: dict[tuple[str, str], dict[str, Any]] = {}
+        self._activity_rates: dict[
+            tuple[str, str],
+            tuple[tuple[str, str | None], int | None, float],
+        ] = {}
         self._lock = Lock()
         self._stop = Event()
         self._threads: list[Thread] = []
@@ -69,59 +76,64 @@ class StatsCollector:
 
     def update_activity(self, update: ActivityUpdate) -> None:
         transport = update.transport.value if update.transport is not None else None
-        key = (
-            update.release.id,
-            update.release.sd_hash,
-            update.phase.value,
-            transport,
-        )
+        job_key = (update.release.id, update.release.sd_hash)
+        phase_key = (update.phase.value, transport)
         now = self.monotonic()
-        if key != self._activity_key:
-            self._activity_key = key
-            self._activity_base_bytes = update.completed_bytes
-            self._activity_base_time = now
-        elif self._activity_base_bytes is None and update.completed_bytes is not None:
-            self._activity_base_bytes = update.completed_bytes
-            self._activity_base_time = now
-
-        rate = None
-        if (
-            update.completed_bytes is not None
-            and self._activity_base_bytes is not None
-            and self._activity_base_time is not None
-            and update.completed_bytes >= self._activity_base_bytes
-            and now > self._activity_base_time
-        ):
-            rate = (update.completed_bytes - self._activity_base_bytes) / (
-                now - self._activity_base_time
-            )
-
-        activity = {
-            "release_id": update.release.id,
-            "sd_hash": update.release.sd_hash,
-            "release_name": update.release.name,
-            "channel_handle": update.release.channel_handle,
-            "phase": update.phase.value,
-            "transport": transport,
-            "completed_bytes": update.completed_bytes,
-            "total_bytes": update.total_bytes,
-            "bytes_per_second": rate,
-            "blobs_remaining": update.blobs_remaining,
-        }
         with self._lock:
+            previous = self._activity_rates.get(job_key)
+            if previous is None or previous[0] != phase_key:
+                base_bytes = update.completed_bytes
+                base_time = now
+            else:
+                _previous_phase, base_bytes, base_time = previous
+                if base_bytes is None and update.completed_bytes is not None:
+                    base_bytes = update.completed_bytes
+                    base_time = now
+
+            rate = None
+            if (
+                update.completed_bytes is not None
+                and base_bytes is not None
+                and update.completed_bytes >= base_bytes
+                and now > base_time
+            ):
+                rate = (update.completed_bytes - base_bytes) / (now - base_time)
+
+            self._activity_rates[job_key] = (phase_key, base_bytes, base_time)
+            activity = {
+                "release_id": update.release.id,
+                "sd_hash": update.release.sd_hash,
+                "release_name": update.release.name,
+                "channel_handle": update.release.channel_handle,
+                "phase": update.phase.value,
+                "transport": transport,
+                "completed_bytes": update.completed_bytes,
+                "total_bytes": update.total_bytes,
+                "bytes_per_second": rate,
+                "blobs_remaining": update.blobs_remaining,
+            }
+            self._activities[job_key] = activity
             self._snapshot["activity"] = activity
+            self._snapshot["activities"] = list(self._activities.values())
 
-    def clear_activity(self) -> None:
-        self._activity_key = None
-        self._activity_base_bytes = None
-        self._activity_base_time = None
+    def clear_activity(self, release: Release | None = None) -> None:
         with self._lock:
-            self._snapshot["activity"] = None
+            if release is None:
+                self._activities.clear()
+                self._activity_rates.clear()
+            else:
+                job_key = (release.id, release.sd_hash)
+                self._activities.pop(job_key, None)
+                self._activity_rates.pop(job_key, None)
+            activities = list(self._activities.values())
+            self._snapshot["activities"] = activities
+            self._snapshot["activity"] = activities[-1] if activities else None
 
     def log(self, message: str, *, stdout: bool = False) -> None:
         if stdout:
             logging.getLogger("guncad-mirror").info(message)
-        self.events.append(f"[{datetime.now()}] {message}")
+        with self._lock:
+            self.events.append(f"[{datetime.now()}] {message}")
 
     def collect(self) -> None:
         counts = self.store.counts()
@@ -144,7 +156,7 @@ class StatsCollector:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             result = dict(self._snapshot)
-        result["extralog"] = list(self.events)
+            result["extralog"] = list(self.events)
         return result
 
     def start(self) -> None:

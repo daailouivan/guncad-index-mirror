@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
+from time import monotonic, sleep
 from unittest.mock import Mock, patch
 
 from guncadmirror.cancellation import AcquisitionCancelled
@@ -55,6 +58,7 @@ class MirrorPipelineTests(unittest.TestCase):
         publisher: object | None = None,
         fallback: object | None = None,
         progress: object | None = None,
+        record_event: Callable[[str], None] | None = None,
     ) -> MirrorPipeline:
         return MirrorPipeline(
             self.settings,
@@ -65,6 +69,7 @@ class MirrorPipelineTests(unittest.TestCase):
             fallback_acquirer=fallback,
             disk_free=lambda _: disk_free,
             progress=progress,
+            record_event=record_event,
         )
 
     def test_happy_path_is_verified_durable_and_idempotent(self) -> None:
@@ -119,7 +124,7 @@ class MirrorPipelineTests(unittest.TestCase):
                 "Writing local outbox",
             ],
         )
-        progress.clear_activity.assert_called_once_with()
+        progress.clear_activity.assert_called_once_with(release)
 
     def test_missing_or_structurally_invalid_artifact_is_rebuilt(self) -> None:
         content = b"payload"
@@ -227,7 +232,8 @@ class MirrorPipelineTests(unittest.TestCase):
         payload.write_bytes(content)
         acquirer = Mock()
         acquirer.acquire.side_effect = [RuntimeError("LBRY broke"), payload]
-        pipeline = self._pipeline([release], acquirer)
+        events: list[str] = []
+        pipeline = self._pipeline([release], acquirer, record_event=events.append)
 
         with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
             self.assertEqual(pipeline.process(release), "failed")
@@ -235,6 +241,8 @@ class MirrorPipelineTests(unittest.TestCase):
         self.assertEqual(failed.state, JobState.FAILED)
         self.assertIn("LBRY broke", failed.last_error)
         self.assertEqual(failed.next_attempt_at, 110)
+        self.assertIn("FAILED @channel:c/Release Name", events[0])
+        self.assertIn("RuntimeError: LBRY broke", events[0])
 
         self.assertEqual(pipeline.process(release), "skipped")
         self.assertEqual(acquirer.acquire.call_count, 1)
@@ -417,6 +425,251 @@ class MirrorPipelineTests(unittest.TestCase):
         )
         self.assertEqual(CycleResult().add("unknown").discovered, 1)
 
+    def test_cycle_runs_four_lbry_acquisitions_concurrently(self) -> None:
+        content = b"payload"
+        releases = [
+            make_release(
+                content,
+                release_id=f"{index + 1:040x}",
+                sd_hash=f"{index + 100:096x}",
+                name=f"Release {index}",
+            )
+            for index in range(8)
+        ]
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        gate = Event()
+        saturated = Event()
+        lock = Lock()
+        active = 0
+        peak = 0
+
+        class BlockingAcquirer:
+            def acquire(self, *_args: object, **_kwargs: object) -> Path:
+                nonlocal active, peak
+                with lock:
+                    active += 1
+                    peak = max(peak, active)
+                    if active == 4:
+                        saturated.set()
+                try:
+                    if not gate.wait(5):
+                        raise TimeoutError("test did not release LBRY workers")
+                    return payload
+                finally:
+                    with lock:
+                        active -= 1
+
+        pipeline = self._pipeline(releases, BlockingAcquirer())
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cycle = executor.submit(pipeline.run_cycle)
+            try:
+                self.assertTrue(saturated.wait(2))
+                self.assertEqual(peak, 4)
+            finally:
+                gate.set()
+            result = cycle.result(timeout=10)
+
+        self.assertEqual(result, CycleResult(discovered=8, ready=8))
+        self.assertEqual(peak, 4)
+
+    def test_odysee_fallback_has_an_independent_two_worker_stage(self) -> None:
+        content = b"payload"
+        releases = [
+            make_release(
+                content,
+                release_id=f"{index + 1:040x}",
+                sd_hash=f"{index + 100:096x}",
+                name=f"Release {index}",
+            )
+            for index in range(8)
+        ]
+        payload = self.root / "odysee-payload.zip"
+        payload.write_bytes(content)
+        gate = Event()
+        saturated = Event()
+        all_lbry_attempted = Event()
+        lock = Lock()
+        lbry_calls = 0
+        odysee_active = 0
+        odysee_peak = 0
+
+        class UnavailableLbry:
+            def acquire(self, *_args: object, **_kwargs: object) -> Path:
+                nonlocal lbry_calls
+                with lock:
+                    lbry_calls += 1
+                    if lbry_calls == len(releases):
+                        all_lbry_attempted.set()
+                raise LbryStreamUnavailable("no peers")
+
+        class BlockingOdysee:
+            def acquire(
+                self,
+                release: object,
+                *_args: object,
+                **_kwargs: object,
+            ) -> OdyseeAcquisition:
+                nonlocal odysee_active, odysee_peak
+                with lock:
+                    odysee_active += 1
+                    odysee_peak = max(odysee_peak, odysee_active)
+                    if odysee_active == 2:
+                        saturated.set()
+                try:
+                    if not gate.wait(5):
+                        raise TimeoutError("test did not release Odysee workers")
+                    return OdyseeAcquisition(
+                        payload,
+                        f"https://player.odycdn.com/{release.id}",
+                    )
+                finally:
+                    with lock:
+                        odysee_active -= 1
+
+        pipeline = self._pipeline(
+            releases,
+            UnavailableLbry(),
+            fallback=BlockingOdysee(),
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cycle = executor.submit(pipeline.run_cycle)
+            try:
+                self.assertTrue(saturated.wait(2))
+                self.assertTrue(all_lbry_attempted.wait(2))
+                self.assertEqual(odysee_peak, 2)
+            finally:
+                gate.set()
+            result = cycle.result(timeout=10)
+
+        self.assertEqual(result, CycleResult(discovered=8, ready=8))
+        self.assertEqual(lbry_calls, 8)
+        self.assertEqual(odysee_peak, 2)
+
+    def test_disk_reservation_contention_waits_instead_of_skipping(self) -> None:
+        content = b"payload"
+        releases = [
+            make_release(
+                content,
+                release_id=f"{index + 1:040x}",
+                sd_hash=f"{index + 100:096x}",
+                name=f"Release {index}",
+            )
+            for index in range(2)
+        ]
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        gate = Event()
+        first_started = Event()
+        second_started = Event()
+        calls = 0
+
+        class BlockingAcquirer:
+            def acquire(self, *_args: object, **_kwargs: object) -> Path:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    first_started.set()
+                    if not gate.wait(5):
+                        raise TimeoutError("test did not release disk reservation")
+                else:
+                    second_started.set()
+                return payload
+
+        pipeline = self._pipeline(
+            releases,
+            BlockingAcquirer(),
+            disk_free=20,
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cycle = executor.submit(pipeline.run_cycle)
+            try:
+                self.assertTrue(first_started.wait(2))
+                self.assertFalse(second_started.wait(0.1))
+            finally:
+                gate.set()
+            result = cycle.result(timeout=10)
+
+        self.assertEqual(result, CycleResult(discovered=2, ready=2))
+        self.assertTrue(second_started.is_set())
+
+    def test_stop_cancels_queued_workers_without_recording_failures(self) -> None:
+        content = b"payload"
+        releases = [
+            make_release(
+                content,
+                release_id=f"{index + 1:040x}",
+                sd_hash=f"{index + 100:096x}",
+                name=f"Release {index}",
+            )
+            for index in range(3)
+        ]
+        stop = Event()
+        started = Event()
+
+        class CancellableAcquirer:
+            def acquire(
+                self,
+                *_args: object,
+                stop: Event | None = None,
+                **_kwargs: object,
+            ) -> Path:
+                started.set()
+                if stop is None or not stop.wait(5):
+                    raise TimeoutError("test did not request cancellation")
+                raise AcquisitionCancelled("stop")
+
+        pipeline = self._pipeline(releases, CancellableAcquirer())
+        pipeline.settings = replace(
+            self.settings,
+            lbry_concurrency=1,
+            odysee_concurrency=1,
+            finalize_concurrency=1,
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cycle = executor.submit(pipeline.run_cycle, stop)
+            self.assertTrue(started.wait(2))
+            deadline = monotonic() + 2
+            while self.store.counts().get("acquiring") != 3 and monotonic() < deadline:
+                sleep(0.01)
+            self.assertEqual(self.store.counts(), {"acquiring": 3})
+            stop.set()
+            result = cycle.result(timeout=10)
+
+        self.assertEqual(result, CycleResult(discovered=3, stopped=3))
+        self.assertEqual(self.store.counts(), {"acquiring": 3})
+
+    def test_cycle_deduplicates_an_index_job_before_submitting_it(self) -> None:
+        content = b"payload"
+        release = make_release(content)
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        acquirer = Mock(return_value=payload)
+        acquirer.acquire.return_value = payload
+        pipeline = self._pipeline([release, release], acquirer)
+
+        with self.assertLogs("guncad-mirror.pipeline", level="WARNING"):
+            result = pipeline.run_cycle()
+
+        self.assertEqual(result, CycleResult(discovered=2, ready=1, skipped=1))
+        acquirer.acquire.assert_called_once()
+
+    def test_operator_event_failure_cannot_break_release_handling(self) -> None:
+        release = make_release()
+        callback = Mock(side_effect=RuntimeError("event sink broke"))
+        pipeline = self._pipeline(
+            [release],
+            Mock(),
+            disk_free=13,
+            record_event=callback,
+        )
+
+        with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
+            self.assertEqual(pipeline.process(release), "skipped")
+
+        callback.assert_called_once()
+        self.assertEqual(self.store.counts(), {})
+
     def test_cycle_cancels_current_release_without_recording_a_failure(self) -> None:
         content = b"payload"
         first = make_release(content)
@@ -432,6 +685,12 @@ class MirrorPipelineTests(unittest.TestCase):
 
         acquirer.acquire.side_effect = acquire
         pipeline = self._pipeline([first, second], acquirer)
+        pipeline.settings = replace(
+            self.settings,
+            lbry_concurrency=1,
+            odysee_concurrency=1,
+            finalize_concurrency=1,
+        )
 
         with self.assertLogs("guncad-mirror.pipeline", level="INFO"):
             result = pipeline.run_cycle(stop)

@@ -26,6 +26,9 @@ class WebUiTests(unittest.TestCase):
             "mirror_api_max_pages": 2,
             "mirror_max_releases_per_run": None,
             "mirror_lbry_url": "http://127.0.0.1:5279",
+            "mirror_lbry_concurrency": 4,
+            "mirror_odysee_concurrency": 2,
+            "mirror_finalize_concurrency": 2,
             "mirror_enable_webui": True,
             "mirror_blacklisted_handles": (),
             "mirror_release_max_size": 1024,
@@ -41,6 +44,7 @@ class WebUiTests(unittest.TestCase):
             "job_counts": {"awaiting_index": 2},
             "known_jobs": 2,
             "activity": None,
+            "activities": [],
             "psutil_cpu": 1,
             "psutil_mem": 2,
             "psutil_disk": disk,
@@ -83,6 +87,7 @@ class WebUiTests(unittest.TestCase):
             "blobs_remaining": None,
         }
         self.collector.snapshot.return_value["activity"] = activity
+        self.collector.snapshot.return_value["activities"] = [activity]
         app = create_app(self.collector)
 
         response = app.test_client().get("/")
@@ -91,6 +96,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"50.0%", response.data)
         self.assertIn(b"128.0 B/s", response.data)
         self.assertIn(b"4.0 seconds remaining", response.data)
+        self.assertIn(b"1 active job", response.data)
 
         activity.update(
             {
@@ -106,6 +112,12 @@ class WebUiTests(unittest.TestCase):
         activity["blobs_remaining"] = None
         response = app.test_client().get("/")
         self.assertIn(b"Advertised size: 1.0 KiB", response.data)
+
+        second = dict(activity, release_name="Second release", release_id="c" * 40)
+        self.collector.snapshot.return_value["activities"] = [activity, second]
+        response = app.test_client().get("/")
+        self.assertIn(b"2 active jobs", response.data)
+        self.assertIn(b"Second release", response.data)
 
     @patch("guncadmirror.webui.Thread")
     @patch("guncadmirror.webui.serve")

@@ -58,28 +58,36 @@
             </div>
             <section class="panel state-panel">
                 <p class="eyebrow">Current activity</p>
-                {% if activity %}
-                    <p class="current-state">{{ activity.release_name }}</p>
-                    <p class="activity-phase">{{ activity.phase }}</p>
-                    <p class="fine-print breakable">
-                        {{ activity.channel_handle }} · claim {{ activity.release_id }} · descriptor {{ activity.sd_hash[:12] }}
-                    </p>
-                    {% if activity.completed_bytes is not none and activity.total_bytes %}
-                        <progress value="{{ activity.completed_bytes }}"
-                                  max="{{ activity.total_bytes }}">{{ 100 * activity.completed_bytes / activity.total_bytes }}%</progress>
-                        <p class="activity-detail">
-                            {{ activity.completed_bytes | humanize_bytes }} / {{ activity.total_bytes | humanize_bytes }}
-                            ({{ (100 * activity.completed_bytes / activity.total_bytes) | round(2) }}%)
-                            {% if activity.bytes_per_second %}
-                                · {{ activity.bytes_per_second | humanize_bytes }}/s
-                                · {{ ((activity.total_bytes - activity.completed_bytes) / activity.bytes_per_second) | humanize_seconds }} remaining
-                            {% endif %}
-                        </p>
-                    {% elif activity.blobs_remaining is not none %}
-                        <p class="activity-detail">{{ activity.blobs_remaining }} LBRY blobs remaining</p>
-                    {% elif activity.total_bytes %}
-                        <p class="activity-detail">Advertised size: {{ activity.total_bytes | humanize_bytes }}</p>
-                    {% endif %}
+                {% set active_jobs = activities if activities else ([activity] if activity else []) %}
+                {% if active_jobs %}
+                    <p class="current-state">{{ active_jobs | length }} active job{% if active_jobs | length != 1 %}s{% endif %}</p>
+                    <div class="activity-grid">
+                        {% for activity in active_jobs %}
+                            <article class="activity-card">
+                                <h2>{{ activity.release_name }}</h2>
+                                <p class="activity-phase">{{ activity.phase }}</p>
+                                <p class="fine-print breakable">
+                                    {{ activity.channel_handle }} · claim {{ activity.release_id }} · descriptor {{ activity.sd_hash[:12] }}
+                                </p>
+                                {% if activity.completed_bytes is not none and activity.total_bytes %}
+                                    <progress value="{{ activity.completed_bytes }}"
+                                              max="{{ activity.total_bytes }}">{{ 100 * activity.completed_bytes / activity.total_bytes }}%</progress>
+                                    <p class="activity-detail">
+                                        {{ activity.completed_bytes | humanize_bytes }} / {{ activity.total_bytes | humanize_bytes }}
+                                        ({{ (100 * activity.completed_bytes / activity.total_bytes) | round(2) }}%)
+                                        {% if activity.bytes_per_second %}
+                                            · {{ activity.bytes_per_second | humanize_bytes }}/s
+                                            · {{ ((activity.total_bytes - activity.completed_bytes) / activity.bytes_per_second) | humanize_seconds }} remaining
+                                        {% endif %}
+                                    </p>
+                                {% elif activity.blobs_remaining is not none %}
+                                    <p class="activity-detail">{{ activity.blobs_remaining }} LBRY blobs remaining</p>
+                                {% elif activity.total_bytes %}
+                                    <p class="activity-detail">Advertised size: {{ activity.total_bytes | humanize_bytes }}</p>
+                                {% endif %}
+                            </article>
+                        {% endfor %}
+                    </div>
                 {% else %}
                     <p class="current-state">{{ mirror_state }}</p>
                 {% endif %}
@@ -163,6 +171,21 @@
                                 <th scope="row">LBRY RPC</th>
                                 <td class="breakable">{{ mirror_lbry_url }}</td>
                                 <td>Daemon used for direct stream-descriptor acquisition.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">LBRY acquisition workers</th>
+                                <td>{{ mirror_lbry_concurrency }}</td>
+                                <td>Maximum simultaneous descriptor acquisitions.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Odysee fallback workers</th>
+                                <td>{{ mirror_odysee_concurrency }}</td>
+                                <td>Maximum simultaneous independently verified CDN recoveries.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Finalization workers</th>
+                                <td>{{ mirror_finalize_concurrency }}</td>
+                                <td>Maximum simultaneous verification and torrent-hashing jobs.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Blacklisted channels</th>

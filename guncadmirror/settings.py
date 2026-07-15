@@ -23,6 +23,9 @@ class Settings:
     lbry_url: str = "http://127.0.0.1:5279"
     odysee_fallback: bool = True
     odysee_proxy_url: str = DEFAULT_ODYSEE_PROXY_URL
+    lbry_concurrency: int = 4
+    odysee_concurrency: int = 2
+    finalize_concurrency: int = 2
     api_max_pages: int = 1000
     max_releases_per_run: int | None = None
     max_release_size: int = 10 * 1024**3
@@ -50,6 +53,11 @@ class Settings:
             odysee_proxy_url=env.get(
                 "MIRROR_ODYSEE_PROXY_URL", DEFAULT_ODYSEE_PROXY_URL
             ).strip(),
+            lbry_concurrency=_integer(env, "MIRROR_LBRY_CONCURRENCY", 4, minimum=1),
+            odysee_concurrency=_integer(env, "MIRROR_ODYSEE_CONCURRENCY", 2, minimum=1),
+            finalize_concurrency=_integer(
+                env, "MIRROR_FINALIZE_CONCURRENCY", 2, minimum=1
+            ),
             api_max_pages=_integer(env, "MIRROR_API_MAX_PAGES", 1000, minimum=1),
             max_releases_per_run=max_releases or None,
             max_release_size=_integer(

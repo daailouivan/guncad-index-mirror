@@ -56,6 +56,9 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["mirror_api_max_pages"], 1000)
         self.assertIsNone(snapshot["mirror_max_releases_per_run"])
         self.assertEqual(snapshot["mirror_lbry_url"], "http://127.0.0.1:5279")
+        self.assertEqual(snapshot["mirror_lbry_concurrency"], 4)
+        self.assertEqual(snapshot["mirror_odysee_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_finalize_concurrency"], 2)
         self.assertEqual(snapshot["mirror_blacklisted_handles"], ())
         self.assertEqual(snapshot["mirror_releases_dir"], str(self.root / "releases"))
         self.assertEqual(snapshot["mirror_outbox_dir"], str(self.root / "outbox"))
@@ -155,6 +158,31 @@ class StatsCollectorTests(unittest.TestCase):
 
         collector.clear_activity()
         self.assertIsNone(collector.snapshot()["activity"])
+
+    def test_tracks_and_clears_multiple_release_activities_independently(self) -> None:
+        collector = StatsCollector(self.settings, self.store, monotonic=lambda: 1)
+        first = make_release(b"one")
+        second = make_release(
+            b"two",
+            release_id="c" * 40,
+            sd_hash="d" * 96,
+        )
+
+        collector.update_activity(ActivityUpdate(first, ActivityPhase.LBRY))
+        collector.update_activity(ActivityUpdate(second, ActivityPhase.ODYSEE))
+        snapshot = collector.snapshot()
+        self.assertEqual(
+            [activity["release_id"] for activity in snapshot["activities"]],
+            [first.id, second.id],
+        )
+
+        collector.clear_activity(first)
+        snapshot = collector.snapshot()
+        self.assertEqual(len(snapshot["activities"]), 1)
+        self.assertEqual(snapshot["activity"]["release_id"], second.id)
+
+        collector.clear_activity(second)
+        self.assertEqual(collector.snapshot()["activities"], [])
 
     def test_directory_size_ignores_files_that_disappear(self) -> None:
         (self.root / "one").write_bytes(b"123")

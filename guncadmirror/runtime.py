@@ -31,7 +31,7 @@ class Runtime:
             start_webui(self.stats)
         self.stats.set_state("Waiting for LBRY")
         self.lbry.wait_until_ready(self.settings.lbry_startup_timeout, stop=stop)
-        self.stats.log("LBRY daemon is ready", stdout=True)
+        logging.getLogger("guncad-mirror").info("LBRY daemon is ready")
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
         self.stats.set_state("Enumerating Index releases")
@@ -117,6 +117,7 @@ def build_runtime(settings: Settings) -> Runtime:
         publisher,
         fallback_acquirer=odysee,
         progress=stats,
+        record_event=stats.log,
     )
     return Runtime(
         settings=settings,

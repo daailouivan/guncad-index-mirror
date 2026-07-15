@@ -143,6 +143,26 @@ main {
 	margin: 0.75rem 0;
 }
 
+.activity-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+	gap: 0.75rem;
+	margin-top: 1rem;
+	text-align: left;
+}
+
+.activity-card {
+	padding: 1rem;
+	background: var(--background);
+	border: 1px solid var(--border);
+	border-radius: 0.35rem;
+}
+
+.activity-card h2 {
+	margin-bottom: 0;
+	font-size: 1.1rem;
+}
+
 progress {
 	width: min(100%, 64rem);
 	height: 1.25rem;
