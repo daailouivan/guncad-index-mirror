@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.pipeline import CycleResult
 from guncadmirror.runtime import Runtime, build_runtime
 from guncadmirror.settings import Settings
@@ -31,7 +32,8 @@ class RuntimeTests(unittest.TestCase):
         self.stats.start.assert_called_once_with()
         self.stats.set_state.assert_called_once_with("Waiting for LBRY")
         self.lbry.wait_until_ready.assert_called_once_with(
-            self.settings.lbry_startup_timeout
+            self.settings.lbry_startup_timeout,
+            stop=None,
         )
         self.stats.log.assert_called_once_with("LBRY daemon is ready", stdout=True)
 
@@ -52,10 +54,10 @@ class RuntimeTests(unittest.TestCase):
         self.pipeline.run_cycle.assert_called_once_with(None)
         self.stats.set_state.assert_any_call("Enumerating Index releases")
         self.stats.set_state.assert_any_call(
-            "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed"
+            "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed, 0 stopped"
         )
         self.stats.log.assert_called_once_with(
-            "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed",
+            "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed, 0 stopped",
             stdout=True,
         )
 
@@ -77,6 +79,18 @@ class RuntimeTests(unittest.TestCase):
         self.pipeline.run_cycle.assert_called_once_with(stop)
         self.stats.log.assert_any_call("Mirror cycle failed; see application log")
         stop.wait.assert_called_once_with(1)
+
+    def test_forever_loop_treats_index_cancellation_as_a_clean_stop(self) -> None:
+        stop = Mock()
+        stop.is_set.return_value = False
+        self.pipeline.run_cycle.side_effect = AcquisitionCancelled("stop")
+
+        self.runtime.run_forever(stop)
+
+        self.stats.log.assert_called_once_with(
+            "Mirror stop requested during Index enumeration"
+        )
+        stop.wait.assert_not_called()
 
     def test_stop_and_runtime_builder_wire_components(self) -> None:
         self.runtime.odysee = Mock()

@@ -6,8 +6,9 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from threading import Event
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.lbry import LbryProtocolError, LbryStreamUnavailable
 from guncadmirror.models import JobState, PublicationBundle
 from guncadmirror.odysee import OdyseeAcquisition
@@ -24,7 +25,7 @@ class StaticIndex:
     def __init__(self, releases: list[object]):
         self._releases = releases
 
-    def releases(self) -> object:
+    def releases(self, **_kwargs: object) -> object:
         return iter(self._releases)
 
 
@@ -136,7 +137,7 @@ class MirrorPipelineTests(unittest.TestCase):
 
         payload.write_bytes(b"x")
 
-        def restore_payload(*_args: object) -> Path:
+        def restore_payload(*_args: object, **_kwargs: object) -> Path:
             payload.write_bytes(content)
             return payload
 
@@ -263,6 +264,7 @@ class MirrorPipelineTests(unittest.TestCase):
                 release.name,
                 release.sd_hash,
             ),
+            stop=None,
         )
 
         manifest["acquisition"]["transport"] = "mystery"
@@ -398,7 +400,7 @@ class MirrorPipelineTests(unittest.TestCase):
         )
         self.assertEqual(CycleResult().add("unknown").discovered, 1)
 
-    def test_cycle_stops_between_releases_after_current_work_is_durable(self) -> None:
+    def test_cycle_cancels_current_release_without_recording_a_failure(self) -> None:
         content = b"payload"
         first = make_release(content)
         second = make_release(content, release_id="c" * 40, sd_hash="d" * 96)
@@ -407,7 +409,7 @@ class MirrorPipelineTests(unittest.TestCase):
         stop = Event()
         acquirer = Mock()
 
-        def acquire(*_args: object) -> Path:
+        def acquire(*_args: object, **_kwargs: object) -> Path:
             stop.set()
             return payload
 
@@ -417,10 +419,71 @@ class MirrorPipelineTests(unittest.TestCase):
         with self.assertLogs("guncad-mirror.pipeline", level="INFO"):
             result = pipeline.run_cycle(stop)
 
-        self.assertEqual(result, CycleResult(discovered=1, ready=1))
+        self.assertEqual(result, CycleResult(discovered=1, stopped=1))
         self.assertEqual(acquirer.acquire.call_count, 1)
+        first_job = self.store.get(first.id, first.sd_hash)
+        self.assertEqual(first_job.state, JobState.ACQUIRING)
+        self.assertIsNone(first_job.last_error)
         with self.assertRaises(KeyError):
             self.store.get(second.id, second.sd_hash)
+
+    def test_cancellation_from_fallback_or_torrent_remains_retryable(self) -> None:
+        content = b"payload"
+        fallback_release = make_release(content)
+        torrent_release = make_release(
+            content,
+            release_id="c" * 40,
+            sd_hash="d" * 96,
+        )
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        acquirer = Mock()
+        acquirer.acquire.side_effect = [
+            LbryStreamUnavailable("no peers"),
+            payload,
+        ]
+        fallback = Mock()
+        fallback.acquire.side_effect = AcquisitionCancelled("stop")
+        pipeline = self._pipeline(
+            [fallback_release, torrent_release],
+            acquirer,
+            fallback=fallback,
+        )
+
+        with self.assertLogs("guncad-mirror.pipeline", level="INFO"):
+            self.assertEqual(pipeline.process(fallback_release), "stopped")
+        first_job = self.store.get(fallback_release.id, fallback_release.sd_hash)
+        self.assertEqual(first_job.state, JobState.ACQUIRING)
+        self.assertIsNone(first_job.last_error)
+
+        with (
+            patch(
+                "guncadmirror.pipeline.create_torrent",
+                side_effect=AcquisitionCancelled("stop"),
+            ),
+            self.assertLogs("guncad-mirror.pipeline", level="INFO"),
+        ):
+            self.assertEqual(pipeline.process(torrent_release), "stopped")
+        second_job = self.store.get(torrent_release.id, torrent_release.sd_hash)
+        self.assertEqual(second_job.state, JobState.VERIFIED)
+        self.assertIsNone(second_job.last_error)
+
+    def test_cycle_reports_stop_during_index_page_acquisition(self) -> None:
+        index = Mock()
+        index.releases.side_effect = AcquisitionCancelled("stop")
+        pipeline = MirrorPipeline(
+            self.settings,
+            index,
+            Mock(),
+            self.store,
+            self.publisher,
+            disk_free=lambda _: 10**12,
+        )
+
+        with self.assertLogs("guncad-mirror.pipeline", level="INFO"):
+            result = pipeline.run_cycle(Event())
+
+        self.assertEqual(result, CycleResult(stopped=1))
 
     def test_publisher_must_return_durable_files(self) -> None:
         content = b"payload"

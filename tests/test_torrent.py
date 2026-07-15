@@ -4,8 +4,10 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 from urllib.parse import parse_qs, urlsplit
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.torrent import TorrentError, bencode, create_torrent
 
 
@@ -87,3 +89,22 @@ class TorrentTests(unittest.TestCase):
                     self.assertRaisesRegex(TorrentError, "piece length"),
                 ):
                     create_torrent(empty, root / "x.torrent", piece_length=piece_length)
+
+    def test_piece_hashing_is_cancellable_without_a_partial_torrent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = root / "payload.bin"
+            payload.write_bytes(b"x" * 32768)
+            destination = root / "payload.torrent"
+            stop = Mock()
+            stop.is_set.side_effect = [False, True]
+
+            with self.assertRaises(AcquisitionCancelled):
+                create_torrent(
+                    payload,
+                    destination,
+                    piece_length=16384,
+                    stop=stop,
+                )
+
+            self.assertFalse(destination.exists())

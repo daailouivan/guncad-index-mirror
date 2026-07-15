@@ -5,11 +5,13 @@ import unittest
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from typing import Any
 from unittest.mock import patch
 
 import requests
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.odysee import (
     OdyseeAcquirer,
     OdyseeProtocolError,
@@ -491,6 +493,66 @@ class OdyseeAcquirerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(OdyseeUnavailable, "failed after 2"):
             self._acquirer(session).acquire(self.release, self.root / "failed")
+
+    def test_stop_event_preserves_a_fsynced_ranged_partial(self) -> None:
+        stop = Event()
+        stop.set()
+        session = FakeSession(posts=[], gets=[])
+        with self.assertRaises(AcquisitionCancelled):
+            self._acquirer(session).acquire(
+                self.release,
+                self.root / "pre-stopped",
+                stop=stop,
+            )
+        self.assertEqual(session.post_calls, [])
+
+        stop.clear()
+        response = self._stream_response(0, [])
+
+        def chunks(*, chunk_size: int):
+            self.assertEqual(chunk_size, 1024**2)
+            yield b"pay"
+            stop.set()
+            yield b"load"
+
+        response.iter_content = chunks
+        session = FakeSession(
+            posts=[self._resolve_response(), self._get_response()],
+            gets=[response],
+        )
+        directory = self.root / "cancelled"
+        with self.assertRaises(AcquisitionCancelled):
+            self._acquirer(session).acquire(
+                self.release,
+                directory,
+                stop=stop,
+            )
+
+        partial = directory / ".payload.zip.odysee.part"
+        self.assertEqual(partial.read_bytes(), b"pay")
+        self.assertFalse((directory / "payload.zip").exists())
+
+    def test_stop_event_interrupts_proxy_retry_backoff(self) -> None:
+        stop = Event()
+
+        class CancellingSession(FakeSession):
+            def post(self, url: str, **kwargs: Any) -> FakeResponse:
+                stop.set()
+                return super().post(url, **kwargs)
+
+        session = CancellingSession(
+            posts=[requests.ConnectionError("offline")],
+            gets=[],
+        )
+        with (
+            self.assertLogs("guncad-mirror.odysee", level="WARNING"),
+            self.assertRaises(AcquisitionCancelled),
+        ):
+            self._acquirer(session).acquire(
+                self.release,
+                self.root / "retry-stop",
+                stop=stop,
+            )
 
 
 if __name__ == "__main__":

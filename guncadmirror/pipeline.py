@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
 
+from .cancellation import AcquisitionCancelled
 from .index_client import IndexClient
 from .lbry import LbryAcquirer, LbryError, LbryProtocolError
 from .models import (
@@ -35,6 +36,7 @@ class CycleResult:
     ready: int = 0
     skipped: int = 0
     failed: int = 0
+    stopped: int = 0
 
     def add(self, outcome: str) -> CycleResult:
         values = {
@@ -42,6 +44,7 @@ class CycleResult:
             "ready": self.ready + (outcome == "ready"),
             "skipped": self.skipped + (outcome == "skipped"),
             "failed": self.failed + (outcome == "failed"),
+            "stopped": self.stopped + (outcome == "stopped"),
         }
         return CycleResult(**values)
 
@@ -70,15 +73,29 @@ class MirrorPipeline:
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
         result = CycleResult()
-        for release in self.index_client.releases():
-            if stop is not None and stop.is_set():
-                self.logger.info("Stopping Index cycle at a release boundary")
-                break
-            outcome = self.process(release)
-            result = result.add(outcome)
+        try:
+            for release in self.index_client.releases(stop=stop):
+                if stop is not None and stop.is_set():
+                    self.logger.info("Stopping Index cycle at a release boundary")
+                    break
+                outcome = self.process(release, stop=stop)
+                result = result.add(outcome)
+                if outcome == "stopped":
+                    break
+        except AcquisitionCancelled:
+            self.logger.info("Stopping Index cycle during page acquisition")
+            result = CycleResult(
+                discovered=result.discovered,
+                ready=result.ready,
+                skipped=result.skipped,
+                failed=result.failed,
+                stopped=result.stopped + 1,
+            )
         return result
 
-    def process(self, release: Release) -> str:
+    def process(self, release: Release, *, stop: Event | None = None) -> str:
+        if stop is not None and stop.is_set():
+            return "stopped"
         if self._is_blacklisted(release):
             self.logger.info("Skipping blacklisted channel %s", release.channel_handle)
             return "skipped"
@@ -125,7 +142,7 @@ class MirrorPipeline:
             _atomic_json(directory / "release.json", release.raw)
             acquisition = AcquisitionEvidence(AcquisitionTransport.LBRY)
             try:
-                file_path = self.acquirer.acquire(release, directory)
+                file_path = self.acquirer.acquire(release, directory, stop=stop)
             except LbryError as lbry_error:
                 if (
                     isinstance(lbry_error, LbryProtocolError)
@@ -141,7 +158,11 @@ class MirrorPipeline:
                     lbry_error,
                 )
                 try:
-                    fallback = self.fallback_acquirer.acquire(release, directory)
+                    fallback = self.fallback_acquirer.acquire(
+                        release, directory, stop=stop
+                    )
+                except AcquisitionCancelled:
+                    raise
                 except Exception as fallback_error:
                     raise RuntimeError(
                         f"LBRY acquisition failed ({type(lbry_error).__name__}: "
@@ -155,7 +176,7 @@ class MirrorPipeline:
                     lbry_failure=f"{type(lbry_error).__name__}: {lbry_error}",
                 )
             try:
-                hashes = verify_file(release, file_path)
+                hashes = verify_file(release, file_path, stop=stop)
             except VerificationError:
                 if acquisition.transport is AcquisitionTransport.ODYSEE_CDN:
                     file_path.unlink(missing_ok=True)
@@ -185,10 +206,16 @@ class MirrorPipeline:
                 torrent_path,
                 piece_length=self.settings.torrent_piece_length,
                 trackers=self.settings.torrent_trackers,
+                stop=stop,
             )
             bundle = self.publisher.publish(release, hashes, torrent, acquisition)
             self._validate_bundle(bundle)
             self.store.mark_awaiting_index(release, torrent)
+        except AcquisitionCancelled:
+            self.logger.info(
+                "Paused %s with resumable acquisition state intact", release.name
+            )
+            return "stopped"
         except Exception as error:
             self.store.mark_failed(
                 release,

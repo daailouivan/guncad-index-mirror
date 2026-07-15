@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from threading import Event
 
+from .cancellation import AcquisitionCancelled
 from .index_client import IndexClient
 from .lbry import LbryAcquirer, LbryClient
 from .odysee import OdyseeAcquirer
@@ -23,13 +24,13 @@ class Runtime:
     stats: StatsCollector
     odysee: OdyseeAcquirer | None = None
 
-    def start(self) -> None:
+    def start(self, stop: Event | None = None) -> None:
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.stats.start()
         if self.settings.enable_webui:
             start_webui(self.stats)
         self.stats.set_state("Waiting for LBRY")
-        self.lbry.wait_until_ready(self.settings.lbry_startup_timeout)
+        self.lbry.wait_until_ready(self.settings.lbry_startup_timeout, stop=stop)
         self.stats.log("LBRY daemon is ready", stdout=True)
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
@@ -37,7 +38,8 @@ class Runtime:
         result = self.pipeline.run_cycle(stop)
         summary = (
             f"Cycle complete: {result.discovered} discovered, {result.ready} ready, "
-            f"{result.skipped} skipped, {result.failed} failed"
+            f"{result.skipped} skipped, {result.failed} failed, "
+            f"{result.stopped} stopped"
         )
         self.stats.set_state(summary)
         self.stats.log(summary, stdout=True)
@@ -47,6 +49,9 @@ class Runtime:
         while not stop.is_set():
             try:
                 self.run_cycle(stop)
+            except AcquisitionCancelled:
+                self.stats.log("Mirror stop requested during Index enumeration")
+                return
             except Exception:
                 logging.getLogger("guncad-mirror").exception("Mirror cycle failed")
                 self.stats.log("Mirror cycle failed; see application log")
@@ -95,7 +100,7 @@ def build_runtime(settings: Settings) -> Runtime:
             data_root=settings.data_dir,
             attempts=settings.retry_attempts,
             backoff=settings.retry_backoff,
-            read_timeout=min(settings.download_timeout, 300),
+            read_timeout=min(settings.download_timeout, 60),
         )
         if settings.odysee_fallback
         else None

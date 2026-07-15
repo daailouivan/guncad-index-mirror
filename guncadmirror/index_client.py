@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterator, Mapping
+from threading import Event
 from typing import Any, Callable
 from urllib.parse import urljoin, urlsplit
 
 import requests
 
+from .cancellation import check_cancelled, wait_or_cancel
 from .models import Release, ReleaseValidationError, UnsupportedOriginError
 
 USER_AGENT = f"GunCADMirror/1.0 {requests.utils.default_user_agent()}"
@@ -43,19 +45,20 @@ class IndexClient:
     def close(self) -> None:
         self.session.close()
 
-    def releases(self) -> Iterator[Release]:
+    def releases(self, *, stop: Event | None = None) -> Iterator[Release]:
         url: str | None = self.endpoint
         seen_urls: set[str] = set()
         yielded = 0
 
         for page_number in range(1, self.max_pages + 1):
+            check_cancelled(stop)
             if url is None:
                 return
             if url in seen_urls:
                 raise IndexError(f"Index pagination loop detected at {url}")
             seen_urls.add(url)
 
-            payload = self._fetch_page(url, page_number)
+            payload = self._fetch_page(url, page_number, stop=stop)
             if not isinstance(payload, Mapping):
                 raise IndexError(f"Index page {page_number} must be a JSON object")
             results = payload.get("results")
@@ -63,6 +66,7 @@ class IndexClient:
                 raise IndexError(f"Index page {page_number} has no results list")
 
             for raw_release in results:
+                check_cancelled(stop)
                 try:
                     release = Release.from_api(raw_release)
                 except UnsupportedOriginError as error:
@@ -84,9 +88,16 @@ class IndexClient:
                 self.max_pages,
             )
 
-    def _fetch_page(self, url: str, page_number: int) -> Any:
+    def _fetch_page(
+        self,
+        url: str,
+        page_number: int,
+        *,
+        stop: Event | None = None,
+    ) -> Any:
         last_error: Exception | None = None
         for attempt in range(1, self.attempts + 1):
+            check_cancelled(stop)
             try:
                 response = self.session.get(
                     url,
@@ -94,7 +105,9 @@ class IndexClient:
                     timeout=(5, 60),
                 )
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                check_cancelled(stop)
+                return result
             except requests.RequestException as error:
                 last_error = error
                 if attempt == self.attempts:
@@ -108,7 +121,7 @@ class IndexClient:
                     error,
                     delay,
                 )
-                self.sleep(delay)
+                wait_or_cancel(stop, delay, sleep=self.sleep)
         raise IndexError(
             f"Index page {page_number} failed after {self.attempts} attempts: {last_error}"
         ) from last_error

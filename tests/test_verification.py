@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.verification import VerificationError, hash_file, verify_file
 
 from .helpers import make_release
@@ -42,6 +44,15 @@ class VerificationTests(unittest.TestCase):
     def test_rejects_nonpositive_chunk_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive"):
             hash_file(Path("unused"), chunk_size=0)
+
+    def test_hashing_is_cancellable_between_chunks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "payload.bin"
+            path.write_bytes(b"two chunks")
+            stop = Mock()
+            stop.is_set.side_effect = [False, True]
+            with self.assertRaises(AcquisitionCancelled):
+                hash_file(path, chunk_size=3, stop=stop)
 
 
 if __name__ == "__main__":

@@ -104,7 +104,11 @@ Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` 
 
 Do not delete `/data/lbry` to clear a failed job. Delete or repair only the affected release/outbox artifacts, then let the next cycle retry. Removing LBRY state forces a chain-header sync and discards useful blobs.
 
-Stop Mirror through the container runtime instead of killing it. lbry-sdk buffers its chain-header file in memory and writes it during shutdown. The supplied Compose files allow two minutes for shutdown, while the entrypoint gives lbrynet 90 seconds before forcing it down. A `SIGKILL` or power loss can discard headers learned since the previous clean stop, even though completed blobs and Mirror's own job ledger remain on disk.
+Stop Mirror through the container runtime instead of killing it. `SIGTERM` sets one cancellation event shared by Index enumeration, LBRY acquisition, Odysee range downloads, plaintext verification, and torrent piece hashing. Retry waits end immediately. A blocked HTTP or JSON-RPC request has a 60-second read timeout, so it cannot hold shutdown for the one-hour LBRY stall deadline.
+
+Cancellation keeps partial work. Odysee flushes and calls `fsync()` on its `.odysee.part` file before returning. lbry-sdk keeps downloaded blobs and its stream record under `/data/lbry`; Mirror does not stop the SDK stream when the operator requests shutdown. The SQLite job remains `acquiring` or `verified`, without a failure or retry deadline, and the next scan resumes from those files.
+
+lbry-sdk also buffers its chain-header file in memory and writes it during shutdown. Tini forwards the signal to the container process group, the supplied Compose files allow two minutes for shutdown, and the entrypoint gives lbrynet 90 seconds to flush before forcing it down. A `SIGKILL` or power loss can discard headers learned since the previous clean stop, even though completed blobs and Mirror's job ledger remain on disk.
 
 ## Configuration
 
@@ -123,7 +127,7 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_MIN_FREE_SPACE` | `5368709120` | Bytes reserved after budgeting for blobs and plaintext. |
 | `MIRROR_LOOP_INTERVAL` | `14400` | Delay between completed scans. |
 | `MIRROR_LBRY_STARTUP_TIMEOUT` | `300` | Deadline for required lbrynet components to start. |
-| `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | LBRY no-progress deadline and Odysee CDN socket read timeout, with the latter capped at 300 seconds. |
+| `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | LBRY no-progress deadline. LBRY acquisition and Odysee CDN socket reads are capped at 60 seconds so `SIGTERM` remains bounded. |
 | `MIRROR_DOWNLOAD_POLL_INTERVAL` | `2` | Delay between completion checks. |
 | `MIRROR_RETRY_ATTEMPTS` | `5` | HTTP and JSON-RPC attempts per operation. |
 | `MIRROR_RETRY_BACKOFF` | `2` | Initial exponential-backoff delay. |
@@ -150,7 +154,9 @@ pending -> acquiring -> verified -> awaiting_index
 
 `awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
 
-The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. On termination, Tini forwards the container signal and the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
+The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. Operator cancellation is not a failed transition: work interrupted before payload verification remains `acquiring`, while work interrupted during torrent hashing remains `verified`. The next scan starts another attempt, reuses the local SDK stream or Odysee partial, and runs every verification step again.
+
+On termination, Tini forwards the container signal. Mirror returns after the current network call or file chunk, then the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
 
 ## Archive inventory and integrity audit
 

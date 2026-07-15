@@ -4,9 +4,11 @@ import hashlib
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from threading import Event
 from typing import TypeAlias
 from urllib.parse import quote
 
+from .cancellation import check_cancelled
 from .models import TorrentArtifact
 
 Bencodable: TypeAlias = (
@@ -57,13 +59,15 @@ def create_torrent(
     *,
     piece_length: int = 1024**2,
     trackers: tuple[str, ...] = (),
+    stop: Event | None = None,
 ) -> TorrentArtifact:
+    check_cancelled(stop)
     if not file_path.is_file():
         raise TorrentError(f"payload does not exist: {file_path}")
     if piece_length < 16 * 1024 or piece_length & (piece_length - 1):
         raise TorrentError("piece length must be a power of two of at least 16 KiB")
 
-    pieces, piece_count = _hash_pieces(file_path, piece_length)
+    pieces, piece_count = _hash_pieces(file_path, piece_length, stop=stop)
     info: dict[bytes, Bencodable] = {
         b"length": file_path.stat().st_size,
         b"name": file_path.name,
@@ -94,11 +98,17 @@ def create_torrent(
     )
 
 
-def _hash_pieces(file_path: Path, piece_length: int) -> tuple[bytes, int]:
+def _hash_pieces(
+    file_path: Path,
+    piece_length: int,
+    *,
+    stop: Event | None = None,
+) -> tuple[bytes, int]:
     hashes = bytearray()
     piece_count = 0
     with file_path.open("rb") as payload:
         while piece := payload.read(piece_length):
+            check_cancelled(stop)
             hashes.extend(hashlib.sha1(piece, usedforsecurity=False).digest())
             piece_count += 1
     if piece_count == 0:

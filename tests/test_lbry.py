@@ -5,10 +5,12 @@ import unittest
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from unittest.mock import Mock
 
 import requests
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.lbry import (
     LbryAcquirer,
     LbryClient,
@@ -117,6 +119,51 @@ class LbryClientTests(unittest.TestCase):
             client.call("stream_get")
         self.assertEqual(len(session.calls), 1)
 
+    def test_call_observes_stop_before_after_and_during_retry(self) -> None:
+        stop = Event()
+        stop.set()
+        session = QueueSession()
+        client = LbryClient(
+            "http://lbry:5279",
+            attempts=2,
+            backoff=60,
+            session=session,
+        )
+        with self.assertRaises(AcquisitionCancelled):
+            client.call("status", stop=stop)
+        self.assertEqual(session.calls, [])
+
+        stop.clear()
+
+        class CancellingSession(QueueSession):
+            def post(self, url: str, **kwargs: object):
+                stop.set()
+                return super().post(url, **kwargs)
+
+        client.session = CancellingSession(FakeResponse({"result": "ready"}))
+        with self.assertRaises(AcquisitionCancelled):
+            client.call("status", stop=stop)
+
+        stop.clear()
+        client.session = CancellingSession(requests.ConnectionError("offline"))
+        with (
+            self.assertLogs("guncad-mirror.lbry", level="WARNING"),
+            self.assertRaises(AcquisitionCancelled),
+        ):
+            client.call("status", stop=stop)
+
+    def test_ready_wait_is_resumably_cancellable(self) -> None:
+        stop = Event()
+        client = LbryClient("http://lbry:5279", attempts=1, backoff=0)
+
+        def status(*_args: object, **_kwargs: object) -> object:
+            stop.set()
+            return {"is_running": False}
+
+        client.call = Mock(side_effect=status)
+        with self.assertRaises(AcquisitionCancelled):
+            client.wait_until_ready(10, stop=stop)
+
     def test_wait_until_ready_requires_direct_stream_components(self) -> None:
         sleeps: list[float] = []
         client = LbryClient(
@@ -165,7 +212,7 @@ class LbryClientTests(unittest.TestCase):
         client = LbryClient("http://lbry:5279", attempts=1, backoff=0)
         client.call = Mock(return_value={"items": [{"sd_hash": "x"}]})
         self.assertEqual(client.file_for_sd_hash("x"), {"sd_hash": "x"})
-        client.call.assert_called_with("file_list", {"sd_hash": "x"})
+        client.call.assert_called_with("file_list", {"sd_hash": "x"}, stop=None)
 
         for result in [None, {}, {"items": "bad"}, {"items": [1]}, {"items": [{}, {}]}]:
             with self.subTest(result=result):
@@ -183,7 +230,7 @@ class FakeLbryClient:
         self.entries = deque(entries)
         self.calls = calls if calls is not None else []
 
-    def file_for_sd_hash(self, sd_hash: str) -> object:
+    def file_for_sd_hash(self, sd_hash: str, **_kwargs: object) -> object:
         self.calls.append(("file_list", sd_hash))
         return self.entries.popleft()
 
@@ -260,6 +307,7 @@ class LbryAcquirerTests(unittest.TestCase):
         self.assertEqual(method, "stream_get")
         self.assertEqual(params["sd_hash"], self.release.sd_hash)
         self.assertTrue(params["save_file"])
+        self.assertEqual(client.call.call_args.kwargs["read_timeout"], 40)
 
     def test_stock_daemon_falls_back_to_claim_resolution(self) -> None:
         payload = self.root / "release" / "payload.zip"
@@ -429,6 +477,64 @@ class LbryAcquirerTests(unittest.TestCase):
         client = FakeLbryClient([self._entry(payload)])
         with self.assertRaisesRegex(LbryProtocolError, "empty"):
             self._acquirer(client).acquire(release, self.root / "release")
+
+    def test_acquisition_stop_preserves_the_sdk_stream_for_resume(self) -> None:
+        stop = Event()
+        stop.set()
+        client = Mock()
+        with self.assertRaises(AcquisitionCancelled):
+            self._acquirer(client).acquire(
+                self.release,
+                self.root / "pre-stopped",
+                stop=stop,
+            )
+        client.file_for_sd_hash.assert_not_called()
+
+        stop.clear()
+        running = {
+            "sd_hash": self.release.sd_hash,
+            "status": "running",
+            "stopped": False,
+            "blobs_remaining": 2,
+        }
+        calls = 0
+
+        def lookup(*_args: object, **_kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                stop.set()
+            return running
+
+        client.file_for_sd_hash.side_effect = lookup
+        client.call.return_value = True
+        with self.assertRaises(AcquisitionCancelled):
+            self._acquirer(client).acquire(
+                self.release,
+                self.root / "running",
+                stop=stop,
+            )
+        self.assertEqual(client.call.call_args.args[0], "file_save")
+        self.assertNotIn(
+            "file_set_status", [call.args[0] for call in client.call.mock_calls]
+        )
+
+    def test_long_sdk_operations_cap_their_socket_timeout(self) -> None:
+        client = Mock()
+        client.file_for_sd_hash.return_value = None
+        client.call.return_value = {"sd_hash": self.release.sd_hash}
+        ticks = iter([0, 3601])
+        acquirer = self._acquirer(
+            client,
+            download_timeout=3600,
+            monotonic=lambda: next(ticks),
+        )
+
+        with self.assertRaises(LbryTimeout):
+            acquirer.acquire(self.release, self.root / "long")
+
+        stream_call = client.call.call_args_list[0]
+        self.assertEqual(stream_call.kwargs["read_timeout"], 60)
 
 
 if __name__ == "__main__":

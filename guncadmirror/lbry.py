@@ -4,10 +4,12 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import requests
 
+from .cancellation import check_cancelled, wait_or_cancel
 from .index_client import USER_AGENT
 from .models import Release
 from .paths import ensure_within
@@ -61,12 +63,14 @@ class LbryClient:
         *,
         read_timeout: float = 60,
         attempts: int | None = None,
+        stop: Event | None = None,
     ) -> Any:
         operation_attempts = self.attempts if attempts is None else attempts
         if operation_attempts < 1:
             raise ValueError("attempts must be positive")
         last_error: Exception | None = None
         for attempt in range(1, operation_attempts + 1):
+            check_cancelled(stop)
             try:
                 response = self.session.post(
                     self.url,
@@ -93,6 +97,7 @@ class LbryClient:
                 result = payload.get("result")
                 if isinstance(result, Mapping) and result.get("error") is not None:
                     raise LbryError(f"{method}: {_error_text(result['error'])}")
+                check_cancelled(stop)
                 return result
             except LbryMethodUnavailable:
                 raise
@@ -109,7 +114,7 @@ class LbryClient:
                     error,
                     delay,
                 )
-                self.sleep(delay)
+                wait_or_cancel(stop, delay, sleep=self.sleep)
         raise LbryError(
             f"{method} failed after {operation_attempts} attempts: {last_error}"
         )
@@ -120,21 +125,32 @@ class LbryClient:
         *,
         poll_interval: float = 1,
         monotonic: Callable[[], float] = time.monotonic,
+        stop: Event | None = None,
     ) -> None:
         deadline = monotonic() + timeout
         while monotonic() < deadline:
+            check_cancelled(stop)
             try:
-                status = self.call("status", read_timeout=min(timeout, 30))
+                status = self.call(
+                    "status",
+                    read_timeout=min(timeout, 30),
+                    stop=stop,
+                )
             except LbryError as error:
                 self.logger.info("Waiting for LBRY daemon: %s", error)
             else:
                 if _is_ready(status):
                     return
-            self.sleep(poll_interval)
+            wait_or_cancel(stop, poll_interval, sleep=self.sleep)
         raise LbryTimeout(f"LBRY daemon was not ready after {timeout:.1f}s")
 
-    def file_for_sd_hash(self, sd_hash: str) -> Mapping[str, Any] | None:
-        result = self.call("file_list", {"sd_hash": sd_hash})
+    def file_for_sd_hash(
+        self,
+        sd_hash: str,
+        *,
+        stop: Event | None = None,
+    ) -> Mapping[str, Any] | None:
+        result = self.call("file_list", {"sd_hash": sd_hash}, stop=stop)
         if not isinstance(result, Mapping):
             raise LbryProtocolError("file_list result must be a JSON object")
         items = result.get("items")
@@ -169,18 +185,25 @@ class LbryAcquirer:
         self.monotonic = monotonic
         self.logger = logger or logging.getLogger("guncad-mirror.acquire")
 
-    def acquire(self, release: Release, output_directory: Path) -> Path:
+    def acquire(
+        self,
+        release: Release,
+        output_directory: Path,
+        *,
+        stop: Event | None = None,
+    ) -> Path:
+        check_cancelled(stop)
         output_directory.mkdir(parents=True, exist_ok=True)
-        existing = self.client.file_for_sd_hash(release.sd_hash)
+        existing = self.client.file_for_sd_hash(release.sd_hash, stop=stop)
         path = self._completed_path(existing, release)
         if path is not None:
             return path
 
         if existing is not None:
             self.logger.info("Resuming locally known stream %s", release.sd_hash[:12])
-            self._save_existing(release, output_directory)
+            self._save_existing(release, output_directory, stop=stop)
         else:
-            result = self._start_unknown_stream(release, output_directory)
+            result = self._start_unknown_stream(release, output_directory, stop=stop)
             if not isinstance(result, Mapping):
                 raise LbryProtocolError(
                     "stream acquisition result must be a JSON object"
@@ -195,10 +218,12 @@ class LbryAcquirer:
         last_blobs_remaining = _blobs_remaining(existing)
         save_restarted = existing is not None
         while self.monotonic() < deadline:
-            entry = self.client.file_for_sd_hash(release.sd_hash)
+            check_cancelled(stop)
+            entry = self.client.file_for_sd_hash(release.sd_hash, stop=stop)
             path = self._completed_path(entry, release)
             if path is not None:
                 return path
+            check_cancelled(stop)
             blobs_remaining = _blobs_remaining(entry)
             if (
                 blobs_remaining is not None
@@ -226,16 +251,22 @@ class LbryAcquirer:
                     release.sd_hash[:12],
                     _remaining_description(blobs_remaining),
                 )
-                self._save_existing(release, output_directory)
+                self._save_existing(release, output_directory, stop=stop)
                 save_restarted = True
-            self.sleep(self.poll_interval)
+            wait_or_cancel(stop, self.poll_interval, sleep=self.sleep)
         self._stop_timed_out_stream(release)
         raise LbryTimeout(
             f"stream {release.sd_hash} made no blob progress for "
             f"{self.download_timeout:.1f}s"
         )
 
-    def _start_unknown_stream(self, release: Release, output_directory: Path) -> Any:
+    def _start_unknown_stream(
+        self,
+        release: Release,
+        output_directory: Path,
+        *,
+        stop: Event | None = None,
+    ) -> Any:
         try:
             self.logger.info("Acquiring stream directly from %s", release.sd_hash[:12])
             return self.client.call(
@@ -246,7 +277,8 @@ class LbryAcquirer:
                     "save_file": True,
                     "timeout": int(self.download_timeout),
                 },
-                read_timeout=min(self.download_timeout + 30, 300),
+                read_timeout=min(self.download_timeout + 30, 60),
+                stop=stop,
             )
         except LbryMethodUnavailable:
             self.logger.warning(
@@ -260,17 +292,25 @@ class LbryAcquirer:
                     "save_file": True,
                     "timeout": int(self.download_timeout),
                 },
-                read_timeout=min(self.download_timeout + 30, 300),
+                read_timeout=min(self.download_timeout + 30, 60),
+                stop=stop,
             )
 
-    def _save_existing(self, release: Release, output_directory: Path) -> None:
+    def _save_existing(
+        self,
+        release: Release,
+        output_directory: Path,
+        *,
+        stop: Event | None = None,
+    ) -> None:
         result = self.client.call(
             "file_save",
             {
                 "sd_hash": release.sd_hash,
                 "download_directory": str(output_directory),
             },
-            read_timeout=min(self.download_timeout + 30, 300),
+            read_timeout=min(self.download_timeout + 30, 60),
+            stop=stop,
         )
         if result is False or result is None:
             raise LbryError(f"file_save could not resume {release.sd_hash}")

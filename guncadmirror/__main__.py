@@ -7,6 +7,7 @@ from dataclasses import replace
 from threading import Event
 from typing import Sequence
 
+from .cancellation import AcquisitionCancelled
 from .runtime import build_runtime
 from .settings import ConfigurationError, Settings
 
@@ -53,7 +54,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime = None
 
     def request_stop(signum: int, _frame: object) -> None:
-        logger.info("Received signal %d; stopping after current operation", signum)
+        logger.info(
+            "Received signal %d; preserving resumable state and stopping", signum
+        )
         stop.set()
 
     signal.signal(signal.SIGINT, request_stop)
@@ -61,11 +64,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         runtime = build_runtime(settings)
-        runtime.start()
+        runtime.start(stop)
         if args.once:
-            result = runtime.run_cycle()
+            result = runtime.run_cycle(stop)
             return 1 if result.failed else 0
         runtime.run_forever(stop)
+        return 0
+    except AcquisitionCancelled:
+        logger.info("Stop requested; resumable state is intact")
         return 0
     except KeyboardInterrupt:
         logger.info("Interrupted")

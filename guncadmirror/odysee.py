@@ -7,11 +7,13 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
 
+from .cancellation import check_cancelled, wait_or_cancel
 from .index_client import USER_AGENT
 from .models import Release
 from .paths import ensure_within, safe_component
@@ -67,19 +69,27 @@ class OdyseeAcquirer:
     def close(self) -> None:
         self.session.close()
 
-    def acquire(self, release: Release, output_directory: Path) -> OdyseeAcquisition:
+    def acquire(
+        self,
+        release: Release,
+        output_directory: Path,
+        *,
+        stop: Event | None = None,
+    ) -> OdyseeAcquisition:
+        check_cancelled(stop)
         if release.size is None or release.sha384 is None:
             raise OdyseeProtocolError(
                 "Odysee fallback requires an independent Index size and SHA-384"
             )
 
-        source, permanent_url = self._resolve_source(release)
+        source, permanent_url = self._resolve_source(release, stop=stop)
         result = self._call(
             "get",
             {
                 "uri": permanent_url,
                 "save_file": False,
             },
+            stop=stop,
         )
         if not isinstance(result, Mapping):
             raise OdyseeProtocolError("Odysee get result must be a JSON object")
@@ -98,11 +108,13 @@ class OdyseeAcquirer:
         )
         output_directory.mkdir(parents=True, exist_ok=True)
         output_path = ensure_within(self.data_root, output_directory / file_name)
-        self._download(source_url, output_path, release)
+        self._download(source_url, output_path, release, stop=stop)
         return OdyseeAcquisition(path=output_path, source_url=source_url)
 
-    def _resolve_source(self, release: Release) -> tuple[Mapping[str, Any], str]:
-        result = self._call("resolve", {"urls": [release.url_lbry]})
+    def _resolve_source(
+        self, release: Release, *, stop: Event | None = None
+    ) -> tuple[Mapping[str, Any], str]:
+        result = self._call("resolve", {"urls": [release.url_lbry]}, stop=stop)
         if not isinstance(result, Mapping):
             raise OdyseeProtocolError("Odysee resolve result must be a JSON object")
         claim = result.get(release.url_lbry)
@@ -138,9 +150,16 @@ class OdyseeAcquirer:
             raise OdyseeProtocolError("resolved Odysee claim has no permanent URL")
         return source, permanent_url
 
-    def _call(self, method: str, params: Mapping[str, Any]) -> Any:
+    def _call(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        stop: Event | None = None,
+    ) -> Any:
         last_error: Exception | None = None
         for attempt in range(1, self.attempts + 1):
+            check_cancelled(stop)
             try:
                 response = self.session.post(
                     self.proxy_url,
@@ -174,6 +193,7 @@ class OdyseeAcquirer:
                     raise OdyseeUnavailable(f"Odysee {method}: {error_value}")
                 if isinstance(result, Mapping) and result.get("error") is not None:
                     raise OdyseeUnavailable(f"Odysee {method}: {result.get('error')}")
+                check_cancelled(stop)
                 return result
             except OdyseeProtocolError:
                 raise
@@ -190,12 +210,20 @@ class OdyseeAcquirer:
                     error,
                     delay,
                 )
-                self.sleep(delay)
+                wait_or_cancel(stop, delay, sleep=self.sleep)
         raise OdyseeUnavailable(
             f"Odysee {method} failed after {self.attempts} attempts: {last_error}"
         ) from last_error
 
-    def _download(self, source_url: str, output_path: Path, release: Release) -> None:
+    def _download(
+        self,
+        source_url: str,
+        output_path: Path,
+        release: Release,
+        *,
+        stop: Event | None = None,
+    ) -> None:
+        check_cancelled(stop)
         expected_size = release.size
         if expected_size is None:  # Narrowed by acquire(); keeps the invariant local.
             raise OdyseeProtocolError("Odysee fallback has no expected size")
@@ -213,6 +241,7 @@ class OdyseeAcquirer:
 
         last_error: Exception | None = None
         for attempt in range(1, self.attempts + 1):
+            check_cancelled(stop)
             start = partial_path.stat().st_size if partial_path.exists() else 0
             if start == expected_size:
                 partial_path.replace(output_path)
@@ -223,6 +252,7 @@ class OdyseeAcquirer:
                     partial_path,
                     release,
                     start=start,
+                    stop=stop,
                 )
                 if partial_path.stat().st_size != expected_size:
                     raise OdyseeUnavailable(
@@ -250,7 +280,7 @@ class OdyseeAcquirer:
                     error,
                     delay,
                 )
-                self.sleep(delay)
+                wait_or_cancel(stop, delay, sleep=self.sleep)
         raise OdyseeUnavailable(
             f"Odysee CDN failed after {self.attempts} attempts: {last_error}"
         ) from last_error
@@ -262,7 +292,9 @@ class OdyseeAcquirer:
         release: Release,
         *,
         start: int,
+        stop: Event | None = None,
     ) -> None:
+        check_cancelled(stop)
         expected_size = release.size
         if expected_size is None:
             raise OdyseeProtocolError("Odysee fallback has no expected size")
@@ -281,6 +313,7 @@ class OdyseeAcquirer:
             timeout=(5, self.read_timeout),
         ) as response:
             response.raise_for_status()
+            check_cancelled(stop)
             if response.status_code != 206:
                 raise OdyseeProtocolError(
                     f"Odysee CDN returned HTTP {response.status_code}, expected 206"
@@ -306,25 +339,28 @@ class OdyseeAcquirer:
             written = start
             next_progress = ((written // PROGRESS_INTERVAL) + 1) * PROGRESS_INTERVAL
             with partial_path.open("ab") as output:
-                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
-                    if not chunk:
-                        continue
-                    written += len(chunk)
-                    if written > expected_size:
-                        raise OdyseeProtocolError(
-                            f"Odysee CDN exceeded expected size {expected_size}"
-                        )
-                    output.write(chunk)
-                    if written >= next_progress:
-                        self.logger.info(
-                            "Odysee fallback for %s reached %d/%d bytes",
-                            release.name,
-                            written,
-                            expected_size,
-                        )
-                        next_progress += PROGRESS_INTERVAL
-                output.flush()
-                os.fsync(output.fileno())
+                try:
+                    for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                        if not chunk:
+                            continue
+                        check_cancelled(stop)
+                        written += len(chunk)
+                        if written > expected_size:
+                            raise OdyseeProtocolError(
+                                f"Odysee CDN exceeded expected size {expected_size}"
+                            )
+                        output.write(chunk)
+                        if written >= next_progress:
+                            self.logger.info(
+                                "Odysee fallback for %s reached %d/%d bytes",
+                                release.name,
+                                written,
+                                expected_size,
+                            )
+                            next_progress += PROGRESS_INTERVAL
+                finally:
+                    output.flush()
+                    os.fsync(output.fileno())
 
     @staticmethod
     def _validate_stream_url(source_url: str, release: Release) -> None:

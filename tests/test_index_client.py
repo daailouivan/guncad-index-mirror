@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from threading import Event
 
 import requests
 
+from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.index_client import USER_AGENT, IndexClient, IndexError
 
 from .helpers import FakeResponse, QueueSession, release_payload
@@ -140,6 +142,62 @@ class IndexClientTests(unittest.TestCase):
         with self.assertLogs("guncad-mirror.index", level="WARNING"):
             self.assertEqual(len(list(client.releases())), 1)
         self.assertEqual(sleeps, [3])
+
+    def test_stop_event_cancels_before_or_after_a_page_request(self) -> None:
+        stop = Event()
+        stop.set()
+        session = QueueSession()
+        client = IndexClient(
+            self.endpoint,
+            max_pages=1,
+            max_releases=None,
+            session=session,
+        )
+        with self.assertRaises(AcquisitionCancelled):
+            list(client.releases(stop=stop))
+        self.assertEqual(session.calls, [])
+
+        stop.clear()
+
+        class CancellingSession(QueueSession):
+            def get(self, url: str, **kwargs: object):
+                response = super().get(url, **kwargs)
+                stop.set()
+                return response
+
+        session = CancellingSession(
+            FakeResponse({"results": [release_payload()], "next": None})
+        )
+        client = IndexClient(
+            self.endpoint,
+            max_pages=1,
+            max_releases=None,
+            session=session,
+        )
+        with self.assertRaises(AcquisitionCancelled):
+            list(client.releases(stop=stop))
+
+    def test_stop_event_interrupts_retry_backoff(self) -> None:
+        stop = Event()
+
+        class FailingSession(QueueSession):
+            def get(self, url: str, **kwargs: object):
+                stop.set()
+                return super().get(url, **kwargs)
+
+        client = IndexClient(
+            self.endpoint,
+            max_pages=1,
+            max_releases=None,
+            attempts=2,
+            backoff=60,
+            session=FailingSession(requests.ConnectionError("offline")),
+        )
+        with (
+            self.assertLogs("guncad-mirror.index", level="WARNING"),
+            self.assertRaises(AcquisitionCancelled),
+        ):
+            list(client.releases(stop=stop))
 
 
 if __name__ == "__main__":
