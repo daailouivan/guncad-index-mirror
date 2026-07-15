@@ -7,6 +7,7 @@
 * Added a SQLite job ledger with retry backoff and an atomic local publication outbox
 * Replaced Black and isort with Ruff and rebuilt CI around static checks, branch coverage, container builds, and scans
 * Rebuilt the container entrypoint, persistent smoke test, operator status page, Compose configuration, and Unraid template
+* Fixed container shutdown so lbrynet checkpoints SQLite and persists its in-memory header chain before exit
 * Removed the optional assembly, pickle cache, and Index-failure claim-search paths; plaintext assembly is now required for verified torrent generation
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right

@@ -246,7 +246,11 @@ The first container smoke run selected Decimal's `MMMIIT v1` release and complet
 - independent recalculation of BTIH from the raw bencoded `info` slice;
 - durable torrent, manifest, release metadata, payload, and SQLite `awaiting_index` state in the named volume.
 
-The fresh smoke volume synchronized LBRY headers before acquisition. Later runs reuse that volume. The test did not contact a future Index upload endpoint because none exists.
+The first entrypoint did not wait for lbrynet during container exit. This mattered because the pinned SDK keeps its chain headers in memory and writes them only from `Headers.close()`. The mounted smoke volume therefore contained no header file at all, and each restart replayed roughly 850,000 tip headers.
+
+The corrected supervisor sends lbrynet `SIGTERM`, waits for both database checkpoints and `Headers.close()`, and only then lets the container exit. The first fixed run wrote a 234,352,496-byte header file. The next cold start added one new tip header instead of replaying the chain and reached ready about 12 seconds after Mirror's first RPC probe. The SDK continued filling older missing checkpoint chunks in the background, and those chunks were persisted on the next clean exit.
+
+The test did not contact a future Index upload endpoint because none exists.
 
 ## Unresolved work
 

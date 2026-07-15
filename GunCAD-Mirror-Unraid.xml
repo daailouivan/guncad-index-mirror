@@ -4,6 +4,7 @@
   <Repository>registry.gitlab.com/guncad-index/mirror:latest</Repository>
   <Registry>registry.gitlab.com/guncad-index/mirror:latest</Registry>
   <Network>bridge</Network>
+  <ExtraParams>--stop-timeout=120</ExtraParams>
   <Privileged>false</Privileged>
   <Support>https://matrix.to/#/#guncad-index:matrix.org</Support>
   <Project>https://gitlab.com/guncad-index/mirror</Project>

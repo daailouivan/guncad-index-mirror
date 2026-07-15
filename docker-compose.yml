@@ -1,6 +1,7 @@
 services:
   guncad-mirror:
     image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
+    stop_grace_period: 2m
     env_file: guncad-mirror.env
     command:
       - "-v"

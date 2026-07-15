@@ -77,24 +77,98 @@ fi
 # Copy in configs
 mkdir -p ~/.local/share/lbry/lbrynet
 cp /app/configfiles/daemon_settings.yml ~/.local/share/lbry/lbrynet/daemon_settings.yml
-(
-set +e
-while true; do
-	logrotate -f /etc/logrotate.d/lbrynet
-	timeout \
-		--preserve-status \
-		--kill-after 60 \
-		86400 \
+
+lbrynet_pid_file="/tmp/guncad-mirror-lbrynet.pid"
+lbrynet_supervisor_pid=""
+
+supervise_lbrynet() {
+	set +e
+	stop_requested=0
+	child_pid=""
+
+	# shellcheck disable=SC2329  # Called indirectly by the signal trap below.
+	request_stop() {
+		stop_requested=1
+		if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
+			kill -TERM "$child_pid" 2>/dev/null
+		fi
+	}
+
+	wait_for_child() {
+		while true; do
+			wait "$child_pid"
+			child_status=$?
+			# A trapped signal interrupts wait before the child necessarily exits.
+			# Wait again so lbrynet can finish its database and header flushes.
+			if ! kill -0 "$child_pid" 2>/dev/null; then
+				break
+			fi
+		done
+	}
+
+	trap request_stop TERM INT HUP
+
+	while [ "$stop_requested" -eq 0 ]; do
+		logrotate -f /etc/logrotate.d/lbrynet
 		lbrynet start \
-		--no-save-files \
-		--no-share-usage-data \
-		--save-blobs \
-		--track-bandwidth \
-		--use-upnp \
-		> /data/log/lbrynet.log 2>&1
-	sleep 3
-done
-) &
+			--no-save-files \
+			--no-share-usage-data \
+			--save-blobs \
+			--track-bandwidth \
+			--use-upnp \
+			> /data/log/lbrynet.log 2>&1 &
+		child_pid=$!
+		printf '%s\n' "$child_pid" > "$lbrynet_pid_file"
+		wait_for_child
+		rm -f "$lbrynet_pid_file"
+
+		if [ "$stop_requested" -ne 0 ]; then
+			break
+		fi
+
+		echo "lbrynet exited with status $child_status; restarting in 3 seconds"
+		sleep 3 &
+		child_pid=$!
+		wait_for_child
+		child_pid=""
+	done
+}
+
+stop_lbrynet() {
+	app_status=$?
+	trap - EXIT INT TERM HUP
+
+	if [ -n "$lbrynet_supervisor_pid" ] && kill -0 "$lbrynet_supervisor_pid" 2>/dev/null; then
+		echo "Stopping lbrynet and flushing its persistent state"
+		kill -TERM "$lbrynet_supervisor_pid" 2>/dev/null || true
+
+		shutdown_deadline=$((SECONDS + 90))
+		while kill -0 "$lbrynet_supervisor_pid" 2>/dev/null; do
+			if [ "$SECONDS" -ge "$shutdown_deadline" ]; then
+				echo "lbrynet did not stop within 90 seconds; forcing it down" >&2
+				if [ -r "$lbrynet_pid_file" ]; then
+					read -r child_pid < "$lbrynet_pid_file"
+					kill -KILL "$child_pid" 2>/dev/null || true
+				fi
+				kill -KILL "$lbrynet_supervisor_pid" 2>/dev/null || true
+				break
+			fi
+			sleep 1
+		done
+		wait "$lbrynet_supervisor_pid" 2>/dev/null || true
+	fi
+
+	rm -f "$lbrynet_pid_file"
+	exit "$app_status"
+}
+
+trap stop_lbrynet EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+supervise_lbrynet &
+lbrynet_supervisor_pid=$!
 
 # Now move on to Python
 python3 -m guncadmirror "$@" 2>&1 | tee -a /data/log/guncadmirror.log

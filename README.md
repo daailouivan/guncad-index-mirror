@@ -100,6 +100,8 @@ Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` 
 
 Do not delete `/data/lbry` to clear a failed job. Delete or repair only the affected release/outbox artifacts, then let the next cycle retry. Removing LBRY state forces a chain-header sync and discards useful blobs.
 
+Stop Mirror through the container runtime instead of killing it. lbry-sdk buffers its chain-header file in memory and writes it during shutdown. The supplied Compose files allow two minutes for shutdown, while the entrypoint gives lbrynet 90 seconds before forcing it down. A `SIGKILL` or power loss can discard headers learned since the previous clean stop, even though completed blobs and Mirror's own job ledger remain on disk.
+
 ## Configuration
 
 All byte values are integers. All time values are seconds. Boolean values accept `true`, `false`, `1`, `0`, `yes`, `no`, `on`, and `off`, without regard to case.
@@ -142,7 +144,7 @@ pending -> acquiring -> verified -> awaiting_index
 
 `awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
 
-The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. Process termination waits for the current operation where possible, while Tini forwards container signals to both Mirror and lbrynet.
+The process handles one release at a time. A failure does not discard completed jobs or stop later releases on the same Index scan. On termination, Tini forwards the container signal and the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
 
 ## What the hashes mean
 

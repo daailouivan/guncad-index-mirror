@@ -1,2 +1,7 @@
 #! /bin/sh
-for i in `docker images --format {{.ID}}`; do echo $i `docker image inspect $i |grep Architecture`; done
+set -eu
+
+docker images --format '{{.ID}}' | while IFS= read -r image_id; do
+	architecture="$(docker image inspect --format '{{.Architecture}}' "$image_id")"
+	printf '%s %s\n' "$image_id" "$architecture"
+done
