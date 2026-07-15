@@ -23,7 +23,7 @@ class PathTests(unittest.TestCase):
         )
         self.assertEqual(
             result,
-            Path("/data/mirror/@channel#c/Some-Release-aaaaaaaaaaaa"),
+            Path("/data/@channel#c/Some-Release-aaaaaaaaaaaa"),
         )
 
     def test_ensure_within_accepts_child_and_rejects_escape(self):

@@ -70,7 +70,6 @@ class MirrorPipeline:
             return "skipped"
         if (
             self.settings.max_release_size
-            and release.size is not None
             and release.size > self.settings.max_release_size
         ):
             self.logger.info(
@@ -79,7 +78,7 @@ class MirrorPipeline:
                 release.size,
             )
             return "skipped"
-        required_space = self.settings.min_free_space + 2 * (release.size or 0)
+        required_space = self.settings.min_free_space + 2 * release.size
         available_space = self.disk_free(self.settings.data_dir)
         if available_space < required_space:
             self.logger.warning(

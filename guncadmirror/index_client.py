@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
-from .models import Release, ReleaseValidationError
+from .models import Release, ReleaseValidationError, UnsupportedOriginError
 
 USER_AGENT = f"GunCADMirror/1.0 {requests.utils.default_user_agent()}"
 
@@ -62,6 +62,9 @@ class IndexClient:
             for raw_release in results:
                 try:
                     release = Release.from_api(raw_release)
+                except UnsupportedOriginError as error:
+                    self.logger.info("Skipping Index release: %s", error)
+                    continue
                 except ReleaseValidationError as error:
                     self.logger.error("Skipping malformed Index release: %s", error)
                     continue

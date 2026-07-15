@@ -10,16 +10,19 @@ from .helpers import FakeResponse, QueueSession, release_payload
 
 
 class IndexClientTests(unittest.TestCase):
-    endpoint = "https://index.example/api/releases/?query=narrow"
+    endpoint = "https://index.example/api/v2/releases/?query=narrow"
 
     def test_follows_bounded_same_origin_pagination_and_skips_bad_rows(self) -> None:
         first = release_payload(name="First")
         second = release_payload(release_id="c" * 40, sd_hash="d" * 96, name="Second")
+        unsupported = release_payload()
+        unsupported["id"] = "printables-1"
+        unsupported["origin"] = {"platform": "printables"}
         session = QueueSession(
             FakeResponse(
                 {
-                    "results": [first, {"id": "malformed"}],
-                    "next": "/api/releases/?offset=1",
+                    "results": [first, unsupported, {"id": "malformed"}],
+                    "next": "/api/v2/releases/?offset=1",
                 }
             ),
             FakeResponse({"results": [second], "next": None}),
@@ -28,12 +31,15 @@ class IndexClientTests(unittest.TestCase):
             self.endpoint, max_pages=2, max_releases=None, session=session
         )
 
-        releases = list(client.releases())
+        with self.assertLogs("guncad-mirror.index", level="INFO") as logs:
+            releases = list(client.releases())
 
         self.assertEqual([release.name for release in releases], ["First", "Second"])
+        self.assertTrue(any("origin: printables" in line for line in logs.output))
+        self.assertTrue(any("malformed Index release" in line for line in logs.output))
         self.assertEqual(
             [call[1] for call in session.calls],
-            [self.endpoint, "https://index.example/api/releases/?offset=1"],
+            [self.endpoint, "https://index.example/api/v2/releases/?offset=1"],
         )
         self.assertEqual(session.calls[0][2]["headers"]["User-Agent"], USER_AGENT)
         self.assertEqual(session.calls[0][2]["timeout"], (5, 60))

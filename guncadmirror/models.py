@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import unquote, urlsplit
 
 SHA384_RE = re.compile(r"^[0-9a-f]{96}$")
 CLAIM_ID_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -13,6 +14,10 @@ CLAIM_ID_RE = re.compile(r"^[0-9a-f]{40}$")
 
 class ReleaseValidationError(ValueError):
     """The Index returned a release that cannot be mirrored safely."""
+
+
+class UnsupportedOriginError(ReleaseValidationError):
+    """The Index release uses a transport that Mirror does not support."""
 
 
 class JobState(StrEnum):
@@ -31,14 +36,21 @@ class Release:
     url_lbry: str
     channel_handle: str
     sd_hash: str
-    sha384: str | None
-    size: int | None
+    sha384: str
+    size: int
     raw: Mapping[str, Any] = field(repr=False, compare=False)
 
     @classmethod
     def from_api(cls, value: Mapping[str, Any]) -> Release:
         if not isinstance(value, Mapping):
             raise ReleaseValidationError("release must be a JSON object")
+
+        origin = value.get("origin")
+        if not isinstance(origin, Mapping):
+            raise ReleaseValidationError("release origin must be a JSON object")
+        platform = _required_string(origin, "platform")
+        if platform != "lbry":
+            raise UnsupportedOriginError(f"unsupported release origin: {platform}")
 
         release_id = _required_string(value, "id")
         if not CLAIM_ID_RE.fullmatch(release_id):
@@ -48,26 +60,38 @@ class Release:
         if not isinstance(channel, Mapping):
             raise ReleaseValidationError("release channel must be a JSON object")
 
-        sd_hash = _required_string(value, "sd_hash")
+        if _required_string(origin, "external_id") != release_id:
+            raise ReleaseValidationError("origin external_id must match release id")
+
+        extra = origin.get("extra")
+        if not isinstance(extra, Mapping):
+            raise ReleaseValidationError("release origin extra must be a JSON object")
+
+        sd_hash = _required_string(extra, "sd_hash")
         if not SHA384_RE.fullmatch(sd_hash):
             raise ReleaseValidationError("sd_hash must be a lowercase SHA-384 digest")
 
-        sha384 = value.get("sha384sum")
-        if sha384 in (None, ""):
-            sha384 = None
-        elif not isinstance(sha384, str) or not SHA384_RE.fullmatch(sha384):
-            raise ReleaseValidationError("sha384sum must be a lowercase SHA-384 digest")
+        sha384 = _required_string(origin, "checksum")
+        if not SHA384_RE.fullmatch(sha384):
+            raise ReleaseValidationError(
+                "origin checksum must be a lowercase SHA-384 digest"
+            )
 
-        size = value.get("size")
-        if size is not None:
-            if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
-                raise ReleaseValidationError("release size must be a positive integer")
+        size = origin.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise ReleaseValidationError("origin size must be a positive integer")
+
+        links = origin.get("links")
+        if not isinstance(links, list):
+            raise ReleaseValidationError("release origin links must be a list")
+        url = _link_for_schemes(links, ("https", "http"), "HTTP(S)")
+        url_lbry = unquote(_link_for_schemes(links, ("lbry",), "LBRY"))
 
         return cls(
             id=release_id,
             name=_required_string(value, "name"),
-            url=_required_string(value, "url"),
-            url_lbry=_required_string(value, "url_lbry"),
+            url=url,
+            url_lbry=url_lbry,
             channel_handle=_required_string(channel, "handle"),
             sd_hash=sd_hash,
             sha384=sha384,
@@ -111,3 +135,19 @@ def _required_string(value: Mapping[str, Any], key: str) -> str:
     if not isinstance(result, str) or not result.strip():
         raise ReleaseValidationError(f"{key} must be a non-empty string")
     return result
+
+
+def _link_for_schemes(links: list[Any], schemes: tuple[str, ...], label: str) -> str:
+    for scheme in schemes:
+        for link in links:
+            if not isinstance(link, Mapping):
+                continue
+            url = link.get("url")
+            if not isinstance(url, str) or not url:
+                continue
+            parsed = urlsplit(url)
+            if parsed.scheme.lower() == scheme and parsed.netloc:
+                if parsed.username or parsed.password:
+                    continue
+                return url
+    raise ReleaseValidationError(f"release origin has no valid {label} link")

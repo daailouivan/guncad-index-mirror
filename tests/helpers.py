@@ -19,12 +19,20 @@ def release_payload(
     return {
         "id": release_id,
         "name": name,
-        "url": "https://odysee.com/release:r",
-        "url_lbry": "lbry://release:r",
+        "path": f"/{channel}/release:r",
         "channel": {"handle": channel},
-        "sd_hash": sd_hash,
-        "sha384sum": hashlib.sha384(content).hexdigest(),
-        "size": len(content),
+        "origin": {
+            "platform": "lbry",
+            "slug": "release:r",
+            "external_id": release_id,
+            "size": len(content),
+            "checksum": hashlib.sha384(content).hexdigest(),
+            "links": [
+                {"name": "Odysee", "url": "https://odysee.com/release:r"},
+                {"name": "LBRY Desktop", "url": "lbry://release%23r"},
+            ],
+            "extra": {"sd_hash": sd_hash},
+        },
     }
 
 

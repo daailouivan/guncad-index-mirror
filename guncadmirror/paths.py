@@ -24,7 +24,7 @@ def release_directory(
         channel_handle.replace(":", "#"), fallback="unknown-channel"
     )
     name = safe_component(release_name, fallback="unnamed-release")
-    return data_dir / "mirror" / channel / f"{name}-{sd_hash[:12]}"
+    return data_dir / channel / f"{name}-{sd_hash[:12]}"
 
 
 def ensure_within(root: Path, candidate: Path) -> Path:

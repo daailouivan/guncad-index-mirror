@@ -26,11 +26,11 @@ def hash_file(path: Path, *, chunk_size: int = 1024**2) -> FileHashes:
 
 def verify_file(release: Release, path: Path) -> FileHashes:
     hashes = hash_file(path)
-    if release.size is not None and hashes.size != release.size:
+    if hashes.size != release.size:
         raise VerificationError(
             f"size mismatch for {release.id}: got {hashes.size}, expected {release.size}"
         )
-    if release.sha384 is not None and hashes.sha384 != release.sha384:
+    if hashes.sha384 != release.sha384:
         raise VerificationError(
             f"SHA-384 mismatch for {release.id}: got {hashes.sha384}, expected {release.sha384}"
         )

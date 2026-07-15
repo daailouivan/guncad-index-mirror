@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
-DEFAULT_ENDPOINT = "https://guncadindex.com/api/releases/?format=json&limit=100"
+DEFAULT_ENDPOINT = "https://guncadindex.com/api/v2/releases/?format=json&limit=100"
 TRUTHY = frozenset({"1", "true", "t", "yes", "on", "enabled"})
 FALSY = frozenset({"0", "false", "f", "no", "off", "disabled", ""})
 

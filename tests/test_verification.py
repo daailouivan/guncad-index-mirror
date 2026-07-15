@@ -36,9 +36,6 @@ class VerificationTests(unittest.TestCase):
             with self.assertRaisesRegex(VerificationError, "SHA-384 mismatch"):
                 verify_file(replace(release, sha384="0" * 96), path)
 
-            unchecked = replace(release, size=None, sha384=None)
-            self.assertEqual(verify_file(unchecked, path).size, len(content))
-
     def test_rejects_nonpositive_chunk_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive"):
             hash_file(Path("unused"), chunk_size=0)
