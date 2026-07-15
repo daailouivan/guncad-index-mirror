@@ -4,8 +4,6 @@
 ARG python=3.14
 ARG lbrynet=v0.113.0
 ARG lbrynet_commit=a2da86d4b576bf316560a123cb568d8e1826d5b3
-ARG commit_sha=master
-ARG commit_tag=
 
 # STAGE 1: Building lbrynet
 #
@@ -78,12 +76,8 @@ COPY ./ /app/
 
 # STAGE 3: Prod build
 FROM docker.io/python:$python-slim AS prod
-ARG commit_sha
-ARG commit_tag
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV GUNCAD_COMMIT_SHA=$commit_sha
-ENV GUNCAD_COMMIT_TAG=$commit_tag
 ENV GUNCAD_IN_DOCKER=True
 ENV PATH="/opt/venv/bin:$PATH"
 RUN	apt-get update && \
@@ -99,6 +93,10 @@ COPY start.sh /usr/local/bin/start-guncad-mirror
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 COPY configfiles/logrotate.conf /etc/logrotate.d/lbrynet
+ARG commit_sha=master
+ARG commit_tag=
+ENV GUNCAD_COMMIT_SHA=$commit_sha
+ENV GUNCAD_COMMIT_TAG=$commit_tag
 WORKDIR /app
 EXPOSE 5567
 ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/bin/bash", "/usr/local/bin/start-guncad-mirror" ]
