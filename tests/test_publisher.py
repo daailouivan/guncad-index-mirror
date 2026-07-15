@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from guncadmirror.models import FileHashes, TorrentArtifact
+from guncadmirror.models import (
+    AcquisitionEvidence,
+    AcquisitionTransport,
+    FileHashes,
+    TorrentArtifact,
+)
 from guncadmirror.publisher import OutboxPublisher
 
 from .helpers import make_release
@@ -33,7 +38,12 @@ class OutboxPublisherTests(unittest.TestCase):
                 trackers=("udp://tracker.example:80",),
             )
 
-            bundle = OutboxPublisher(root / "outbox").publish(release, hashes, torrent)
+            bundle = OutboxPublisher(root / "outbox").publish(
+                release,
+                hashes,
+                torrent,
+                AcquisitionEvidence(AcquisitionTransport.LBRY),
+            )
             document = json.loads(bundle.manifest_path.read_text())
 
             self.assertEqual(
@@ -45,6 +55,8 @@ class OutboxPublisherTests(unittest.TestCase):
         self.assertEqual(document["schema"], "guncad-mirror-publication-v1")
         self.assertEqual(document["status"], "awaiting-index")
         self.assertEqual(document["lbry"]["sd_hash"], release.sd_hash)
+        self.assertEqual(document["acquisition"]["transport"], "lbry")
+        self.assertIsNone(document["acquisition"]["source_url"])
         self.assertEqual(document["artifact"]["sha384"], hashes.sha384)
         self.assertEqual(document["torrent"]["btih"], torrent.info_hash)
         self.assertEqual(document["torrent"]["trackers"], list(torrent.trackers))

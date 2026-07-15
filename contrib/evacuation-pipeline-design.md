@@ -61,7 +61,9 @@ Index API v2
     -> register (release_id, sd_hash) in SQLite
     -> direct stream_get(sd_hash)
     -> fetch descriptor and encrypted blobs
-    -> decrypt and assemble plaintext
+       OR, after swarm failure and four-way identity validation,
+       range-resume plaintext from Odysee CDN
+    -> produce assembled plaintext
     -> verify exact size and SHA-384
     -> record SHA-256
     -> create BitTorrent v1 metainfo and magnet URI
@@ -80,6 +82,14 @@ The patch adds `stream_get(sd_hash, ...)` to the daemon. It constructs a managed
 Mirror first calls this RPC. It falls back to claim URI resolution only when the daemon reports JSON-RPC method-not-found. Even then, it compares the returned descriptor hash with the Index value and rejects claim drift.
 
 This removes claim resolution from the normal data path. It does not yet remove every chain startup dependency from lbry-sdk: the daemon's file manager still waits on wallet startup, so a new data volume synchronizes chain headers before the RPC is ready. Persisting `/data/lbry` avoids paying that cost on each container start.
+
+### Odysee recovery transport
+
+Live full-catalog testing found two failure classes that repeated scans had not fixed: a stream descriptor with no responding LBRY peer and a known stream with a fixed set of missing content blobs. Odysee's public SDK proxy still resolved the descriptor-dead claim exactly, and its player CDN advertised the Index byte count through HTTP ranges. A separate stale Index record resolved to a newer descriptor and was rejected before transfer.
+
+Mirror therefore has a last-resort Odysee transport. Before requesting payload bytes, Mirror requires the proxy's resolved claim ID, source `sd_hash`, plaintext size, and plaintext SHA-384 to equal the Index record. It then accepts an HTTPS stream URL only from `player.odycdn.com`, requires the URL path to identify the expected claim and descriptor prefix, requests an explicit byte range, and checks every `Content-Range` against the claimed total. Interrupted transfers remain in a `.odysee.part` file and resume from the exact byte count. The ordinary post-download size and SHA-384 verification still runs before torrent creation.
+
+The fallback does not require an Odysee page link; Odysee's public proxy may still know an Index row marked LBRY-only. It is deliberately disabled per release when the Index has no independent size or checksum. In that case an Odysee response could not be tied to the expected plaintext strongly enough. A CDN-acquired manifest records `acquisition.transport` as `odysee-cdn`, the source URL, and the LBRY failure that caused the fallback. Earlier manifests omit the acquisition object and can be interpreted as `lbry`, because those builds had no CDN code.
 
 ## Verification and torrent rules
 
@@ -129,7 +139,7 @@ The current fast idempotence check confirms that the payload, torrent, and manif
 
 ## Outbox contract
 
-`manifest.json` uses schema name `guncad-mirror-publication-v1`. Its required information is:
+`manifest.json` uses schema name `guncad-mirror-publication-v1`. New manifests contain this information; manifests written before CDN fallback support omit `acquisition` and imply an LBRY acquisition:
 
 ```json
 {
@@ -145,6 +155,11 @@ The current fast idempotence check confirms that the payload, torrent, and manif
   "lbry": {
     "sd_hash": "<96-character descriptor hash>",
     "claimed_sha384": "<Index plaintext checksum>"
+  },
+  "acquisition": {
+    "transport": "lbry or odysee-cdn",
+    "source_url": "<null or verified Odysee player URL>",
+    "lbry_failure": "<null or typed failure that caused fallback>"
   },
   "artifact": {
     "file_name": "<assembled filename>",

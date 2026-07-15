@@ -6,12 +6,22 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Protocol
 
-from .models import FileHashes, PublicationBundle, Release, TorrentArtifact
+from .models import (
+    AcquisitionEvidence,
+    FileHashes,
+    PublicationBundle,
+    Release,
+    TorrentArtifact,
+)
 
 
 class Publisher(Protocol):
     def publish(
-        self, release: Release, hashes: FileHashes, torrent: TorrentArtifact
+        self,
+        release: Release,
+        hashes: FileHashes,
+        torrent: TorrentArtifact,
+        acquisition: AcquisitionEvidence,
     ) -> PublicationBundle: ...
 
 
@@ -22,7 +32,11 @@ class OutboxPublisher:
         self.outbox_dir = outbox_dir
 
     def publish(
-        self, release: Release, hashes: FileHashes, torrent: TorrentArtifact
+        self,
+        release: Release,
+        hashes: FileHashes,
+        torrent: TorrentArtifact,
+        acquisition: AcquisitionEvidence,
     ) -> PublicationBundle:
         destination = self.outbox_dir / release.id / release.sd_hash
         manifest_path = destination / "manifest.json"
@@ -39,6 +53,11 @@ class OutboxPublisher:
             "lbry": {
                 "sd_hash": release.sd_hash,
                 "claimed_sha384": release.sha384,
+            },
+            "acquisition": {
+                "transport": acquisition.transport,
+                "source_url": acquisition.source_url,
+                "lbry_failure": acquisition.lbry_failure,
             },
             "artifact": {
                 "file_name": torrent.file_path.name,

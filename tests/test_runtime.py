@@ -79,10 +79,12 @@ class RuntimeTests(unittest.TestCase):
         stop.wait.assert_called_once_with(1)
 
     def test_stop_and_runtime_builder_wire_components(self) -> None:
+        self.runtime.odysee = Mock()
         self.runtime.stop()
         self.stats.stop.assert_called_once_with()
         self.pipeline.index_client.close.assert_called_once_with()
         self.lbry.close.assert_called_once_with()
+        self.runtime.odysee.close.assert_called_once_with()
 
         built = build_runtime(self.settings)
         self.assertEqual(built.settings, self.settings)
@@ -90,6 +92,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(built.pipeline.index_client.endpoint, self.settings.endpoint)
         self.assertEqual(built.pipeline.store.path, self.settings.state_path)
         self.assertIs(built.stats.store, built.pipeline.store)
+        self.assertIsNotNone(built.odysee)
+        self.assertIs(built.pipeline.fallback_acquirer, built.odysee)
 
     def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
         self.stats.stop.side_effect = RuntimeError("thread stuck")

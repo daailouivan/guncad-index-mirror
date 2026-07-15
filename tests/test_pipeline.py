@@ -8,7 +8,9 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import Mock
 
+from guncadmirror.lbry import LbryProtocolError, LbryStreamUnavailable
 from guncadmirror.models import JobState, PublicationBundle
+from guncadmirror.odysee import OdyseeAcquisition
 from guncadmirror.paths import release_directory
 from guncadmirror.pipeline import CycleResult, MirrorPipeline
 from guncadmirror.publisher import OutboxPublisher
@@ -50,6 +52,7 @@ class MirrorPipelineTests(unittest.TestCase):
         *,
         disk_free: int = 10**12,
         publisher: object | None = None,
+        fallback: object | None = None,
     ) -> MirrorPipeline:
         return MirrorPipeline(
             self.settings,
@@ -57,6 +60,7 @@ class MirrorPipelineTests(unittest.TestCase):
             acquirer,
             self.store,
             publisher or self.publisher,
+            fallback_acquirer=fallback,
             disk_free=lambda _: disk_free,
         )
 
@@ -220,6 +224,107 @@ class MirrorPipelineTests(unittest.TestCase):
         self.assertEqual(pipeline.process(release), "ready")
         self.assertEqual(acquirer.acquire.call_count, 2)
 
+    def test_limited_odysee_fallback_records_transport_and_lbry_failure(self) -> None:
+        content = b"payload"
+        release = make_release(content)
+        payload = self.root / "odysee-payload.zip"
+        payload.write_bytes(content)
+        acquirer = Mock()
+        acquirer.acquire.side_effect = LbryStreamUnavailable("no blob peers")
+        fallback = Mock()
+        fallback.acquire.return_value = OdyseeAcquisition(
+            payload,
+            (
+                "https://player.odycdn.com/v6/streams/"
+                f"{release.id}/{release.sd_hash[:6]}.zip"
+            ),
+        )
+        pipeline = self._pipeline([release], acquirer, fallback=fallback)
+
+        with self.assertLogs("guncad-mirror.pipeline", level="WARNING"):
+            self.assertEqual(pipeline.process(release), "ready")
+
+        manifest = json.loads(
+            (
+                self.settings.outbox_dir
+                / release.id
+                / release.sd_hash
+                / "manifest.json"
+            ).read_text()
+        )
+        self.assertEqual(manifest["acquisition"]["transport"], "odysee-cdn")
+        self.assertIn("no blob peers", manifest["acquisition"]["lbry_failure"])
+        self.assertEqual(pipeline.process(release), "skipped")
+        fallback.acquire.assert_called_once_with(
+            release,
+            release_directory(
+                self.settings.releases_dir,
+                release.channel_handle,
+                release.name,
+                release.sd_hash,
+            ),
+        )
+
+        manifest["acquisition"]["transport"] = "mystery"
+        manifest_path = (
+            self.settings.outbox_dir / release.id / release.sd_hash / "manifest.json"
+        )
+        manifest_path.write_text(json.dumps(manifest))
+        self.assertEqual(pipeline.process(release), "ready")
+
+    def test_odysee_fallback_fails_closed_without_claims_or_on_second_failure(
+        self,
+    ) -> None:
+        content = b"payload"
+        release = make_release(content)
+        legacy = replace(release, size=None, sha384=None)
+        acquirer = Mock()
+        acquirer.acquire.side_effect = LbryStreamUnavailable("no peers")
+        fallback = Mock()
+        fallback.acquire.side_effect = RuntimeError("CDN down")
+        pipeline = self._pipeline([legacy], acquirer, fallback=fallback)
+
+        with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
+            self.assertEqual(pipeline.process(legacy), "failed")
+        fallback.acquire.assert_not_called()
+
+        second = make_release(content, release_id="c" * 40, sd_hash="d" * 96)
+        with self.assertLogs("guncad-mirror.pipeline", level="WARNING"):
+            self.assertEqual(pipeline.process(second), "failed")
+        fallback.acquire.assert_called_once()
+        self.assertIn(
+            "Odysee fallback also failed",
+            self.store.get(second.id, second.sd_hash).last_error,
+        )
+
+        contradictory = make_release(content, release_id="e" * 40, sd_hash="f" * 96)
+        acquirer.acquire.side_effect = LbryProtocolError("claim drift")
+        fallback.reset_mock()
+        with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
+            self.assertEqual(pipeline.process(contradictory), "failed")
+        fallback.acquire.assert_not_called()
+
+    def test_bad_odysee_plaintext_is_deleted_before_retry(self) -> None:
+        release = make_release(b"correct")
+        payload = self.root / "bad-cdn.zip"
+        payload.write_bytes(b"corrupt")
+        acquirer = Mock()
+        acquirer.acquire.side_effect = LbryStreamUnavailable("no peers")
+        fallback = Mock()
+        fallback.acquire.return_value = OdyseeAcquisition(
+            payload,
+            (
+                "https://player.odycdn.com/v6/streams/"
+                f"{release.id}/{release.sd_hash[:6]}.zip"
+            ),
+        )
+        pipeline = self._pipeline([release], acquirer, fallback=fallback)
+
+        with self.assertLogs("guncad-mirror.pipeline", level="WARNING"):
+            self.assertEqual(pipeline.process(release), "failed")
+
+        self.assertFalse(payload.exists())
+
     def test_policy_guards_skip_without_creating_jobs(self) -> None:
         release = make_release(channel="@blocked:b")
         acquirer = Mock()
@@ -327,7 +432,12 @@ class MirrorPipelineTests(unittest.TestCase):
 
         publisher = Mock()
 
-        def nondurable(release: object, hashes: object, torrent: object) -> object:
+        def nondurable(
+            release: object,
+            hashes: object,
+            torrent: object,
+            acquisition: object,
+        ) -> object:
             return PublicationBundle(
                 release=release,
                 hashes=hashes,

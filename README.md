@@ -6,7 +6,7 @@
 > [!WARNING]
 > This software downloads and prepares redistribution metadata for 3D-printable firearm files. Possession, export, or distribution may be illegal where you live. The operator is responsible for complying with applicable law.
 
-GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD Index API v2 releases, downloads each supported LBRY stream by its stream descriptor hash, verifies the assembled bytes against the Index checksum and size, and writes deterministic BitTorrent v1 artifacts.
+GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD Index API v2 releases, downloads each supported stream by its LBRY descriptor hash, verifies the assembled bytes against the Index checksum and size, and writes deterministic BitTorrent v1 artifacts. If the LBRY swarm cannot supply a claimed stream, Mirror can recover plaintext from Odysee's public CDN after matching the claim ID, descriptor, size, and hash.
 
 It is not a replacement for a BitTorrent client. It does not seed the generated torrents. The intended post-Odysee seeder is an ordinary client such as qBittorrent or Transmission, eventually fed by a query-filterable torrent RSS feed from GunCAD Index.
 
@@ -16,13 +16,14 @@ For every valid API v2 release whose `origin.platform` is `lbry`, Mirror perform
 
 1. Validate the claim ID, `sd_hash`, channel, and LBRY source link. Index payload size and SHA-384 values are validated when present. An Odysee HTTP link is retained when present but is not required.
 2. Acquire the stream directly by `sd_hash` through the patched lbry-sdk daemon packaged in the container.
-3. Assemble the plaintext file under `/data/releases`.
-4. Compute the exact size, SHA-384, and SHA-256. When the Index supplies size or SHA-384 values, require an exact match.
-5. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
-6. Atomically write the torrent and `manifest.json` under `/data/outbox`.
-7. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
+3. If LBRY acquisition exhausts its retries, optionally resolve the claim through Odysee and require the returned claim ID, `sd_hash`, plaintext size, and SHA-384 to match the Index before downloading from `player.odycdn.com`.
+4. Assemble the plaintext file under `/data/releases`.
+5. Compute the exact size, SHA-384, and SHA-256. When the Index supplies size or SHA-384 values, require an exact match.
+6. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
+7. Atomically write the torrent and `manifest.json` under `/data/outbox`.
+8. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
 
-Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that cannot be viewed on Odysee remain eligible because Mirror acquires them by `sd_hash`. Some early LBRY claims contain neither source size nor source hash. Mirror preserves those descriptor-authenticated payloads and records computed values, but leaves `claimed_sha384` null instead of presenting them as independently corroborated. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
+Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that lack an Odysee page remain eligible because Mirror acquires them by `sd_hash`; the public proxy may or may not have a CDN copy. Some early LBRY claims contain neither source size nor source hash. Mirror preserves those descriptor-authenticated payloads and records computed values, but never sends them through the CDN fallback or presents them as independently corroborated. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
 ## Quick start
 
@@ -114,12 +115,14 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_API_MAX_PAGES` | `1000` | Maximum pages followed in one scan. |
 | `MIRROR_MAX_RELEASES_PER_RUN` | `0` | Maximum supported releases yielded per scan. Zero disables the cap. |
 | `MIRROR_LBRY_URL` | `http://127.0.0.1:5279` | lbrynet JSON-RPC endpoint. |
+| `MIRROR_ODYSEE_FALLBACK` | `true` | After LBRY acquisition fails, permit a range-resumable download from Odysee when claim ID, descriptor, size, and hash all match. |
+| `MIRROR_ODYSEE_PROXY_URL` | `https://api.na-backend.odysee.com/api/v1/proxy` | Public Odysee SDK proxy used only for the verified fallback. Embedded credentials are rejected. |
 | `MIRROR_BLACKLISTED_HANDLES` | empty | Comma-separated channel-handle prefixes. Replace the claim delimiter `:` with `#`, as in `@author#a`. |
 | `MIRROR_RELEASE_MAX_SIZE` | `10737418240` | Maximum accepted payload size. Zero disables the limit. |
 | `MIRROR_MIN_FREE_SPACE` | `5368709120` | Bytes reserved after budgeting for blobs and plaintext. |
 | `MIRROR_LOOP_INTERVAL` | `14400` | Delay between completed scans. |
 | `MIRROR_LBRY_STARTUP_TIMEOUT` | `300` | Deadline for required lbrynet components to start. |
-| `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | Deadline for one stream acquisition. |
+| `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | LBRY no-progress deadline and Odysee CDN socket read timeout, with the latter capped at 300 seconds. |
 | `MIRROR_DOWNLOAD_POLL_INTERVAL` | `2` | Delay between completion checks. |
 | `MIRROR_RETRY_ATTEMPTS` | `5` | HTTP and JSON-RPC attempts per operation. |
 | `MIRROR_RETRY_BACKOFF` | `2` | Initial exponential-backoff delay. |
@@ -160,12 +163,15 @@ Mirror therefore keeps three separate identifiers:
 
 The torrent BTIH is computed from canonical bencoding of the BitTorrent v1 `info` dictionary. The outbox manifest also records SHA-256 of the plaintext and torrent file.
 
+The manifest's `acquisition.transport` is `lbry` when descriptor and content blobs came from the swarm. It is `odysee-cdn` when the swarm failed and Odysee supplied plaintext that passed the independent Index size and SHA-384 checks. Manifests written before this field existed imply `lbry`; no CDN fallback existed in those builds.
+
 ## Known limits
 
 - Mirror does not POST to GunCAD Index. The outbox is the handoff point for that future work.
 - Mirror does not run a BitTorrent client or seed generated torrents.
 - The patched RPC removes claim resolution from normal acquisition, but lbry-sdk's file manager still depends on wallet startup. A fresh data volume therefore pays the LBRY chain-header sync before downloads begin.
 - When connected to an unpatched stock daemon, Mirror falls back to claim URI resolution only if `stream_get` is absent. It rejects the result if the resolved `sd_hash` differs from the Index value.
+- The Odysee CDN fallback contacts Odysee directly and is useful only while its SDK proxy and player CDN remain online. Set `MIRROR_ODYSEE_FALLBACK=false` for a swarm-only run.
 - Normal scans check that completed artifacts still exist. They do not perform a scheduled full-corpus bit-rot scrub.
 - The container's patched legacy lbrynet build is currently amd64-only.
 

@@ -7,6 +7,7 @@ from typing import Mapping
 from urllib.parse import urlsplit
 
 DEFAULT_ENDPOINT = "https://guncadindex.com/api/v2/releases/?format=json&limit=100"
+DEFAULT_ODYSEE_PROXY_URL = "https://api.na-backend.odysee.com/api/v1/proxy"
 TRUTHY = frozenset({"1", "true", "t", "yes", "on", "enabled"})
 FALSY = frozenset({"0", "false", "f", "no", "off", "disabled", ""})
 
@@ -20,6 +21,8 @@ class Settings:
     endpoint: str = DEFAULT_ENDPOINT
     data_dir: Path = Path("/data")
     lbry_url: str = "http://127.0.0.1:5279"
+    odysee_fallback: bool = True
+    odysee_proxy_url: str = DEFAULT_ODYSEE_PROXY_URL
     api_max_pages: int = 1000
     max_releases_per_run: int | None = None
     max_release_size: int = 10 * 1024**3
@@ -43,6 +46,10 @@ class Settings:
             endpoint=env.get("MIRROR_API_ENDPOINT", DEFAULT_ENDPOINT).strip(),
             data_dir=Path(env.get("MIRROR_DATA_DIR", "/data")),
             lbry_url=env.get("MIRROR_LBRY_URL", "http://127.0.0.1:5279").strip(),
+            odysee_fallback=_boolean(env, "MIRROR_ODYSEE_FALLBACK", True),
+            odysee_proxy_url=env.get(
+                "MIRROR_ODYSEE_PROXY_URL", DEFAULT_ODYSEE_PROXY_URL
+            ).strip(),
             api_max_pages=_integer(env, "MIRROR_API_MAX_PAGES", 1000, minimum=1),
             max_releases_per_run=max_releases or None,
             max_release_size=_integer(
@@ -88,6 +95,7 @@ class Settings:
     def validate(self) -> None:
         _validate_http_url(self.endpoint, "MIRROR_API_ENDPOINT")
         _validate_http_url(self.lbry_url, "MIRROR_LBRY_URL")
+        _validate_http_url(self.odysee_proxy_url, "MIRROR_ODYSEE_PROXY_URL")
         if self.torrent_piece_length & (self.torrent_piece_length - 1):
             raise ConfigurationError(
                 "MIRROR_TORRENT_PIECE_LENGTH must be a power of two"

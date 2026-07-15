@@ -6,6 +6,7 @@ from threading import Event
 
 from .index_client import IndexClient
 from .lbry import LbryAcquirer, LbryClient
+from .odysee import OdyseeAcquirer
 from .pipeline import CycleResult, MirrorPipeline
 from .publisher import OutboxPublisher
 from .settings import Settings
@@ -20,6 +21,7 @@ class Runtime:
     lbry: LbryClient
     pipeline: MirrorPipeline
     stats: StatsCollector
+    odysee: OdyseeAcquirer | None = None
 
     def start(self) -> None:
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -53,11 +55,14 @@ class Runtime:
 
     def stop(self) -> None:
         logger = logging.getLogger("guncad-mirror")
-        for description, close in (
+        cleanups = [
             ("statistics collector", self.stats.stop),
             ("Index HTTP session", self.pipeline.index_client.close),
             ("LBRY HTTP session", self.lbry.close),
-        ):
+        ]
+        if self.odysee is not None:
+            cleanups.append(("Odysee HTTP session", self.odysee.close))
+        for description, close in cleanups:
             try:
                 close()
             except Exception:
@@ -84,7 +89,31 @@ def build_runtime(settings: Settings) -> Runtime:
         download_timeout=settings.download_timeout,
         poll_interval=settings.download_poll_interval,
     )
+    odysee = (
+        OdyseeAcquirer(
+            settings.odysee_proxy_url,
+            data_root=settings.data_dir,
+            attempts=settings.retry_attempts,
+            backoff=settings.retry_backoff,
+            read_timeout=min(settings.download_timeout, 300),
+        )
+        if settings.odysee_fallback
+        else None
+    )
     publisher = OutboxPublisher(settings.outbox_dir)
-    pipeline = MirrorPipeline(settings, index_client, acquirer, store, publisher)
+    pipeline = MirrorPipeline(
+        settings,
+        index_client,
+        acquirer,
+        store,
+        publisher,
+        fallback_acquirer=odysee,
+    )
     stats = StatsCollector(settings, store)
-    return Runtime(settings=settings, lbry=lbry, pipeline=pipeline, stats=stats)
+    return Runtime(
+        settings=settings,
+        lbry=lbry,
+        pipeline=pipeline,
+        stats=stats,
+        odysee=odysee,
+    )

@@ -14,6 +14,11 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.data_dir, Path("/data"))
         self.assertIsNone(settings.max_releases_per_run)
         self.assertFalse(settings.enable_webui)
+        self.assertTrue(settings.odysee_fallback)
+        self.assertEqual(
+            settings.odysee_proxy_url,
+            "https://api.na-backend.odysee.com/api/v1/proxy",
+        )
         self.assertEqual(settings.state_path, Path("/data/mirror-state.sqlite3"))
         self.assertEqual(settings.outbox_dir, Path("/data/outbox"))
         self.assertEqual(settings.releases_dir, Path("/data/releases"))
@@ -24,6 +29,8 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_API_ENDPOINT": "https://example.test/api/",
                 "MIRROR_DATA_DIR": "/archive",
                 "MIRROR_LBRY_URL": "http://lbry:5279",
+                "MIRROR_ODYSEE_FALLBACK": "disabled",
+                "MIRROR_ODYSEE_PROXY_URL": "https://fallback.example/proxy",
                 "MIRROR_API_MAX_PAGES": "2",
                 "MIRROR_MAX_RELEASES_PER_RUN": "3",
                 "MIRROR_RELEASE_MAX_SIZE": "4",
@@ -45,6 +52,8 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(settings.data_dir, Path("/archive"))
         self.assertEqual(settings.api_max_pages, 2)
+        self.assertFalse(settings.odysee_fallback)
+        self.assertEqual(settings.odysee_proxy_url, "https://fallback.example/proxy")
         self.assertEqual(settings.max_releases_per_run, 3)
         self.assertEqual(settings.max_release_size, 4)
         self.assertEqual(settings.min_free_space, 5)
@@ -71,6 +80,7 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_LOOP_INTERVAL": "0"}, "at least"),
             ({"MIRROR_API_ENDPOINT": "ftp://bad"}, "absolute HTTP"),
             ({"MIRROR_LBRY_URL": "http://user:pass@host"}, "credentials"),
+            ({"MIRROR_ODYSEE_PROXY_URL": "not-a-url"}, "absolute HTTP"),
             ({"MIRROR_TORRENT_PIECE_LENGTH": "20000"}, "power of two"),
             ({"MIRROR_TORRENT_TRACKERS": "wat://tracker"}, "tracker URL"),
         ]

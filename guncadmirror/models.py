@@ -28,6 +28,18 @@ class JobState(StrEnum):
     FAILED = "failed"
 
 
+class AcquisitionTransport(StrEnum):
+    LBRY = "lbry"
+    ODYSEE_CDN = "odysee-cdn"
+
+
+@dataclass(frozen=True, slots=True)
+class AcquisitionEvidence:
+    transport: AcquisitionTransport
+    source_url: str | None = None
+    lbry_failure: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class Release:
     id: str

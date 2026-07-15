@@ -12,14 +12,21 @@ from tempfile import NamedTemporaryFile
 from threading import Event
 
 from .index_client import IndexClient
-from .lbry import LbryAcquirer
-from .models import JobState, PublicationBundle, Release
+from .lbry import LbryAcquirer, LbryError, LbryProtocolError
+from .models import (
+    AcquisitionEvidence,
+    AcquisitionTransport,
+    JobState,
+    PublicationBundle,
+    Release,
+)
+from .odysee import OdyseeAcquirer
 from .paths import ensure_within, release_directory
 from .publisher import Publisher
 from .settings import Settings
 from .state import Job, JobStore
 from .torrent import create_torrent
-from .verification import verify_file
+from .verification import VerificationError, verify_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +55,7 @@ class MirrorPipeline:
         store: JobStore,
         publisher: Publisher,
         *,
+        fallback_acquirer: OdyseeAcquirer | None = None,
         disk_free: Callable[[Path], int] | None = None,
         logger: logging.Logger | None = None,
     ):
@@ -56,6 +64,7 @@ class MirrorPipeline:
         self.acquirer = acquirer
         self.store = store
         self.publisher = publisher
+        self.fallback_acquirer = fallback_acquirer
         self.disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self.logger = logger or logging.getLogger("guncad-mirror.pipeline")
 
@@ -114,8 +123,43 @@ class MirrorPipeline:
         )
         try:
             _atomic_json(directory / "release.json", release.raw)
-            file_path = self.acquirer.acquire(release, directory)
-            hashes = verify_file(release, file_path)
+            acquisition = AcquisitionEvidence(AcquisitionTransport.LBRY)
+            try:
+                file_path = self.acquirer.acquire(release, directory)
+            except LbryError as lbry_error:
+                if (
+                    isinstance(lbry_error, LbryProtocolError)
+                    or self.fallback_acquirer is None
+                    or release.size is None
+                    or release.sha384 is None
+                ):
+                    raise
+                self.logger.warning(
+                    "LBRY acquisition failed for %s; trying independently "
+                    "verifiable Odysee CDN fallback: %s",
+                    release.name,
+                    lbry_error,
+                )
+                try:
+                    fallback = self.fallback_acquirer.acquire(release, directory)
+                except Exception as fallback_error:
+                    raise RuntimeError(
+                        f"LBRY acquisition failed ({type(lbry_error).__name__}: "
+                        f"{lbry_error}); Odysee fallback also failed "
+                        f"({type(fallback_error).__name__}: {fallback_error})"
+                    ) from fallback_error
+                file_path = fallback.path
+                acquisition = AcquisitionEvidence(
+                    AcquisitionTransport.ODYSEE_CDN,
+                    source_url=fallback.source_url,
+                    lbry_failure=f"{type(lbry_error).__name__}: {lbry_error}",
+                )
+            try:
+                hashes = verify_file(release, file_path)
+            except VerificationError:
+                if acquisition.transport is AcquisitionTransport.ODYSEE_CDN:
+                    file_path.unlink(missing_ok=True)
+                raise
             if (
                 self.settings.max_release_size
                 and hashes.size > self.settings.max_release_size
@@ -142,7 +186,7 @@ class MirrorPipeline:
                 piece_length=self.settings.torrent_piece_length,
                 trackers=self.settings.torrent_trackers,
             )
-            bundle = self.publisher.publish(release, hashes, torrent)
+            bundle = self.publisher.publish(release, hashes, torrent, acquisition)
             self._validate_bundle(bundle)
             self.store.mark_awaiting_index(release, torrent)
         except Exception as error:
@@ -207,6 +251,7 @@ class MirrorPipeline:
             lbry_document = document.get("lbry")
             artifact_document = document.get("artifact")
             torrent_document = document.get("torrent")
+            acquisition_document = document.get("acquisition")
             if not all(
                 isinstance(value, dict)
                 for value in (
@@ -241,6 +286,7 @@ class MirrorPipeline:
                 and torrent_document.get("trackers")
                 == list(self.settings.torrent_trackers)
                 and torrent_document.get("sha256") == _sha256_file(safe_torrent)
+                and _valid_acquisition_document(acquisition_document)
             )
         except (OSError, RuntimeError, UnicodeError, ValueError, TypeError):
             return False
@@ -281,3 +327,24 @@ def _sha256_file(path: Path) -> str:
         while chunk := stream.read(1024**2):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _valid_acquisition_document(value: object) -> bool:
+    # Manifests generated before fallback support necessarily came from LBRY.
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return False
+    transport = value.get("transport")
+    source_url = value.get("source_url")
+    lbry_failure = value.get("lbry_failure")
+    if transport == AcquisitionTransport.LBRY:
+        return source_url is None and lbry_failure is None
+    if transport != AcquisitionTransport.ODYSEE_CDN:
+        return False
+    return (
+        isinstance(source_url, str)
+        and source_url.startswith("https://player.odycdn.com/")
+        and isinstance(lbry_failure, str)
+        and bool(lbry_failure)
+    )
