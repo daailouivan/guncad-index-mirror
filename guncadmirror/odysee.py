@@ -23,6 +23,7 @@ from .progress import (
     NullProgressReporter,
     ProgressReporter,
 )
+from .sessions import ThreadLocalSessionPool
 
 PLAYER_HOST = "player.odycdn.com"
 CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
@@ -69,7 +70,7 @@ class OdyseeAcquirer:
         self.attempts = attempts
         self.backoff = backoff
         self.read_timeout = read_timeout
-        self.session = session or requests.Session()
+        self.session = session or ThreadLocalSessionPool()
         self.sleep = sleep
         self.logger = logger or logging.getLogger("guncad-mirror.odysee")
         self.progress = progress or NullProgressReporter()

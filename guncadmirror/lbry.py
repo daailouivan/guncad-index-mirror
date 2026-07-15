@@ -19,6 +19,7 @@ from .progress import (
     NullProgressReporter,
     ProgressReporter,
 )
+from .sessions import ThreadLocalSessionPool
 
 
 class LbryError(RuntimeError):
@@ -55,7 +56,7 @@ class LbryClient:
         self.url = url
         self.attempts = attempts
         self.backoff = backoff
-        self.session = session or requests.Session()
+        self.session = session or ThreadLocalSessionPool()
         self.sleep = sleep
         self.logger = logger or logging.getLogger("guncad-mirror.lbry")
 
