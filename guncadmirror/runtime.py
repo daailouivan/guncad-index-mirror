@@ -30,9 +30,9 @@ class Runtime:
         self.lbry.wait_until_ready(self.settings.lbry_startup_timeout)
         self.stats.log("LBRY daemon is ready", stdout=True)
 
-    def run_cycle(self) -> CycleResult:
+    def run_cycle(self, stop: Event | None = None) -> CycleResult:
         self.stats.set_state("Enumerating Index releases")
-        result = self.pipeline.run_cycle()
+        result = self.pipeline.run_cycle(stop)
         summary = (
             f"Cycle complete: {result.discovered} discovered, {result.ready} ready, "
             f"{result.skipped} skipped, {result.failed} failed"
@@ -44,7 +44,7 @@ class Runtime:
     def run_forever(self, stop: Event) -> None:
         while not stop.is_set():
             try:
-                self.run_cycle()
+                self.run_cycle(stop)
             except Exception:
                 logging.getLogger("guncad-mirror").exception("Mirror cycle failed")
                 self.stats.log("Mirror cycle failed; see application log")

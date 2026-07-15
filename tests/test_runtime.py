@@ -49,6 +49,7 @@ class RuntimeTests(unittest.TestCase):
         expected = CycleResult(discovered=3, ready=1, skipped=1, failed=1)
         self.pipeline.run_cycle.return_value = expected
         self.assertEqual(self.runtime.run_cycle(), expected)
+        self.pipeline.run_cycle.assert_called_once_with(None)
         self.stats.set_state.assert_any_call("Enumerating Index releases")
         self.stats.set_state.assert_any_call(
             "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed"
@@ -63,6 +64,7 @@ class RuntimeTests(unittest.TestCase):
         stop.is_set.side_effect = [False, True]
         self.pipeline.run_cycle.return_value = CycleResult()
         self.runtime.run_forever(stop)
+        self.pipeline.run_cycle.assert_called_once_with(stop)
         stop.wait.assert_called_once_with(1)
         self.stats.set_state.assert_any_call("Sleeping for 1s")
 
@@ -72,6 +74,7 @@ class RuntimeTests(unittest.TestCase):
         self.pipeline.run_cycle.side_effect = RuntimeError("Index down")
         with self.assertLogs("guncad-mirror", level="ERROR"):
             self.runtime.run_forever(stop)
+        self.pipeline.run_cycle.assert_called_once_with(stop)
         self.stats.log.assert_any_call("Mirror cycle failed; see application log")
         stop.wait.assert_called_once_with(1)
 

@@ -106,7 +106,7 @@ pending -> acquiring -> verified -> awaiting_index
                    +-> failed -> acquiring after backoff
 ```
 
-One release failure does not abort later releases. Failed jobs retain their typed error and retry deadline. HTTP and JSON-RPC operations use bounded exponential retry. API pagination is bounded, rejects loops, and cannot leave the configured scheme and host. The process budgets two copies of each advertised payload plus a free-space reserve before starting acquisition. The stream timeout measures stalled time, not total transfer time: each decrease in `blobs_remaining` renews the deadline, so a large active download can finish without letting one dead stream hold the queue forever.
+One release failure does not abort later releases. Failed jobs retain their typed error and retry deadline. HTTP and JSON-RPC operations use bounded exponential retry. API pagination is bounded, rejects loops, and cannot leave the configured scheme and host. The process budgets two copies of each advertised payload plus a free-space reserve before starting acquisition. The stream timeout measures stalled time, not total transfer time: each decrease in `blobs_remaining` renews the deadline, so a large active download can finish without letting one dead stream hold the queue forever. A termination signal lets the current release reach durable state, then stops the scan before the next release starts.
 
 Outbox identity is stable:
 

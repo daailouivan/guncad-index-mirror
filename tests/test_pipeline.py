@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event
 from unittest.mock import Mock
 
 from guncadmirror.models import JobState, PublicationBundle
@@ -248,6 +249,30 @@ class MirrorPipelineTests(unittest.TestCase):
             CycleResult(discovered=3, ready=1, skipped=1, failed=1),
         )
         self.assertEqual(CycleResult().add("unknown").discovered, 1)
+
+    def test_cycle_stops_between_releases_after_current_work_is_durable(self) -> None:
+        content = b"payload"
+        first = make_release(content)
+        second = make_release(content, release_id="c" * 40, sd_hash="d" * 96)
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        stop = Event()
+        acquirer = Mock()
+
+        def acquire(*_args: object) -> Path:
+            stop.set()
+            return payload
+
+        acquirer.acquire.side_effect = acquire
+        pipeline = self._pipeline([first, second], acquirer)
+
+        with self.assertLogs("guncad-mirror.pipeline", level="INFO"):
+            result = pipeline.run_cycle(stop)
+
+        self.assertEqual(result, CycleResult(discovered=1, ready=1))
+        self.assertEqual(acquirer.acquire.call_count, 1)
+        with self.assertRaises(KeyError):
+            self.store.get(second.id, second.sd_hash)
 
     def test_publisher_must_return_durable_files(self) -> None:
         content = b"payload"

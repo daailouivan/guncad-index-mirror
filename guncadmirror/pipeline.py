@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from threading import Event
 
 from .index_client import IndexClient
 from .lbry import LbryAcquirer
@@ -58,9 +59,12 @@ class MirrorPipeline:
         self.disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self.logger = logger or logging.getLogger("guncad-mirror.pipeline")
 
-    def run_cycle(self) -> CycleResult:
+    def run_cycle(self, stop: Event | None = None) -> CycleResult:
         result = CycleResult()
         for release in self.index_client.releases():
+            if stop is not None and stop.is_set():
+                self.logger.info("Stopping Index cycle at a release boundary")
+                break
             outcome = self.process(release)
             result = result.add(outcome)
         return result
