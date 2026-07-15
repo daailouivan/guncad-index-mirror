@@ -1,5 +1,3 @@
-# Unqualified because it's a linter idgaf
-isort
+coverage[toml]
 djlint
-black
-yamllint
+ruff

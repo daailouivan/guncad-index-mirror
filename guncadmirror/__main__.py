@@ -1,99 +1,82 @@
+from __future__ import annotations
+
 import argparse
 import logging
-import os
-import time
-from datetime import datetime, timedelta
+import signal
+from dataclasses import replace
+from threading import Event
+from typing import Sequence
 
-from . import index, settings, stats, webui
-
-
-def str_to_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    return value.strip().lower() in ("1", "true", "t", "yes", "on", "enabled")
+from .runtime import build_runtime
+from .settings import ConfigurationError, Settings
 
 
-def main():
-    """
-    Application entrypoint
-    """
-    stats.log("Started GunCAD Mirror")
-    sleephours = 4
-
-    # Slow down the urllib3 logger so it doesn't annoy users at startup
-    urllib3_logger = logging.getLogger("urllib3.connectionpool")
-    urllib3_logger.setLevel(logging.ERROR)
-
-    # Set up our logger
-    logger = logging.getLogger("guncad-mirror")
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
-        level=logging.INFO,
-    )
-
-    # Set up the arg parser
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m guncadmirror",
-        description="Mirror content from a GunCAD Index instance over LBRY",
+        description="Evacuate LBRY releases into verified BitTorrent artifacts",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose logging"
+        "-v", "--verbose", action="store_true", help="enable debug logging"
     )
-    args = parser.parse_args()
-
-    # Now that we have the logger, dump some quick info
-    logger.info(f"Starting GunCAD Mirror {os.getenv('GUNCAD_COMMIT_REF', 'Unknown')}")
-
-    # Parse out envvars as configs
-    settings.parse_environment()
-
-    # Set up some extra statistics
-    stats.start_stats_thread()
-
-    # If we have to start the webui thread, do so
-    if settings.enable_webui:
-        webui.start()
-
-    # We've finished bootstrapping, wait for LBRY to do its thing
-    logger.info("Started GunCAD Mirror")
-    logger.info("Waiting for LBRY to start its wallet...")
-    stats.extrastats["mirror_state"] = "Waiting for LBRY to start up"
-    index.wait_for_component("wallet")
-    stats.log("Finished waiting for LBRY to initialize", stdout=True)
-
-    while True:
-        logger.info(f"Cleaning sd_hash cache...")
-        stats.extrastats["mirror_state"] = "Cleaning the sd_hash cache"
-        index.seen_sd_hashes.cleanup()
-        logger.info("Acquiring releases...")
-        stats.extrastats["mirror_state"] = "Acquiring releases"
-        starttime = time.perf_counter()
-        try:
-            index.wait_for_lbry_ready()
-            for i, release in enumerate(index.get_releases(url=settings.endpoint)):
-                try:
-                    logger.info(f"Mirroring #{i + 1}: {release.get('name')}")
-                    stats.extrastats["mirror_state"] = (
-                        f"Mirroring #{i + 1}: {release.get('name')}"
-                    )
-                    changed = index.mirror(release, store_file=settings.assemble_files)
-                    if changed:
-                        stats.log(
-                            f"+ Fetched new files for release #{i + 1}: {release.get('url')} \"{release.get('name')}\""
-                        )
-                except Exception as e:
-                    logger.exception(e)
-        except Exception as e:
-            logger.exception(e)
-        sleepuntil = (datetime.now() + timedelta(hours=sleephours)).strftime("%I:%M %p")
-        elapsed_time = time.perf_counter() - starttime
-        stats.log(
-            f"Completed in {webui.humanize_seconds(elapsed_time)}, sleeping for {sleephours}h (until {sleepuntil})",
-            stdout=True,
-        )
-        stats.extrastats["mirror_state"] = f"Sleeping until {sleepuntil}"
-        time.sleep(60 * 60 * sleephours)
+    parser.add_argument(
+        "--once", action="store_true", help="run one Index cycle and exit"
+    )
+    parser.add_argument(
+        "--max-releases",
+        type=int,
+        help="override MIRROR_MAX_RELEASES_PER_RUN for this process",
+    )
+    args = parser.parse_args(argv)
+    if args.max_releases is not None and args.max_releases < 1:
+        parser.error("--max-releases must be positive")
+    return args
 
 
-if __name__ == "__main__":
-    main()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-8s %(name)s:%(lineno)d: %(message)s",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+    )
+    logger = logging.getLogger("guncad-mirror")
+
+    try:
+        settings = Settings.from_env()
+    except ConfigurationError as error:
+        logger.error("Invalid configuration: %s", error)
+        return 2
+    if args.max_releases is not None:
+        settings = replace(settings, max_releases_per_run=args.max_releases)
+
+    stop = Event()
+    runtime = None
+
+    def request_stop(signum: int, _frame: object) -> None:
+        logger.info("Received signal %d; stopping after current operation", signum)
+        stop.set()
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+
+    try:
+        runtime = build_runtime(settings)
+        runtime.start()
+        if args.once:
+            result = runtime.run_cycle()
+            return 1 if result.failed else 0
+        runtime.run_forever(stop)
+        return 0
+    except KeyboardInterrupt:
+        logger.info("Interrupted")
+        return 130
+    except Exception:
+        logger.exception("GunCAD Mirror stopped after a fatal error")
+        return 1
+    finally:
+        if runtime is not None:
+            runtime.stop()
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
+    raise SystemExit(main())

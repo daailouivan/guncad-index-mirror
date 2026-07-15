@@ -1,5 +1,7 @@
 #! /bin/sh
-isort --profile black .
-black .
-djlint --profile=django --reformat .
+set -e
+
+ruff check --fix .
+ruff format .
+djlint --reformat guncadmirror/templates/
 ./contrib/yamlfmt.sh

@@ -1,5 +1,7 @@
 __pycache__
 venv
+.coverage
+coverage.xml
 *.bak
 /*.csv
 *.swp
