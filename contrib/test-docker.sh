@@ -5,6 +5,7 @@ set -e
 # endpoint in this smoke test: that turns a test into a several-hundred-GB job.
 default_endpoint='https://guncadindex.com/api/v2/releases/?format=json&limit=50&query=channel%3A%22%40ciwielab%3Ab%22%20OR%20channel%3A%22%40Decimal_Dot%3Ad%22%20OR%20channel%3AMaverick0197'
 MIRROR_SMOKE_API_ENDPOINT="${MIRROR_SMOKE_API_ENDPOINT:-$default_endpoint}"
+MIRROR_SMOKE_PROJECT="${MIRROR_SMOKE_PROJECT:-guncad-mirror-smoke}"
 export MIRROR_SMOKE_API_ENDPOINT
 
 case "$MIRROR_SMOKE_API_ENDPOINT" in
@@ -29,8 +30,10 @@ composefile="docker-compose-build.yml"
 
 echo "Live-test endpoint: $MIRROR_SMOKE_API_ENDPOINT"
 echo "Release cap: ${MIRROR_SMOKE_RELEASES:-1}"
+echo "Compose project: $MIRROR_SMOKE_PROJECT"
 "$docker" compose \
 	-f "$composefile" \
+	--project-name "$MIRROR_SMOKE_PROJECT" \
 	--env-file guncad-mirror.env \
 	up \
 	--build \

@@ -65,7 +65,7 @@ To reuse the data produced by `contrib/test-docker.sh`, set `MIRROR_DATA_VOLUME`
 
 ### Narrow live smoke test
 
-`contrib/test-docker.sh` builds the checkout and runs one release from a hard-coded, mixed-origin API query. The script refuses endpoints without a `query=` parameter. It uses a separate persistent volume so subsequent tests do not resync LBRY headers.
+`contrib/test-docker.sh` builds the checkout and runs one release from a hard-coded, mixed-origin API query. The script refuses endpoints without a `query=` parameter. Its default Compose project is `guncad-mirror-smoke`, which keeps the test volume separate from a production Compose deployment and preserves LBRY headers between smoke runs.
 
 ```bash
 ./contrib/test-docker.sh
