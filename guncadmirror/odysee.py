@@ -5,9 +5,12 @@ import os
 import re
 import time
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -29,6 +32,8 @@ PLAYER_HOST = "player.odycdn.com"
 CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 DOWNLOAD_CHUNK_SIZE = 1024**2
 PROGRESS_INTERVAL = 1024**3
+DEFAULT_CDN_RATE_LIMIT_BACKOFF = 30.0
+MAX_CDN_RATE_LIMIT_BACKOFF = 300.0
 
 
 class OdyseeError(RuntimeError):
@@ -41,6 +46,16 @@ class OdyseeProtocolError(OdyseeError):
 
 class OdyseeUnavailable(OdyseeError):
     """A transient Odysee operation exhausted its retries."""
+
+
+class _OdyseeRateLimited(OdyseeUnavailable):
+    """The CDN rejected a range request and established a shared cooldown."""
+
+    def __init__(self, delay: float):
+        self.delay = delay
+        super().__init__(
+            f"Odysee CDN returned HTTP 429; shared cooldown is {delay:.1f}s"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +77,10 @@ class OdyseeAcquirer:
         read_timeout: float = 60,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
+        cdn_rate_limit_backoff: float = DEFAULT_CDN_RATE_LIMIT_BACKOFF,
+        cdn_rate_limit_max_backoff: float = MAX_CDN_RATE_LIMIT_BACKOFF,
         logger: logging.Logger | None = None,
         progress: ProgressReporter | None = None,
     ):
@@ -72,8 +91,17 @@ class OdyseeAcquirer:
         self.read_timeout = read_timeout
         self.session = session or ThreadLocalSessionPool()
         self.sleep = sleep
+        self.monotonic = monotonic
+        self.wall_clock = wall_clock
+        self.cdn_rate_limit_backoff = cdn_rate_limit_backoff
+        self.cdn_rate_limit_max_backoff = cdn_rate_limit_max_backoff
         self.logger = logger or logging.getLogger("guncad-mirror.odysee")
         self.progress = progress or NullProgressReporter()
+        self._cdn_open_lock = Lock()
+        self._cdn_rate_limit_lock = Lock()
+        self._cdn_cooldown_until = 0.0
+        self._cdn_rate_limit_count = 0
+        self._cdn_last_rate_limit_at: float | None = None
 
     def close(self) -> None:
         self.session.close()
@@ -280,18 +308,29 @@ class OdyseeAcquirer:
                 last_error = error
                 if attempt == self.attempts:
                     break
-                delay = self.backoff * (2 ** (attempt - 1))
-                self.logger.warning(
-                    "Odysee CDN attempt %d/%d stopped at %d/%d bytes: %s; "
-                    "resuming in %.1fs",
-                    attempt,
-                    self.attempts,
-                    partial_path.stat().st_size if partial_path.exists() else 0,
-                    expected_size,
-                    error,
-                    delay,
-                )
-                wait_or_cancel(stop, delay, sleep=self.sleep)
+                if isinstance(error, _OdyseeRateLimited):
+                    self.logger.warning(
+                        "Odysee CDN attempt %d/%d stopped at %d/%d bytes: %s; "
+                        "resuming after the shared cooldown",
+                        attempt,
+                        self.attempts,
+                        partial_path.stat().st_size if partial_path.exists() else 0,
+                        expected_size,
+                        error,
+                    )
+                else:
+                    delay = self.backoff * (2 ** (attempt - 1))
+                    self.logger.warning(
+                        "Odysee CDN attempt %d/%d stopped at %d/%d bytes: %s; "
+                        "resuming in %.1fs",
+                        attempt,
+                        self.attempts,
+                        partial_path.stat().st_size if partial_path.exists() else 0,
+                        expected_size,
+                        error,
+                        delay,
+                    )
+                    wait_or_cancel(stop, delay, sleep=self.sleep)
         raise OdyseeUnavailable(
             f"Odysee CDN failed after {self.attempts} attempts: {last_error}"
         ) from last_error
@@ -316,20 +355,35 @@ class OdyseeAcquirer:
             "Referer": "https://odysee.com/",
             "User-Agent": USER_AGENT,
         }
-        with self.session.get(
-            source_url,
-            headers=headers,
-            stream=True,
-            allow_redirects=True,
-            timeout=(5, self.read_timeout),
-        ) as response:
-            response.raise_for_status()
-            check_cancelled(stop)
-            if response.status_code != 206:
-                raise OdyseeProtocolError(
-                    f"Odysee CDN returned HTTP {response.status_code}, expected 206"
+        with ExitStack() as responses:
+            # Opening a streaming response is short, while consuming it can take
+            # hours. Serialize only the opening handshake so workers cannot all
+            # probe the CDN at once when a shared throttle window expires.
+            with self._cdn_open_lock:
+                self._wait_for_cdn(stop)
+                request_started_at = self.monotonic()
+                response = responses.enter_context(
+                    self.session.get(
+                        source_url,
+                        headers=headers,
+                        stream=True,
+                        allow_redirects=True,
+                        timeout=(5, self.read_timeout),
+                    )
                 )
-            self._validate_stream_url(response.url, release)
+                self._validate_stream_url(response.url, release)
+                if response.status_code == 429:
+                    raise _OdyseeRateLimited(
+                        self._register_cdn_rate_limit(
+                            response.headers.get("Retry-After")
+                        )
+                    )
+                response.raise_for_status()
+                check_cancelled(stop)
+                if response.status_code != 206:
+                    raise OdyseeProtocolError(
+                        f"Odysee CDN returned HTTP {response.status_code}, expected 206"
+                    )
             content_range = response.headers.get("Content-Range", "")
             match = CONTENT_RANGE_RE.fullmatch(content_range)
             if match is None:
@@ -373,6 +427,47 @@ class OdyseeAcquirer:
                 finally:
                     output.flush()
                     os.fsync(output.fileno())
+            self._record_cdn_success(request_started_at)
+
+    def _wait_for_cdn(self, stop: Event | None) -> None:
+        while True:
+            with self._cdn_rate_limit_lock:
+                delay = self._cdn_cooldown_until - self.monotonic()
+            if delay <= 0:
+                return
+            wait_or_cancel(stop, delay, sleep=self.sleep)
+
+    def _register_cdn_rate_limit(self, retry_after: str | None) -> float:
+        now = self.monotonic()
+        with self._cdn_rate_limit_lock:
+            if (
+                self._cdn_last_rate_limit_at is None
+                or now - self._cdn_last_rate_limit_at >= self.cdn_rate_limit_max_backoff
+            ):
+                self._cdn_rate_limit_count = 0
+            self._cdn_rate_limit_count += 1
+            self._cdn_last_rate_limit_at = now
+            fallback = min(
+                self.cdn_rate_limit_backoff * (2 ** (self._cdn_rate_limit_count - 1)),
+                self.cdn_rate_limit_max_backoff,
+            )
+            server_delay = _retry_after_seconds(retry_after, self.wall_clock())
+            delay = max(fallback, server_delay or 0.0)
+            self._cdn_cooldown_until = max(
+                self._cdn_cooldown_until,
+                now + delay,
+            )
+            return self._cdn_cooldown_until - now
+
+    def _record_cdn_success(self, request_started_at: float) -> None:
+        with self._cdn_rate_limit_lock:
+            if (
+                self._cdn_last_rate_limit_at is None
+                or self._cdn_last_rate_limit_at <= request_started_at
+            ):
+                self._cdn_cooldown_until = 0.0
+                self._cdn_rate_limit_count = 0
+                self._cdn_last_rate_limit_at = None
 
     def _report_progress(self, release: Release, *, completed: int | None) -> None:
         self.progress.update_activity(
@@ -416,3 +511,22 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _retry_after_seconds(value: str | None, now: float) -> float | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return max(0.0, float(int(value, 10)))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, retry_at.timestamp() - now)

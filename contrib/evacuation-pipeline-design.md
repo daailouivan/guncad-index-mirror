@@ -91,6 +91,8 @@ Mirror therefore has a last-resort Odysee transport. Before requesting payload b
 
 The fallback does not require an Odysee page link; Odysee's public proxy may still know an Index row marked LBRY-only. It is deliberately disabled per release when the Index has no independent size or checksum. In that case an Odysee response could not be tied to the expected plaintext strongly enough. A CDN-acquired manifest records `acquisition.transport` as `odysee-cdn`, the source URL, and the LBRY failure that caused the fallback. Earlier manifests omit the acquisition object and can be interpreted as `lbry`, because those builds had no CDN code.
 
+HTTP 429 responses establish one cooldown shared by both CDN workers. Mirror honors `Retry-After`; without that header, repeated throttles wait 30, 60, 120, 240, and then 300 seconds. Range-request opening is serialized so two workers cannot probe at the same instant after a cooldown, but an established transfer does not hold that lock. Shutdown interrupts the wait and leaves the ranged partial intact.
+
 ## Verification and torrent rules
 
 Mirror does not consider lbrynet's `finished` string sufficient proof. A completed acquisition must satisfy all of these checks:

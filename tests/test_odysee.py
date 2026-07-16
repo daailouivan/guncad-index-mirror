@@ -93,6 +93,19 @@ class FakeSession:
         return response
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.delays: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, delay: float) -> None:
+        self.delays.append(delay)
+        self.now += delay
+
+
 class OdyseeAcquirerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -156,6 +169,7 @@ class OdyseeAcquirerTests(unittest.TestCase):
         attempts: int = 2,
         sleep=lambda _delay: None,
         progress: object | None = None,
+        **kwargs: Any,
     ) -> OdyseeAcquirer:
         return OdyseeAcquirer(
             "https://api.example/proxy",
@@ -165,6 +179,7 @@ class OdyseeAcquirerTests(unittest.TestCase):
             session=session,
             sleep=sleep,
             progress=progress,
+            **kwargs,
         )
 
     def test_validates_claim_and_downloads_exact_ranged_plaintext(self) -> None:
@@ -473,6 +488,103 @@ class OdyseeAcquirerTests(unittest.TestCase):
             ["bytes=0-", "bytes=3-"],
         )
         self.assertEqual(delays, [1])
+
+    def test_cdn_rate_limits_share_an_escalating_retry_after_cooldown(self) -> None:
+        clock = FakeClock()
+        session = FakeSession(
+            posts=[self._resolve_response(), self._get_response()],
+            gets=[
+                FakeResponse(
+                    status_code=429,
+                    headers={"Retry-After": "45"},
+                    url=self.stream_url,
+                ),
+                FakeResponse(status_code=429, url=self.stream_url),
+                self._stream_response(0, [self.content]),
+            ],
+        )
+
+        with self.assertLogs("guncad-mirror.odysee", level="WARNING") as logs:
+            result = self._acquirer(
+                session,
+                attempts=3,
+                sleep=clock.sleep,
+                monotonic=clock.monotonic,
+            ).acquire(self.release, self.root / "rate-limited")
+
+        self.assertEqual(result.path.read_bytes(), self.content)
+        self.assertEqual(clock.delays, [45, 60])
+        self.assertEqual(len(session.get_calls), 3)
+        self.assertTrue(any("shared cooldown" in line for line in logs.output))
+
+    def test_cdn_rate_limit_cooldown_is_shared_between_acquisitions(self) -> None:
+        clock = FakeClock()
+        session = FakeSession(
+            posts=[
+                self._resolve_response(),
+                self._get_response(),
+                self._resolve_response(),
+                self._get_response(),
+            ],
+            gets=[
+                FakeResponse(status_code=429, url=self.stream_url),
+                self._stream_response(0, [self.content]),
+            ],
+        )
+        acquirer = self._acquirer(
+            session,
+            attempts=1,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+        with self.assertRaisesRegex(OdyseeUnavailable, "HTTP 429"):
+            acquirer.acquire(self.release, self.root / "first-rate-limited")
+        result = acquirer.acquire(self.release, self.root / "second-rate-limited")
+
+        self.assertEqual(result.path.read_bytes(), self.content)
+        self.assertEqual(clock.delays, [30])
+
+    def test_cdn_rate_limit_accepts_http_date_and_wait_is_cancellable(self) -> None:
+        clock = FakeClock()
+        session = FakeSession(
+            posts=[
+                self._resolve_response(),
+                self._get_response(),
+                self._resolve_response(),
+                self._get_response(),
+            ],
+            gets=[
+                FakeResponse(
+                    status_code=429,
+                    headers={"Retry-After": "Thu, 01 Jan 1970 00:02:00 GMT"},
+                    url=self.stream_url,
+                ),
+            ],
+        )
+        acquirer = self._acquirer(
+            session,
+            attempts=1,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            wall_clock=lambda: 0,
+        )
+
+        with self.assertRaises(OdyseeUnavailable):
+            acquirer.acquire(self.release, self.root / "dated-rate-limit")
+
+        stop = Mock(spec=Event)
+        stop.is_set.return_value = False
+        stop.wait.return_value = True
+        with self.assertRaises(AcquisitionCancelled):
+            acquirer.acquire(
+                self.release,
+                self.root / "cancelled-rate-limit",
+                stop=stop,
+            )
+
+        stop.wait.assert_called_once_with(120)
+        self.assertEqual(len(session.get_calls), 1)
 
     def test_reports_large_download_progress(self) -> None:
         session = FakeSession(
