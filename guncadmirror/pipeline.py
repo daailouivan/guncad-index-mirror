@@ -427,6 +427,7 @@ class MirrorPipeline:
             if (
                 isinstance(lbry_error, LbryProtocolError)
                 or self.fallback_acquirer is None
+                or release.lbry_only
                 or release.size is None
                 or release.sha384 is None
             ):

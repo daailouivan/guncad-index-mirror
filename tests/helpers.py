@@ -31,7 +31,7 @@ def release_payload(
                 {"name": "Odysee", "url": "https://odysee.com/release:r"},
                 {"name": "LBRY Desktop", "url": "lbry://release%23r"},
             ],
-            "extra": {"sd_hash": sd_hash},
+            "extra": {"sd_hash": sd_hash, "lbry_only": False},
         },
     }
 

@@ -121,7 +121,7 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_MAX_RELEASES_PER_RUN` | `0` | Maximum supported releases yielded per scan. Zero disables the cap. |
 | `MIRROR_LBRY_URL` | `http://127.0.0.1:5279` | lbrynet JSON-RPC endpoint. |
 | `MIRROR_LBRY_CONCURRENCY` | `4` | Maximum simultaneous LBRY stream acquisitions. |
-| `MIRROR_ODYSEE_FALLBACK` | `true` | After LBRY acquisition fails, permit a range-resumable download from Odysee when claim ID, descriptor, size, and hash all match. |
+| `MIRROR_ODYSEE_FALLBACK` | `true` | After LBRY acquisition fails, permit a range-resumable download from Odysee when claim ID, descriptor, size, and hash all match. Index origins marked `lbry_only` never use this fallback. |
 | `MIRROR_ODYSEE_PROXY_URL` | `https://api.na-backend.odysee.com/api/v1/proxy` | Public Odysee SDK proxy used only for the verified fallback. Embedded credentials are rejected. |
 | `MIRROR_ODYSEE_CONCURRENCY` | `2` | Maximum simultaneous Odysee CDN fallback downloads. |
 | `MIRROR_FINALIZE_CONCURRENCY` | `2` | Maximum simultaneous plaintext verification and torrent-hashing jobs. |

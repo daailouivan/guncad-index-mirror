@@ -51,6 +51,7 @@ class Release:
     sd_hash: str
     sha384: str | None
     size: int | None
+    lbry_only: bool
     raw: Mapping[str, Any] = field(repr=False, compare=False)
 
     @classmethod
@@ -105,6 +106,10 @@ class Release:
         else:
             size = raw_size or None
 
+        raw_lbry_only = extra.get("lbry_only", False)
+        if not isinstance(raw_lbry_only, bool):
+            raise ReleaseValidationError("origin extra lbry_only must be a boolean")
+
         links = origin.get("links")
         if not isinstance(links, list):
             raise ReleaseValidationError("release origin links must be a list")
@@ -120,6 +125,7 @@ class Release:
             sd_hash=sd_hash,
             sha384=sha384,
             size=size,
+            lbry_only=raw_lbry_only,
             raw=dict(value),
         )
 

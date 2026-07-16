@@ -81,6 +81,8 @@ The patch adds `stream_get(sd_hash, ...)` to the daemon. It constructs a managed
 
 Mirror first calls this RPC. It falls back to claim URI resolution only when the daemon reports JSON-RPC method-not-found. Even then, it compares the returned descriptor hash with the Index value and rejects claim drift.
 
+An Index origin marked `origin.extra.lbry_only` is known to require authenticated owner access at Odysee. Mirror still attempts exact descriptor acquisition from LBRY peers, but never wastes an Odysee fallback slot or sends a request that cannot succeed.
+
 This removes claim resolution from the normal data path. It does not yet remove every chain startup dependency from lbry-sdk: the daemon's file manager still waits on wallet startup, so a new data volume synchronizes chain headers before the RPC is ready. Persisting `/data/lbry` avoids paying that cost on each container start.
 
 ### Odysee recovery transport

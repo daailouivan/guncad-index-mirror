@@ -25,6 +25,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.url_lbry, "lbry://release#r")
         self.assertEqual(release.sd_hash, "b" * 96)
         self.assertEqual(release.size, len(b"payload"))
+        self.assertFalse(release.lbry_only)
         self.assertEqual(json.loads(release.to_json()), payload)
 
     def test_rejects_non_lbry_origin_before_applying_lbry_schema(self) -> None:
@@ -48,6 +49,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_accepts_lbry_only_release_without_an_odysee_link(self) -> None:
         payload = release_payload()
+        payload["origin"]["extra"]["lbry_only"] = True  # type: ignore[index]
         payload["origin"]["links"] = [  # type: ignore[index]
             {"name": "Cannot be viewed on Odysee"},
             {"name": "LBRY Desktop", "url": "lbry://release#r"},
@@ -57,6 +59,7 @@ class ReleaseTests(unittest.TestCase):
 
         self.assertIsNone(release.url)
         self.assertEqual(release.url_lbry, "lbry://release#r")
+        self.assertTrue(release.lbry_only)
 
     def test_accepts_legacy_release_without_size_or_checksum(self) -> None:
         payload = release_payload()
@@ -91,6 +94,10 @@ class ReleaseTests(unittest.TestCase):
                 (changed(("origin", "external_id"), "c" * 40), "external_id"),
                 (changed(("origin", "extra"), None), "origin extra"),
                 (changed(("origin", "extra", "sd_hash"), "BAD"), "sd_hash"),
+                (
+                    changed(("origin", "extra", "lbry_only"), "yes"),
+                    "lbry_only",
+                ),
                 (changed(("origin", "checksum"), "BAD"), "origin checksum"),
                 (changed(("origin", "size"), True), "origin size"),
                 (changed(("origin", "size"), -1), "origin size"),

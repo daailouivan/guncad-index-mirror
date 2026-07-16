@@ -331,6 +331,25 @@ class MirrorPipelineTests(unittest.TestCase):
             self.assertEqual(pipeline.process(contradictory), "failed")
         fallback.acquire.assert_not_called()
 
+    def test_lbry_only_origin_never_attempts_odysee_fallback(self) -> None:
+        release = replace(make_release(b"payload"), lbry_only=True)
+        acquirer = Mock()
+        acquirer.acquire.side_effect = LbryStreamUnavailable("unlisted blobs absent")
+        fallback = Mock()
+        events: list[str] = []
+        pipeline = self._pipeline(
+            [release], acquirer, fallback=fallback, record_event=events.append
+        )
+
+        with self.assertLogs("guncad-mirror.pipeline", level="ERROR"):
+            self.assertEqual(pipeline.process(release), "failed")
+
+        fallback.acquire.assert_not_called()
+        job = self.store.get(release.id, release.sd_hash)
+        self.assertIn("unlisted blobs absent", job.last_error)
+        self.assertNotIn("Odysee", job.last_error)
+        self.assertIn("unlisted blobs absent", events[0])
+
     def test_bad_odysee_plaintext_is_deleted_before_retry(self) -> None:
         release = make_release(b"correct")
         payload = self.root / "bad-cdn.zip"
