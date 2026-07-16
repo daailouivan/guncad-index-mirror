@@ -64,7 +64,7 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
 +            if save_file and not stream.output_file_exists:
 +                await stream.start_saving(file_name, download_directory)
 +        except Exception as e:
-+            log.warning("Error downloading stream %s: %s", sd_hash, str(e))
++            log.exception("Error downloading stream %s", sd_hash)
 +            return {"error": str(e)}
 +        return stream
 +
@@ -96,6 +96,17 @@ diff --git a/lbry/extras/daemon/json_response_encoder.py b/lbry/extras/daemon/js
 diff --git a/lbry/stream/managed_stream.py b/lbry/stream/managed_stream.py
 --- a/lbry/stream/managed_stream.py
 +++ b/lbry/stream/managed_stream.py
+@@ -87,8 +87,8 @@ class ManagedStream(ManagedDownloadSource):
+     @property
+     def suggested_file_name(self) -> Optional[str]:
+         first_option = ((self.descriptor and self.descriptor.suggested_file_name) or '').strip()
+-        return sanitize_file_name(first_option or (self.stream_claim_info and self.stream_claim_info.claim and
+-                                                   self.stream_claim_info.claim.stream.source.name))
++        return sanitize_file_name(first_option or (self.stream_claim_info and self.stream_claim_info.claim and
++                                                   self.stream_claim_info.claim.stream.source.name) or self.sd_hash)
+
+     @property
+     def stream_name(self) -> Optional[str]:
 @@ -301,7 +301,7 @@ class ManagedStream(ManagedDownloadSource):
              self.saving.clear()
              self.finished_write_attempt.set()

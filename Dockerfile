@@ -54,7 +54,7 @@ RUN	mkdir /root/buildlbrynet && \
 		'pyinstaller-hooks-contrib==2026.6' \
 		'wheel==0.41.2' && \
 	make install && \
-	python -c "from lbry.extras.daemon.daemon import Daemon; from lbry.stream.managed_stream import ManagedStream; assert 'stream_get' in Daemon.callable_methods; assert hasattr(ManagedStream, 'start_saving')" && \
+	python -c "from inspect import getsource; from lbry.extras.daemon.daemon import Daemon; from lbry.stream.managed_stream import ManagedStream; assert 'stream_get' in Daemon.callable_methods; assert hasattr(ManagedStream, 'start_saving'); assert 'or self.sd_hash' in getsource(ManagedStream.suggested_file_name.fget)" && \
 	pyinstaller --onefile --hidden-import ipaddress --name lbrynet lbry/extras/cli.py && \
 	./dist/lbrynet --version
 
