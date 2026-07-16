@@ -65,6 +65,17 @@ class FailureRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ExclusionRecord:
+    release_id: str
+    sd_hash: str
+    name: str
+    channel_handle: str
+    attempts: int
+    reason: str
+    updated_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class AuditIssue:
     release_id: str | None
     sd_hash: str | None
@@ -79,6 +90,7 @@ class ArchiveReport:
     job_counts: Mapping[str, int]
     artifacts: tuple[ArtifactRecord, ...]
     failures: tuple[FailureRecord, ...]
+    exclusions: tuple[ExclusionRecord, ...]
     issues: tuple[AuditIssue, ...]
     orphan_manifests: tuple[str, ...]
     orphan_torrents: tuple[str, ...]
@@ -115,6 +127,7 @@ class ArchiveReport:
                 "acquisition_transports": dict(sorted(transports.items())),
             },
             "failures": len(self.failures),
+            "exclusions": len(self.exclusions),
             "integrity_issues": len(self.issues),
             "orphan_manifests": len(self.orphan_manifests),
             "orphan_torrents": len(self.orphan_torrents),
@@ -144,6 +157,7 @@ def audit_archive(
     ready_rows = [row for row in rows if row["state"] == JobState.AWAITING_INDEX]
     artifacts: list[ArtifactRecord] = []
     failures: list[FailureRecord] = []
+    exclusions: list[ExclusionRecord] = []
     issues: list[AuditIssue] = []
     expected_manifests: set[Path] = set()
     expected_torrents: set[Path] = set()
@@ -151,6 +165,8 @@ def audit_archive(
     for row in rows:
         if row["state"] == JobState.FAILED:
             failures.append(_failure_record(row))
+        elif row["state"] == JobState.EXCLUDED:
+            exclusions.append(_exclusion_record(row))
         elif row["state"] != JobState.AWAITING_INDEX:
             issues.append(
                 AuditIssue(
@@ -208,6 +224,7 @@ def audit_archive(
         job_counts=dict(job_counts),
         artifacts=tuple(artifacts),
         failures=tuple(failures),
+        exclusions=tuple(exclusions),
         issues=tuple(issues),
         orphan_manifests=orphan_manifests,
         orphan_torrents=orphan_torrents,
@@ -220,6 +237,7 @@ def write_report(report: ArchiveReport, output_dir: Path) -> tuple[Path, ...]:
         output_dir / "archive-summary.json",
         output_dir / "archive-artifacts.csv",
         output_dir / "archive-failures.csv",
+        output_dir / "archive-exclusions.csv",
         output_dir / "archive-issues.csv",
     )
     _atomic_write(
@@ -228,7 +246,8 @@ def write_report(report: ArchiveReport, output_dir: Path) -> tuple[Path, ...]:
     )
     _write_csv(paths[1], report.artifacts, ArtifactRecord)
     _write_csv(paths[2], report.failures, FailureRecord)
-    _write_csv(paths[3], report.issues, AuditIssue)
+    _write_csv(paths[3], report.exclusions, ExclusionRecord)
+    _write_csv(paths[4], report.issues, AuditIssue)
     return paths
 
 
@@ -523,6 +542,20 @@ def _failure_record(row: sqlite3.Row) -> FailureRecord:
         attempts=int(row["attempts"]),
         next_attempt_at=float(row["next_attempt_at"]),
         last_error=str(row["last_error"] or ""),
+        updated_at=float(row["updated_at"]),
+    )
+
+
+def _exclusion_record(row: sqlite3.Row) -> ExclusionRecord:
+    errors: list[str] = []
+    release = _release_from_row(row, errors)
+    return ExclusionRecord(
+        release_id=str(row["release_id"]),
+        sd_hash=str(row["sd_hash"]),
+        name=release.name if release is not None else "",
+        channel_handle=release.channel_handle if release is not None else "",
+        attempts=int(row["attempts"]),
+        reason=str(row["exclusion_reason"] or ""),
         updated_at=float(row["updated_at"]),
     )
 

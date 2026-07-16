@@ -154,9 +154,10 @@ Each job is keyed by `(release_id, sd_hash)`. The current state machine is:
 ```text
 pending -> acquiring -> verified -> awaiting_index
                    +-> failed -> acquiring (after backoff)
+excluded by policy -> acquiring (after policy changes)
 ```
 
-`awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite.
+`awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite. Size and channel-policy exclusions retain their reason without counting as failures; a later policy change makes them eligible for acquisition.
 
 The scheduler has three separate worker pools: four LBRY acquisitions, two Odysee fallbacks, and two local finalization jobs by default. A release gives up its LBRY slot before entering the Odysee queue, so two slow CDN transfers don't reduce the four LBRY slots. Mirror reserves space for encrypted blobs & plaintext before submitting work. A release waits when another active reservation is the only reason it can't start; actual free-space shortage records a skip and an operator event.
 
@@ -166,11 +167,12 @@ On termination, Tini forwards the container signal. Mirror returns after the cur
 
 ## Archive inventory and integrity audit
 
-Mirror can consolidate the SQLite ledger and per-release manifests into four operator-facing files:
+Mirror can consolidate the SQLite ledger and per-release manifests into five operator-facing files:
 
 - `archive-summary.json`: counts, bytes, unique payloads, evidence classes, transports, and integrity totals.
 - `archive-artifacts.csv`: one row per `awaiting_index` job, including hashes, paths, BTIH, magnet URI, and acquisition evidence.
 - `archive-failures.csv`: typed acquisition failures and retry state.
+- `archive-exclusions.csv`: releases omitted by configured size or channel policy, including the durable reason.
 - `archive-issues.csv`: missing files, path escapes, manifest contradictions, hash failures, unfinished jobs, and orphaned outbox files.
 
 Run the fast audit after a scan reaches its sleep interval:

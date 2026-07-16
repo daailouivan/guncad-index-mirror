@@ -25,6 +25,7 @@ class JobState(StrEnum):
     ACQUIRING = "acquiring"
     VERIFIED = "verified"
     AWAITING_INDEX = "awaiting_index"
+    EXCLUDED = "excluded"
     FAILED = "failed"
 
 

@@ -42,8 +42,8 @@ class WebUiTests(unittest.TestCase):
             "mirror_releases_dir": "/data/releases",
             "mirror_outbox_dir": "/data/outbox",
             "disk_space_used": 123,
-            "job_counts": {"awaiting_index": 2},
-            "known_jobs": 2,
+            "job_counts": {"awaiting_index": 2, "excluded": 1},
+            "known_jobs": 3,
             "activity": None,
             "activities": [],
             "psutil_cpu": 1,
@@ -62,6 +62,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"shall not be infringed", response.data)
         self.assertIn(b"Sleeping", response.data)
         self.assertIn(b"Torrents staged", response.data)
+        self.assertIn(b"excluded by policy", response.data)
         self.assertIn(b"Publication stops at the local outbox", response.data)
         self.assertNotIn(b"LBRY-only mode", response.data)
         self.assertNotIn(b"Assemble Files", response.data)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from guncadmirror.models import JobState, TorrentArtifact
@@ -91,6 +93,49 @@ class JobStoreTests(unittest.TestCase):
             self.release, RuntimeError("again"), retry_backoff=5
         )
         self.assertEqual(job.next_attempt_at, 115)
+
+    def test_policy_exclusion_is_durable_and_clears_when_retried(self) -> None:
+        self.store.register(self.release)
+        job = self.store.mark_excluded(self.release, "payload exceeds limit")
+
+        self.assertEqual(job.state, JobState.EXCLUDED)
+        self.assertEqual(job.exclusion_reason, "payload exceeds limit")
+        self.assertTrue(self.store.ready_for_attempt(job))
+
+        job = self.store.start_attempt(self.release)
+        self.assertEqual(job.state, JobState.ACQUIRING)
+        self.assertIsNone(job.exclusion_reason)
+
+    def test_existing_ledger_is_migrated_for_exclusion_reasons(self) -> None:
+        path = Path(self.temporary.name) / "legacy.sqlite3"
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE jobs (
+                    release_id TEXT NOT NULL,
+                    sd_hash TEXT NOT NULL,
+                    release_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at REAL NOT NULL DEFAULT 0,
+                    file_path TEXT,
+                    sha384 TEXT,
+                    sha256 TEXT,
+                    torrent_path TEXT,
+                    info_hash TEXT,
+                    magnet_uri TEXT,
+                    last_error TEXT,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (release_id, sd_hash)
+                )
+                """
+            )
+
+        migrated = JobStore(path)
+        with closing(sqlite3.connect(path)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        self.assertIn("exclusion_reason", columns)
+        self.assertEqual(migrated.counts(), {})
 
     def test_missing_job_raises_key_error_and_empty_counts_are_valid(self) -> None:
         self.assertEqual(self.store.counts(), {})

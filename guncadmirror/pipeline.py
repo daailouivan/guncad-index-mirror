@@ -330,19 +330,18 @@ class MirrorPipeline:
     ) -> _PreparedJob | _DeferredJob | str:
         if stop is not None and stop.is_set():
             return "stopped"
-        if self._is_blacklisted(release):
-            self.logger.info("Skipping blacklisted channel %s", release.channel_handle)
-            return "skipped"
-        if (
-            self.settings.max_release_size
-            and release.size is not None
-            and release.size > self.settings.max_release_size
-        ):
-            self.logger.info(
-                "Skipping %s: %d bytes exceeds configured maximum",
-                release.name,
-                release.size,
-            )
+        exclusion_reason = self._policy_exclusion(release)
+        if exclusion_reason is not None:
+            self.logger.info("Skipping %s: %s", release.name, exclusion_reason)
+            job = self.store.register(release)
+            if job.state is not JobState.AWAITING_INDEX and (
+                job.state is not JobState.EXCLUDED
+                or job.exclusion_reason != exclusion_reason
+            ):
+                self.store.mark_excluded(release, exclusion_reason)
+                self._record_event(
+                    f"Excluded {self._release_label(release)}: {exclusion_reason}"
+                )
             return "skipped"
         reservation, available_space = self._disk_budget.acquire(
             2 * (release.size or 0),
@@ -396,6 +395,20 @@ class MirrorPipeline:
         except Exception as error:
             return self._finish_failed(prepared, error)
         return prepared
+
+    def _policy_exclusion(self, release: Release) -> str | None:
+        if self._is_blacklisted(release):
+            return f"channel {release.channel_handle} matches configured blacklist"
+        if (
+            self.settings.max_release_size
+            and release.size is not None
+            and release.size > self.settings.max_release_size
+        ):
+            return (
+                f"{release.size} bytes exceeds configured maximum "
+                f"{self.settings.max_release_size}"
+            )
+        return None
 
     def _acquire_lbry(
         self,

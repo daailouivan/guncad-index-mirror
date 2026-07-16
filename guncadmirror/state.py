@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     info_hash TEXT,
     magnet_uri TEXT,
     last_error TEXT,
+    exclusion_reason TEXT,
     updated_at REAL NOT NULL,
     PRIMARY KEY (release_id, sd_hash)
 );
@@ -44,6 +45,7 @@ class Job:
     info_hash: str | None
     magnet_uri: str | None
     last_error: str | None
+    exclusion_reason: str | None
 
 
 class JobStore:
@@ -51,8 +53,13 @@ class JobStore:
         self.path = path
         self.clock = clock
         path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as connection:
+        with closing(self._connect()) as connection, connection:
             connection.executescript(SCHEMA)
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)")
+            }
+            if "exclusion_reason" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN exclusion_reason TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -111,7 +118,7 @@ class JobStore:
                 """
                 UPDATE jobs SET
                     state=?, attempts=attempts + 1, next_attempt_at=0,
-                    last_error=NULL, updated_at=?
+                    last_error=NULL, exclusion_reason=NULL, updated_at=?
                 WHERE release_id=? AND sd_hash=?
                 """,
                 (JobState.ACQUIRING, now, release.id, release.sd_hash),
@@ -128,6 +135,7 @@ class JobStore:
             sha384=sha384,
             sha256=sha256,
             last_error=None,
+            exclusion_reason=None,
         )
         return self.get(release.id, release.sd_hash)
 
@@ -139,6 +147,17 @@ class JobStore:
             info_hash=torrent.info_hash,
             magnet_uri=torrent.magnet_uri,
             last_error=None,
+            exclusion_reason=None,
+        )
+        return self.get(release.id, release.sd_hash)
+
+    def mark_excluded(self, release: Release, reason: str) -> Job:
+        self._update(
+            release,
+            state=JobState.EXCLUDED,
+            next_attempt_at=0,
+            last_error=None,
+            exclusion_reason=reason,
         )
         return self.get(release.id, release.sd_hash)
 
@@ -152,6 +171,7 @@ class JobStore:
             state=JobState.FAILED,
             next_attempt_at=self.clock() + delay,
             last_error=f"{type(error).__name__}: {error}",
+            exclusion_reason=None,
         )
         return self.get(release.id, release.sd_hash)
 
@@ -194,4 +214,5 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         info_hash=row["info_hash"],
         magnet_uri=row["magnet_uri"],
         last_error=row["last_error"],
+        exclusion_reason=row["exclusion_reason"],
     )

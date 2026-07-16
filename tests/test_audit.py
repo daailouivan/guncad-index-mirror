@@ -35,6 +35,11 @@ class ArchiveAuditTests(unittest.TestCase):
         self.store.mark_failed(
             self.failed_release, RuntimeError("no peers"), retry_backoff=5
         )
+        self.excluded_release = make_release(
+            b"excluded", release_id="e" * 40, sd_hash="f" * 96
+        )
+        self.store.register(self.excluded_release)
+        self.store.mark_excluded(self.excluded_release, "payload exceeds limit")
 
     def _ready_release(self):
         content = b"payload"
@@ -85,7 +90,10 @@ class ArchiveAuditTests(unittest.TestCase):
         )
 
         self.assertEqual(report.generated_at, "2026-07-15T12:00:00+00:00")
-        self.assertEqual(report.job_counts, {"awaiting_index": 1, "failed": 1})
+        self.assertEqual(
+            report.job_counts,
+            {"awaiting_index": 1, "excluded": 1, "failed": 1},
+        )
         self.assertEqual(len(report.artifacts), 1)
         artifact = report.artifacts[0]
         self.assertTrue(artifact.valid)
@@ -95,6 +103,8 @@ class ArchiveAuditTests(unittest.TestCase):
         self.assertEqual(progress, [(1, 1, self.payload)])
         self.assertEqual(len(report.failures), 1)
         self.assertEqual(report.failures[0].last_error, "RuntimeError: no peers")
+        self.assertEqual(len(report.exclusions), 1)
+        self.assertEqual(report.exclusions[0].reason, "payload exceeds limit")
         self.assertEqual(report.issues, ())
         self.assertEqual(
             report.summary()["artifacts"],
@@ -113,7 +123,7 @@ class ArchiveAuditTests(unittest.TestCase):
 
         output = Path(self.temporary.name) / "reports"
         paths = write_report(report, output)
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(len(paths), 5)
         self.assertEqual(
             json.loads(paths[0].read_text())["schema"],
             "guncad-mirror-archive-report-v1",
@@ -122,6 +132,9 @@ class ArchiveAuditTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual(rows[0]["release_id"], self.release.id)
         with paths[3].open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual(rows[0]["release_id"], self.excluded_release.id)
+        with paths[4].open(newline="") as stream:
             self.assertEqual(
                 list(csv.reader(stream))[0], ["release_id", "sd_hash", "message"]
             )

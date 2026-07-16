@@ -33,6 +33,7 @@
         {% set acquiring = job_counts.get('acquiring', 0) %}
         {% set verified = job_counts.get('verified', 0) %}
         {% set awaiting_index = job_counts.get('awaiting_index', 0) %}
+        {% set excluded = job_counts.get('excluded', 0) %}
         {% set failed = job_counts.get('failed', 0) %}
         <header class="header">
             <img src="{{ url_for('static', filename='logo.png') }}"
@@ -121,6 +122,7 @@
                     <div><span>{{ acquiring }}</span> acquiring</div>
                     <div><span>{{ verified }}</span> verified</div>
                     <div><span>{{ awaiting_index }}</span> awaiting Index</div>
+                    <div><span>{{ excluded }}</span> excluded by policy</div>
                     <div><span>{{ failed }}</span> failed</div>
                 </div>
                 <p class="fine-print">
@@ -198,7 +200,7 @@
                                         None
                                     {% endif %}
                                 </td>
-                                <td>Matching channel-handle prefixes are skipped before a job is created.</td>
+                                <td>Matching channel-handle prefixes are durably excluded before acquisition.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Maximum payload size</th>

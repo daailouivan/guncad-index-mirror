@@ -352,10 +352,11 @@ class MirrorPipelineTests(unittest.TestCase):
 
         self.assertFalse(payload.exists())
 
-    def test_policy_guards_skip_without_creating_jobs(self) -> None:
+    def test_policy_guards_record_durable_exclusions_without_acquiring(self) -> None:
         release = make_release(channel="@blocked:b")
         acquirer = Mock()
-        pipeline = self._pipeline([release], acquirer)
+        events: list[str] = []
+        pipeline = self._pipeline([release], acquirer, record_event=events.append)
         pipeline.settings = Settings(
             endpoint=self.settings.endpoint,
             data_dir=self.root,
@@ -363,6 +364,9 @@ class MirrorPipelineTests(unittest.TestCase):
             blacklisted_handles=("blocked#",),
         )
         self.assertEqual(pipeline.process(release), "skipped")
+        blocked = self.store.get(release.id, release.sd_hash)
+        self.assertEqual(blocked.state, JobState.EXCLUDED)
+        self.assertIn("configured blacklist", blocked.exclusion_reason)
 
         too_large = make_release(content=b"12345678", release_id="c" * 40)
         pipeline.settings = Settings(
@@ -372,11 +376,18 @@ class MirrorPipelineTests(unittest.TestCase):
             max_release_size=7,
         )
         self.assertEqual(pipeline.process(too_large), "skipped")
+        oversized = self.store.get(too_large.id, too_large.sd_hash)
+        self.assertEqual(oversized.state, JobState.EXCLUDED)
+        self.assertIn("exceeds configured maximum", oversized.exclusion_reason)
+
+        # Repeated scans retain the exclusion without duplicating its event.
+        self.assertEqual(pipeline.process(too_large), "skipped")
+        self.assertEqual(len(events), 2)
 
         pipeline.settings = self.settings
         pipeline.disk_free = lambda _: 13
         self.assertEqual(pipeline.process(release), "skipped")
-        self.assertEqual(self.store.counts(), {})
+        self.assertEqual(self.store.counts(), {"excluded": 2})
         acquirer.acquire.assert_not_called()
 
         unknown_size = replace(too_large, size=None, sha384=None)
@@ -394,7 +405,30 @@ class MirrorPipelineTests(unittest.TestCase):
             "exceeding configured maximum",
             self.store.get(unknown_size.id, unknown_size.sd_hash).last_error,
         )
-        self.assertEqual(self.store.counts(), {"failed": 1})
+        self.assertEqual(self.store.counts(), {"excluded": 1, "failed": 1})
+
+    def test_new_size_policy_does_not_demote_a_completed_job(self) -> None:
+        release = make_release(content=b"12345678")
+        payload = self.root / "completed.zip"
+        payload.write_bytes(b"12345678")
+        acquirer = Mock()
+        acquirer.acquire.return_value = payload
+        pipeline = self._pipeline([release], acquirer)
+
+        self.assertEqual(pipeline.process(release), "ready")
+        pipeline.settings = Settings(
+            endpoint=self.settings.endpoint,
+            data_dir=self.root,
+            min_free_space=0,
+            max_release_size=7,
+        )
+
+        self.assertEqual(pipeline.process(release), "skipped")
+        self.assertEqual(
+            self.store.get(release.id, release.sd_hash).state,
+            JobState.AWAITING_INDEX,
+        )
+        acquirer.acquire.assert_called_once()
 
     def test_cycle_isolates_release_failures_and_counts_outcomes(self) -> None:
         content = b"payload"
