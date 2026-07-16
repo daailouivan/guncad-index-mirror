@@ -129,6 +129,7 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_RELEASE_MAX_SIZE` | `10737418240` | Maximum accepted payload size. Zero disables the limit. |
 | `MIRROR_MIN_FREE_SPACE` | `5368709120` | Bytes reserved after budgeting for blobs and plaintext. |
 | `MIRROR_LOOP_INTERVAL` | `14400` | Delay between completed scans. |
+| `MIRROR_CYCLE_ERROR_INTERVAL` | `60` | Delay before retrying a scan aborted by an operational error. |
 | `MIRROR_LBRY_STARTUP_TIMEOUT` | `300` | Deadline for required lbrynet components to start. |
 | `MIRROR_DOWNLOAD_TIMEOUT` | `3600` | LBRY no-progress deadline. LBRY acquisition and Odysee CDN socket reads are capped at 60 seconds so `SIGTERM` remains bounded. |
 | `MIRROR_DOWNLOAD_POLL_INTERVAL` | `2` | Delay between completion checks. |

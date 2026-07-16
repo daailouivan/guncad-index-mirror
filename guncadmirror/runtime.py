@@ -47,6 +47,7 @@ class Runtime:
 
     def run_forever(self, stop: Event) -> None:
         while not stop.is_set():
+            delay = self.settings.loop_interval
             try:
                 self.run_cycle(stop)
             except AcquisitionCancelled:
@@ -54,9 +55,13 @@ class Runtime:
                 return
             except Exception:
                 logging.getLogger("guncad-mirror").exception("Mirror cycle failed")
-                self.stats.log("Mirror cycle failed; see application log")
-            self.stats.set_state(f"Sleeping for {self.settings.loop_interval:.0f}s")
-            stop.wait(self.settings.loop_interval)
+                delay = self.settings.cycle_error_interval
+                self.stats.log(
+                    f"Mirror cycle failed; retrying in {delay:.0f}s; "
+                    "see application log"
+                )
+            self.stats.set_state(f"Sleeping for {delay:.0f}s")
+            stop.wait(delay)
 
     def stop(self) -> None:
         logger = logging.getLogger("guncad-mirror")

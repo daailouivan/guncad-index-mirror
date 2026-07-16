@@ -222,6 +222,11 @@
                                 <td>Time between completed Index scans.</td>
                             </tr>
                             <tr>
+                                <th scope="row">Failed-cycle retry</th>
+                                <td>{{ mirror_cycle_error_interval | humanize_seconds }}</td>
+                                <td>Delay before retrying a scan aborted by an operational error.</td>
+                            </tr>
+                            <tr>
                                 <th scope="row">Download stall timeout</th>
                                 <td>{{ mirror_download_timeout | humanize_seconds }}</td>
                                 <td>Stops a stream only after this long without blob progress.</td>

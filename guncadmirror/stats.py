@@ -49,6 +49,7 @@ class StatsCollector:
             "mirror_release_max_size": settings.max_release_size,
             "mirror_min_free_space": settings.min_free_space,
             "mirror_loop_interval": settings.loop_interval,
+            "mirror_cycle_error_interval": settings.cycle_error_interval,
             "mirror_download_timeout": settings.download_timeout,
             "mirror_torrent_piece_length": settings.torrent_piece_length,
             "mirror_torrent_trackers": settings.torrent_trackers,

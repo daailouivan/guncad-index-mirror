@@ -31,6 +31,7 @@ class Settings:
     max_release_size: int = 10 * 1024**3
     min_free_space: int = 5 * 1024**3
     loop_interval: float = 4 * 60 * 60
+    cycle_error_interval: float = 60
     lbry_startup_timeout: float = 5 * 60
     download_timeout: float = 60 * 60
     download_poll_interval: float = 2.0
@@ -67,6 +68,9 @@ class Settings:
                 env, "MIRROR_MIN_FREE_SPACE", 5 * 1024**3, minimum=0
             ),
             loop_interval=_number(env, "MIRROR_LOOP_INTERVAL", 4 * 60 * 60, minimum=1),
+            cycle_error_interval=_number(
+                env, "MIRROR_CYCLE_ERROR_INTERVAL", 60, minimum=1
+            ),
             lbry_startup_timeout=_number(
                 env, "MIRROR_LBRY_STARTUP_TIMEOUT", 5 * 60, minimum=1
             ),

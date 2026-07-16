@@ -4,6 +4,7 @@
 * Added strict GunCAD Index API v2 parsing, bounded same-origin pagination, and clean handling of non-LBRY origins
 * Added a pinned lbry-sdk patch for direct stream-descriptor acquisition without normal claim resolution
 * Use the stream-descriptor hash as a deterministic filename when legacy descriptors omit both filename fields
+* Retry operationally aborted scans after one minute instead of idling for the normal four-hour scan interval
 * Made direct stream acquisition return after scheduling plaintext assembly so Mirror owns the full download deadline
 * Added exact payload size and SHA-384 verification, recorded SHA-256, and deterministic single-file BitTorrent v1 generation
 * Added a SQLite job ledger with retry backoff and an atomic local publication outbox

@@ -34,6 +34,7 @@ class WebUiTests(unittest.TestCase):
             "mirror_release_max_size": 1024,
             "mirror_min_free_space": 512,
             "mirror_loop_interval": 3600,
+            "mirror_cycle_error_interval": 60,
             "mirror_download_timeout": 600,
             "mirror_torrent_piece_length": 1024**2,
             "mirror_torrent_trackers": (),

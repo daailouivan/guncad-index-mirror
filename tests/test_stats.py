@@ -60,6 +60,7 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["mirror_odysee_concurrency"], 2)
         self.assertEqual(snapshot["mirror_finalize_concurrency"], 2)
         self.assertEqual(snapshot["mirror_blacklisted_handles"], ())
+        self.assertEqual(snapshot["mirror_cycle_error_interval"], 60)
         self.assertEqual(snapshot["mirror_releases_dir"], str(self.root / "releases"))
         self.assertEqual(snapshot["mirror_outbox_dir"], str(self.root / "outbox"))
         self.assertIn("hello", snapshot["extralog"][0])

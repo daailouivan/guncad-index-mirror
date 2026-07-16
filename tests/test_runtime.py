@@ -20,6 +20,7 @@ class RuntimeTests(unittest.TestCase):
             data_dir=Path(self.temporary.name) / "data",
             min_free_space=0,
             loop_interval=1,
+            cycle_error_interval=2,
         )
         self.lbry = Mock()
         self.pipeline = Mock()
@@ -77,8 +78,11 @@ class RuntimeTests(unittest.TestCase):
         with self.assertLogs("guncad-mirror", level="ERROR"):
             self.runtime.run_forever(stop)
         self.pipeline.run_cycle.assert_called_once_with(stop)
-        self.stats.log.assert_any_call("Mirror cycle failed; see application log")
-        stop.wait.assert_called_once_with(1)
+        self.stats.log.assert_any_call(
+            "Mirror cycle failed; retrying in 2s; see application log"
+        )
+        stop.wait.assert_called_once_with(2)
+        self.stats.set_state.assert_any_call("Sleeping for 2s")
 
     def test_forever_loop_treats_index_cancellation_as_a_clean_stop(self) -> None:
         stop = Mock()

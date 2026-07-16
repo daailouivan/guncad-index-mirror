@@ -42,6 +42,7 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_RELEASE_MAX_SIZE": "4",
                 "MIRROR_MIN_FREE_SPACE": "5",
                 "MIRROR_LOOP_INTERVAL": "6.5",
+                "MIRROR_CYCLE_ERROR_INTERVAL": "6.75",
                 "MIRROR_LBRY_STARTUP_TIMEOUT": "7",
                 "MIRROR_DOWNLOAD_TIMEOUT": "8",
                 "MIRROR_DOWNLOAD_POLL_INTERVAL": ".5",
@@ -67,6 +68,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.max_release_size, 4)
         self.assertEqual(settings.min_free_space, 5)
         self.assertEqual(settings.loop_interval, 6.5)
+        self.assertEqual(settings.cycle_error_interval, 6.75)
         self.assertEqual(settings.lbry_startup_timeout, 7)
         self.assertEqual(settings.download_timeout, 8)
         self.assertEqual(settings.download_poll_interval, 0.5)
@@ -88,6 +90,7 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_LBRY_CONCURRENCY": "0"}, "at least"),
             ({"MIRROR_LOOP_INTERVAL": "wat"}, "numeric"),
             ({"MIRROR_LOOP_INTERVAL": "0"}, "at least"),
+            ({"MIRROR_CYCLE_ERROR_INTERVAL": "0"}, "at least"),
             ({"MIRROR_API_ENDPOINT": "ftp://bad"}, "absolute HTTP"),
             ({"MIRROR_LBRY_URL": "http://user:pass@host"}, "credentials"),
             ({"MIRROR_ODYSEE_PROXY_URL": "not-a-url"}, "absolute HTTP"),
