@@ -9,7 +9,7 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
  from lbry.schema.url import URL
  
  
-@@ -1153,6 +1154,76 @@ class Daemon(metaclass=JSONRPCServerType):
+@@ -1153,6 +1154,78 @@ class Daemon(metaclass=JSONRPCServerType):
              return {"error": str(e)}
          return stream
  
@@ -78,7 +78,9 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
 +                    stream.delayed_stop_task = None
 +                stream.stop_tasks()
 +                if cleanup_tasks:
-+                    await asyncio.gather(*cleanup_tasks, return_exceptions=True)
++                    _done, pending = await asyncio.wait(cleanup_tasks, timeout=1.0)
++                    if pending:
++                        log.warning("timed out stopping %i tasks for stream %s", len(pending), sd_hash)
 +            log.exception("Error downloading stream %s", sd_hash)
 +            return {"error": str(e)}
 +        return stream
@@ -142,12 +144,14 @@ diff --git a/lbry/dht/node.py b/lbry/dht/node.py
  
                  self.protocol.peer_manager.reset()
                  self.protocol.ping_queue.enqueue_maybe_ping(*seed_peers, delay=0.0)
-@@ -225,6 +226,8 @@ class Node:
+@@ -225,6 +226,10 @@ class Node:
          finally:
              for task in tasks:
                  task.cancel()
 +            if tasks:
-+                await asyncio.gather(*tasks, return_exceptions=True)
++                _done, pending = await asyncio.wait(tasks, timeout=1.0)
++                if pending:
++                    log.debug("%i DHT peer searches still stopping", len(pending))
  
      async def _peers_for_value_producer(self, blob_hash: str, result_queue: asyncio.Queue):
          async def put_into_result_queue_after_pong(_peer):

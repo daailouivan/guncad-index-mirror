@@ -79,7 +79,7 @@ Stock lbry-sdk exposes claim-oriented `get` calls even though its internal strea
 
 The patch adds `stream_get(sd_hash, ...)` to the daemon. It constructs a managed stream from the descriptor hash, uses the existing DHT, tracker, and fixed-peer downloader, reads the descriptor's encryption material, downloads the referenced blobs, decrypts the stream, writes the plaintext, and registers the stream in the existing file database.
 
-The pinned SDK also resolves DHT bootstrap hosts independently and combines them with persisted peers on every empty-routing-table recovery. One dead DNS record can no longer discard the other bootstrap nodes, and stale persisted peers can no longer prevent a fresh bootstrap. A failed direct-descriptor request cancels and awaits its peer-search tasks before returning, avoiding abandoned asyncio tasks during repeated acquisition timeouts.
+The pinned SDK also resolves DHT bootstrap hosts independently and combines them with persisted peers on every empty-routing-table recovery. One dead DNS record can no longer discard the other bootstrap nodes, and stale persisted peers can no longer prevent a fresh bootstrap. A failed direct-descriptor request cancels its peer-search tasks and gives them a bounded drain period before returning, avoiding both abandoned asyncio tasks and an indefinitely blocked RPC during repeated acquisition timeouts.
 
 Mirror first calls this RPC. It falls back to claim URI resolution only when the daemon reports JSON-RPC method-not-found. Even then, it compares the returned descriptor hash with the Index value and rejects claim drift.
 

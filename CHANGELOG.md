@@ -3,7 +3,7 @@
 * Replaced the legacy reflection loop with a durable LBRY-to-BitTorrent evacuation pipeline
 * Added strict GunCAD Index API v2 parsing, bounded same-origin pagination, and clean handling of non-LBRY origins
 * Added a pinned lbry-sdk patch for direct stream-descriptor acquisition without normal claim resolution
-* Hardened lbrynet DHT bootstrapping against dead DNS and stale peer state, and cleanly awaited cancelled descriptor searches
+* Hardened lbrynet DHT bootstrapping against dead DNS and stale peer state, with bounded cancellation cleanup for descriptor searches
 * Use the stream-descriptor hash as a deterministic filename when legacy descriptors omit both filename fields
 * Retry operationally aborted scans after one minute instead of idling for the normal four-hour scan interval
 * Record size and channel policy exclusions durably, including their reasons, without treating them as archive failures
