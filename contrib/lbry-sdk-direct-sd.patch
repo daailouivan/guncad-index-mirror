@@ -9,7 +9,7 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
  from lbry.schema.url import URL
  
  
-@@ -1153,6 +1154,61 @@ class Daemon(metaclass=JSONRPCServerType):
+@@ -1153,6 +1154,76 @@ class Daemon(metaclass=JSONRPCServerType):
              return {"error": str(e)}
          return stream
  
@@ -45,6 +45,7 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
 +            return {"error": f"multiple local streams matched {sd_hash}"}
 +
 +        stream = existing[0] if existing else None
++        created_stream = stream is None
 +        try:
 +            if stream is None:
 +                stream = ManagedStream(
@@ -64,6 +65,20 @@ diff --git a/lbry/extras/daemon/daemon.py b/lbry/extras/daemon/daemon.py
 +            if save_file and not stream.output_file_exists:
 +                await stream.start_saving(file_name, download_directory)
 +        except Exception as e:
++            if created_stream and stream is not None:
++                cleanup_tasks = [
++                    task for task in (
++                        stream.downloader.accumulate_task,
++                        stream.file_output_task,
++                        stream.delayed_stop_task
++                    ) if task
++                ]
++                if stream.delayed_stop_task:
++                    stream.delayed_stop_task.cancel()
++                    stream.delayed_stop_task = None
++                stream.stop_tasks()
++                if cleanup_tasks:
++                    await asyncio.gather(*cleanup_tasks, return_exceptions=True)
 +            log.exception("Error downloading stream %s", sd_hash)
 +            return {"error": str(e)}
 +        return stream
@@ -93,6 +108,49 @@ diff --git a/lbry/extras/daemon/json_response_encoder.py b/lbry/extras/daemon/js
              'is_fully_reflected': False,
              'reflector_progress': False,
              'uploading_to_reflector': False
+diff --git a/lbry/dht/node.py b/lbry/dht/node.py
+--- a/lbry/dht/node.py
++++ b/lbry/dht/node.py
+@@ -172,18 +172,19 @@ class Node:
+             else:
+                 if self.joined.is_set():
+                     self.joined.clear()
+-                seed_peers = peers_from_urls(
+-                    await self._storage.get_persisted_kademlia_peers()
+-                ) if self._storage else []
++                persisted = await self._storage.get_persisted_kademlia_peers() if self._storage else []
++                known_nodes = []
++                for address, udp_port in known_node_urls or []:
++                    try:
++                        resolved = await resolve_host(address, udp_port, 'udp')
++                    except socket.gaierror as err:
++                        log.warning("failed to resolve DHT bootstrap node %s:%i: %s", address, udp_port, err)
++                        continue
++                    known_nodes.append((None, resolved, udp_port, None))
++                seed_peers = peers_from_urls(persisted + known_nodes)
+                 if not seed_peers:
+-                    try:
+-                        seed_peers.extend(peers_from_urls([
+-                            (None, await resolve_host(address, udp_port, 'udp'), udp_port, None)
+-                            for address, udp_port in known_node_urls or []
+-                        ]))
+-                    except socket.gaierror:
+-                        await asyncio.sleep(30)
+-                        continue
++                    await asyncio.sleep(30)
++                    continue
+ 
+                 self.protocol.peer_manager.reset()
+                 self.protocol.ping_queue.enqueue_maybe_ping(*seed_peers, delay=0.0)
+@@ -225,6 +226,8 @@ class Node:
+         finally:
+             for task in tasks:
+                 task.cancel()
++            if tasks:
++                await asyncio.gather(*tasks, return_exceptions=True)
+ 
+     async def _peers_for_value_producer(self, blob_hash: str, result_queue: asyncio.Queue):
+         async def put_into_result_queue_after_pong(_peer):
 diff --git a/lbry/stream/managed_stream.py b/lbry/stream/managed_stream.py
 --- a/lbry/stream/managed_stream.py
 +++ b/lbry/stream/managed_stream.py
@@ -116,7 +174,7 @@ diff --git a/lbry/stream/managed_stream.py b/lbry/stream/managed_stream.py
          await self.start()
          if self.file_output_task and not self.file_output_task.done():  # cancel an already running save task
              self.file_output_task.cancel()
-@@ -319,6 +319,10 @@ class ManagedStream(ManagedDownloadSource):
+@@ -319,10 +319,18 @@ class ManagedStream(ManagedDownloadSource):
              self.stream_hash, self.download_directory, self.file_name
          )
          await self.update_status(ManagedStream.STATUS_RUNNING)
@@ -128,3 +186,11 @@ diff --git a/lbry/stream/managed_stream.py b/lbry/stream/managed_stream.py
          try:
              await asyncio.wait_for(self.started_writing.wait(), self.config.download_timeout)
          except asyncio.TimeoutError:
+-            log.warning("timeout starting to write data for lbry://%s#%s", self.claim_name, self.claim_id)
++            stream_label = (
++                f"lbry://{self.claim_name}#{self.claim_id}" if self.claim_name and self.claim_id
++                else f"sd hash {self.sd_hash}"
++            )
++            log.warning("timeout starting to write data for %s", stream_label)
+             self.stop_tasks()
+             await self.update_status(ManagedStream.STATUS_STOPPED)
