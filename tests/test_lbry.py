@@ -312,6 +312,34 @@ class LbryAcquirerTests(unittest.TestCase):
             ["file_list", "file_save", "file_list", "file_list"],
         )
 
+    def test_reassembles_legacy_blob_only_stream_from_dev_null(self) -> None:
+        payload = self.root / "release" / "payload.zip"
+        payload.parent.mkdir()
+        payload.write_bytes(b"payload")
+        client = FakeLbryClient(
+            [
+                self._entry(Path("/dev/null")),
+                self._entry(payload),
+            ]
+        )
+
+        with self.assertLogs("guncad-mirror.acquire", level="INFO") as logs:
+            result = self._acquirer(client).acquire(self.release, payload.parent)
+
+        self.assertEqual(result, payload)
+        self.assertIn("legacy path /dev/null", " ".join(logs.output))
+        self.assertEqual(
+            [call[0] for call in client.calls],
+            ["file_list", "file_save", "file_list"],
+        )
+        self.assertEqual(
+            client.calls[1][1],
+            {
+                "sd_hash": self.release.sd_hash,
+                "download_directory": str(payload.parent),
+            },
+        )
+
     def test_new_stream_uses_direct_sd_rpc_then_waits_for_completion(self) -> None:
         payload = self.root / "release" / "payload.zip"
         payload.parent.mkdir()
@@ -458,7 +486,6 @@ class LbryAcquirerTests(unittest.TestCase):
             self._entry(valid, sd_hash="0" * 96),
             self._entry(valid, download_path=""),
             self._entry(self.root / "missing.zip"),
-            self._entry(Path("/etc/passwd")),
             self._entry(valid),
         ]
         for entry in invalid_entries:

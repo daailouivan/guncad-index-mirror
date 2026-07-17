@@ -372,7 +372,19 @@ class LbryAcquirer:
         raw_path = entry.get("download_path")
         if not isinstance(raw_path, str) or not raw_path:
             return None
-        path = ensure_within(self.data_root, Path(raw_path))
+        try:
+            path = ensure_within(self.data_root, Path(raw_path))
+        except ValueError:
+            # Mirror <=0.4.1 intentionally assembled blob-only streams into
+            # /dev/null.  The SDK still knows the stream and retains its
+            # encrypted blobs, so treat that external path as a resumable
+            # stream instead of either trusting it or failing the upgrade.
+            self.logger.info(
+                "Reassembling cached stream %s from legacy path %s",
+                release.sd_hash[:12],
+                raw_path,
+            )
+            return None
         if not path.is_file():
             return None
         actual_size = path.stat().st_size
