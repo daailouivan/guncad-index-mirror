@@ -216,6 +216,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Beta Fixture", response.data)
         self.assertIn(b"@Maker:a", response.data)
         self.assertIn(b"alpha-jig:a", response.data)
+        self.assertIn(b"Downloads are unauthenticated", response.data)
         self.assertIn(b"Download file", response.data)
         self.assertIn(b"Download torrent", response.data)
         self.assertIn(b"magnet:?xt=urn:btih:", response.data)

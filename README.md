@@ -31,7 +31,7 @@ Mirror needs a persistent `/data` volume. A complete LBRY evacuation stores both
 
 The container runs as UID 1000 after creating the top-level data directories. Existing bind-mounted data must be writable by that UID. Startup does not recursively change ownership because doing so would walk the entire archive on every restart.
 
-The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. Forward those ports if this node should contribute data to other LBRY peers. The web UI is exposed on host port 8081 by the supplied Compose file. It refreshes every 10 seconds and reports the active release, acquisition transport, bytes or LBRY blobs remaining, average transfer rate for the current phase, and estimated time remaining.
+The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. Forward those ports if this node should contribute data to other LBRY peers. The web UI is exposed on host port 8081 by the supplied Compose file. The status page refreshes every 10 seconds and reports the active release, acquisition transport, bytes or LBRY blobs remaining, average transfer rate for the current phase, and estimated time remaining. Its `/archive` page lists completed payloads, torrents, & magnet links.
 
 ```bash
 docker compose --env-file guncad-mirror.env up -d
@@ -90,6 +90,26 @@ https://guncadindex.com/api/v2/releases/?format=json&limit=100&query=channel%3A%
 ```
 
 Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` and `MIRROR_MAX_RELEASES_PER_RUN` provide separate bounds for testing and staged deployment.
+
+## Archive browser
+
+Open `http://localhost:8081/archive` to browse jobs in `awaiting_index`. Search terms match release names, channel handles, & LBRY origin slugs without scanning the full API JSON stored for each job. Multiple terms must all match. Results are ordered by channel & release name, 50 rows per page.
+
+Each result links to the assembled payload, its `.torrent` file, & its magnet URI. Payload responses support HTTP byte ranges, so an interrupted browser download can resume. Paths are read from the verified SQLite ledger; the server rejects unfinished jobs, missing files, & paths outside `/data` or `/data/outbox`.
+
+The supplied Compose mapping binds port 8081 on every host interface. The browser has no login or TLS. Anyone who can reach that port can search & download the assembled files, so bind it to `127.0.0.1` or place it behind access control unless public downloads are intentional.
+
+The outbox remains keyed by release ID & `sd_hash`. Names & LBRY slugs are display metadata; either can collide or change while `(release_id, sd_hash)` identifies one migration job.
+
+## Upgrading from 0.4.1
+
+Reuse the existing `/data` volume. Version 0.4.1 stored its lbrynet database, stream descriptors, & encrypted blobs under `/data/lbry`, which is the same location used by the evacuation build.
+
+An old default installation wrote completed plaintext to `/dev/null` while retaining the blobs. Mirror now recognizes that stream record and calls lbrynet `file_save` with a destination under `/data/releases`. A complete cache requires no payload download from LBRY peers; lbrynet fetches only descriptor or content blobs absent from its local store. Assembly still writes the full plaintext once. Mirror then reads it once for SHA-384 & SHA-256 verification and once for BitTorrent piece hashing.
+
+If `MIRROR_ASSEMBLE_FILES=True` was set in 0.4.1, an intact payload under `/data/mirror` is reused directly after its descriptor & size match the Index record. Mirror reads that file for verification & torrent generation but does not copy it into `/data/releases`.
+
+The old pickle cache at `/data/sd_hash_cache.pkl` is ignored. The new SQLite ledger starts empty, so every selected release passes through verification & torrent generation once even when all of its bytes are already local.
 
 ## Data layout
 
