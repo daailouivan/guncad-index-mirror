@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-from typing import Callable
 
 from .models import JobState, Release, TorrentArtifact
 
@@ -274,6 +274,7 @@ class JobStore:
                     release_name,
                     channel_handle,
                     release_slug,
+                    release_json,
                     file_path,
                     magnet_uri
                 FROM jobs
@@ -348,7 +349,7 @@ def _job_from_row(row: sqlite3.Row) -> Job:
 
 def _release_slug(release: Release) -> str:
     origin = release.raw.get("origin")
-    if isinstance(origin, dict):
+    if isinstance(origin, Mapping):
         slug = origin.get("slug")
         if isinstance(slug, str) and slug.strip():
             return slug
@@ -362,20 +363,20 @@ def _archive_fields_from_json(
         value = json.loads(release_json)
     except (json.JSONDecodeError, TypeError):
         return release_id, "Unknown channel", release_id
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return release_id, "Unknown channel", release_id
 
     raw_name = value.get("name")
     name = raw_name if isinstance(raw_name, str) and raw_name.strip() else release_id
     channel = value.get("channel")
-    raw_handle = channel.get("handle") if isinstance(channel, dict) else None
+    raw_handle = channel.get("handle") if isinstance(channel, Mapping) else None
     channel_handle = (
         raw_handle
         if isinstance(raw_handle, str) and raw_handle.strip()
         else "Unknown channel"
     )
     origin = value.get("origin")
-    raw_slug = origin.get("slug") if isinstance(origin, dict) else None
+    raw_slug = origin.get("slug") if isinstance(origin, Mapping) else None
     slug = raw_slug if isinstance(raw_slug, str) and raw_slug.strip() else name
     return name, channel_handle, slug
 
@@ -388,12 +389,6 @@ def _like_pattern(value: str) -> str:
 def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
     raw_path = row["file_path"]
     path = Path(raw_path) if raw_path else None
-    size = None
-    if path is not None:
-        try:
-            size = path.stat().st_size if path.is_file() else None
-        except OSError:
-            size = None
     return ArchiveEntry(
         release_id=row["release_id"],
         sd_hash=row["sd_hash"],
@@ -401,6 +396,20 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         channel_handle=row["channel_handle"],
         slug=row["release_slug"],
         file_name=path.name if path is not None else "payload",
-        size=size,
+        size=_release_size_from_json(row["release_json"]),
         magnet_uri=row["magnet_uri"],
     )
+
+
+def _release_size_from_json(release_json: str) -> int | None:
+    try:
+        value = json.loads(release_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(value, Mapping):
+        return None
+    origin = value.get("origin")
+    raw_size = origin.get("size") if isinstance(origin, Mapping) else None
+    if isinstance(raw_size, int) and not isinstance(raw_size, bool) and raw_size >= 0:
+        return raw_size
+    return None

@@ -1,14 +1,29 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from guncadmirror.models import Release, TorrentArtifact
+from guncadmirror.settings import Settings
+from guncadmirror.state import JobStore
 from guncadmirror.webui import create_app, start
+
+from .helpers import release_payload
 
 
 class WebUiTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "data"
+        self.settings = Settings(
+            endpoint="https://index.example/api/v2/releases/",
+            data_dir=self.root,
+        )
+        self.store = JobStore(self.settings.state_path)
         disk = SimpleNamespace(percent=25, free=10 * 1024**3)
         network = SimpleNamespace(
             bytes_sent=1,
@@ -19,6 +34,8 @@ class WebUiTests(unittest.TestCase):
             dropin=0,
         )
         self.collector = Mock()
+        self.collector.settings = self.settings
+        self.collector.store = self.store
         self.collector.snapshot.return_value = {
             "version": "test-ref",
             "mirror_state": "Sleeping",
@@ -53,6 +70,61 @@ class WebUiTests(unittest.TestCase):
             "extralog": ["event"],
         }
 
+    def _complete_release(
+        self,
+        *,
+        release_id: str = "a" * 40,
+        sd_hash: str = "b" * 96,
+        name: str = "Release Name",
+        channel: str = "@channel:c",
+        slug: str = "release:r",
+        payload_path: Path | None = None,
+        torrent_path: Path | None = None,
+    ) -> tuple[Release, bytes, bytes]:
+        payload_bytes = f"payload for {name}".encode()
+        torrent_bytes = f"torrent for {name}".encode()
+        raw = release_payload(
+            payload_bytes,
+            release_id=release_id,
+            sd_hash=sd_hash,
+            channel=channel,
+            name=name,
+        )
+        raw["origin"]["slug"] = slug
+        release = Release.from_api(raw)
+        payload_path = payload_path or (
+            self.settings.releases_dir / channel / f"{name}.zip"
+        )
+        payload_path.parent.mkdir(parents=True, exist_ok=True)
+        payload_path.write_bytes(payload_bytes)
+        torrent_path = torrent_path or (
+            self.settings.outbox_dir / release.id / release.sd_hash / f"{name}.torrent"
+        )
+        torrent_path.parent.mkdir(parents=True, exist_ok=True)
+        torrent_path.write_bytes(torrent_bytes)
+        self.store.register(release)
+        self.store.start_attempt(release)
+        self.store.mark_verified(
+            release,
+            file_path=payload_path,
+            sha384="c" * 96,
+            sha256="d" * 64,
+        )
+        self.store.mark_awaiting_index(
+            release,
+            TorrentArtifact(
+                file_path=payload_path,
+                torrent_path=torrent_path,
+                piece_length=1024**2,
+                piece_count=1,
+                info_hash="e" * 40,
+                torrent_sha256="f" * 64,
+                magnet_uri="magnet:?xt=urn:btih:" + "e" * 40,
+                trackers=(),
+            ),
+        )
+        return release, payload_bytes, torrent_bytes
+
     def test_stats_page_and_humanizers_render(self) -> None:
         app = create_app(self.collector)
         response = app.test_client().get("/")
@@ -64,6 +136,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Torrents staged", response.data)
         self.assertIn(b"excluded by policy", response.data)
         self.assertIn(b"Publication stops at the local outbox", response.data)
+        self.assertIn(b"Browse verified files", response.data)
         self.assertNotIn(b"LBRY-only mode", response.data)
         self.assertNotIn(b"Assemble Files", response.data)
 
@@ -121,6 +194,131 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"2 active jobs", response.data)
         self.assertIn(b"Second release", response.data)
 
+    def test_archive_search_pagination_and_downloads(self) -> None:
+        first, first_payload, first_torrent = self._complete_release(
+            name="Alpha Jig",
+            channel="@Maker:a",
+            slug="alpha-jig:a",
+        )
+        second, _, _ = self._complete_release(
+            release_id="c" * 40,
+            sd_hash="d" * 96,
+            name="Beta Fixture",
+            channel="@Other:b",
+            slug="beta-fixture:b",
+        )
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        response = client.get("/archive")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Alpha Jig", response.data)
+        self.assertIn(b"Beta Fixture", response.data)
+        self.assertIn(b"@Maker:a", response.data)
+        self.assertIn(b"alpha-jig:a", response.data)
+        self.assertIn(b"Download file", response.data)
+        self.assertIn(b"Download torrent", response.data)
+        self.assertIn(b"magnet:?xt=urn:btih:", response.data)
+
+        response = client.get("/archive?q=maker+alpha-jig")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Alpha Jig", response.data)
+        self.assertNotIn(b"Beta Fixture", response.data)
+
+        with patch("guncadmirror.webui.ARCHIVE_PAGE_SIZE", 1):
+            response = client.get("/archive?page=2")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Alpha Jig", response.data)
+        self.assertIn(b"Beta Fixture", response.data)
+        self.assertIn(b"Page 2 of 2", response.data)
+
+        payload = client.get(
+            f"/archive/{first.id}/{first.sd_hash}/payload",
+        )
+        self.assertEqual(payload.status_code, 200)
+        self.assertEqual(payload.data, first_payload)
+        self.assertIn("attachment", payload.headers["Content-Disposition"])
+        self.assertEqual(payload.headers["X-Content-Type-Options"], "nosniff")
+        payload.close()
+
+        partial = client.get(
+            f"/archive/{first.id}/{first.sd_hash}/payload",
+            headers={"Range": "bytes=0-6"},
+        )
+        self.assertEqual(partial.status_code, 206)
+        self.assertEqual(partial.data, first_payload[:7])
+        partial.close()
+
+        torrent = client.get(
+            f"/archive/{first.id}/{first.sd_hash}/torrent",
+        )
+        self.assertEqual(torrent.status_code, 200)
+        self.assertEqual(torrent.data, first_torrent)
+        self.assertEqual(torrent.mimetype, "application/x-bittorrent")
+        torrent.close()
+
+        self.assertEqual(
+            client.get(f"/archive/{second.id}/bad/payload").status_code,
+            404,
+        )
+
+    def test_archive_downloads_reject_unfinished_missing_and_escaped_paths(
+        self,
+    ) -> None:
+        pending_raw = release_payload(release_id="1" * 40, sd_hash="1" * 96)
+        pending = Release.from_api(pending_raw)
+        self.store.register(pending)
+
+        outside = Path(self.temporary.name) / "outside.zip"
+        escaped, _, _ = self._complete_release(
+            release_id="2" * 40,
+            sd_hash="2" * 96,
+            name="Escaped",
+            payload_path=outside,
+        )
+        missing, _, _ = self._complete_release(
+            release_id="3" * 40,
+            sd_hash="3" * 96,
+            name="Missing",
+        )
+        missing_job = self.store.get(missing.id, missing.sd_hash)
+        self.assertIsNotNone(missing_job.file_path)
+        missing_job.file_path.unlink()
+
+        outside_torrent = Path(self.temporary.name) / "outside.torrent"
+        escaped_torrent, _, _ = self._complete_release(
+            release_id="4" * 40,
+            sd_hash="4" * 96,
+            name="Escaped Torrent",
+            torrent_path=outside_torrent,
+        )
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        self.assertEqual(
+            client.get(f"/archive/{pending.id}/{pending.sd_hash}/payload").status_code,
+            404,
+        )
+        self.assertEqual(
+            client.get(f"/archive/{escaped.id}/{escaped.sd_hash}/payload").status_code,
+            404,
+        )
+        self.assertEqual(
+            client.get(f"/archive/{missing.id}/{missing.sd_hash}/payload").status_code,
+            404,
+        )
+        self.assertEqual(
+            client.get(
+                f"/archive/{escaped_torrent.id}/{escaped_torrent.sd_hash}/torrent"
+            ).status_code,
+            404,
+        )
+
+    def test_archive_rejects_overlong_queries(self) -> None:
+        app = create_app(self.collector)
+        response = app.test_client().get("/archive?q=" + "x" * 201)
+        self.assertEqual(response.status_code, 400)
+
     @patch("guncadmirror.webui.Thread")
     @patch("guncadmirror.webui.serve")
     def test_start_launches_waitress_daemon_thread(
@@ -133,6 +331,7 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(kwargs["daemon"])
         self.assertIs(kwargs["target"], serve)
         self.assertEqual(kwargs["kwargs"]["port"], 5000)
+        self.assertEqual(kwargs["kwargs"]["threads"], 8)
         thread.start.assert_called_once_with()
 
 

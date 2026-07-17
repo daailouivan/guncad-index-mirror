@@ -57,6 +57,13 @@
                 <strong>Publication stops at the local outbox.</strong>
                 A job in <code>awaiting_index</code> has a verified payload, torrent, magnet URI, and manifest. Mirror does not POST any of them yet.
             </div>
+            <section class="panel archive-callout">
+                <div>
+                    <h2>Browsable archive</h2>
+                    <p class="fine-print">Search completed releases by name, channel, or LBRY slug.</p>
+                </div>
+                <a class="button" href="{{ url_for('archive_browser') }}">Browse verified files</a>
+            </section>
             <section class="panel state-panel">
                 <p class="eyebrow">Current activity</p>
                 {% set active_jobs = activities if activities else ([activity] if activity else []) %}

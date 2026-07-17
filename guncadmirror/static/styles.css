@@ -44,6 +44,39 @@ a:focus-visible {
 	text-decoration: underline;
 }
 
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 2.7rem;
+	padding: 0.65rem 0.9rem;
+	color: #101820;
+	font: inherit;
+	font-weight: 700;
+	background: var(--link);
+	border: 1px solid var(--link);
+	border-radius: 0.35rem;
+	cursor: pointer;
+}
+
+.button:hover,
+.button:focus-visible {
+	color: #101820;
+	text-decoration: none;
+	filter: brightness(1.1);
+}
+
+.button-secondary {
+	color: var(--text);
+	background: var(--panel-raised);
+	border-color: var(--border);
+}
+
+.button-secondary:hover,
+.button-secondary:focus-visible {
+	color: var(--text);
+}
+
 code {
 	font: inherit;
 	color: #fff;
@@ -118,6 +151,22 @@ main {
 	text-align: center;
 }
 
+.archive-callout {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+.archive-callout h2,
+.archive-callout p {
+	margin: 0;
+}
+
+.archive-callout p {
+	margin-top: 0.35rem;
+}
+
 .eyebrow,
 .fine-print,
 .metric-label {
@@ -161,6 +210,68 @@ main {
 .activity-card h2 {
 	margin-bottom: 0;
 	font-size: 1.1rem;
+}
+
+.archive-search label {
+	display: block;
+	margin-bottom: 0.5rem;
+	font-weight: 700;
+}
+
+.archive-search-controls,
+.archive-actions,
+.archive-pagination {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	flex-wrap: wrap;
+}
+
+.archive-search input {
+	flex: 1 1 22rem;
+	min-height: 2.7rem;
+	padding: 0.65rem 0.8rem;
+	color: var(--text);
+	font: inherit;
+	background: var(--background);
+	border: 1px solid var(--border);
+	border-radius: 0.35rem;
+}
+
+.archive-search input:focus-visible {
+	outline: 2px solid var(--link);
+	outline-offset: 2px;
+}
+
+.archive-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
+	gap: 1rem;
+}
+
+.archive-card {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+}
+
+.archive-card h2 {
+	margin-bottom: 0.35rem;
+}
+
+.archive-channel {
+	margin: 0 0 0.5rem;
+	font-weight: 700;
+}
+
+.archive-actions {
+	margin-top: auto;
+	padding-top: 0.75rem;
+}
+
+.archive-pagination {
+	justify-content: center;
+	margin: 1.5rem 0;
 }
 
 progress {
@@ -274,5 +385,14 @@ td ul {
 	th,
 	td {
 		min-width: 10rem;
+	}
+
+	.archive-callout {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.archive-actions .button {
+		flex: 1 1 100%;
 	}
 }
