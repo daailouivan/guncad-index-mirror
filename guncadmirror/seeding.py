@@ -227,6 +227,7 @@ class SeedingScheduler:
         if info_hash is None:  # pragma: no cover - store candidate invariant
             raise QBitArtifactError("missing_btih", "ledger has no torrent info hash")
 
+        allowed_locations = self._seed_locations(candidate, paths)
         observation = self.client.observe(info_hash)
         if observation is None:
             self.client.add(
@@ -236,7 +237,7 @@ class SeedingScheduler:
                 tag=self.settings.qbittorrent_tag,
             )
         else:
-            _validate_observation(observation, paths)
+            _validate_observation(observation, paths, allowed_locations)
             if observation.green:
                 return observation
 
@@ -248,7 +249,7 @@ class SeedingScheduler:
             check_cancelled(stop)
             observation = self.client.observe(info_hash)
             if observation is not None:
-                _validate_observation(observation, paths)
+                _validate_observation(observation, paths, allowed_locations)
                 if observation.green:
                     return observation
                 last_detail = _not_green_detail(observation)
@@ -263,6 +264,30 @@ class SeedingScheduler:
                 min(self.settings.qbittorrent_poll_interval, deadline - now),
                 sleep=self.sleep,
             )
+
+    def _seed_locations(
+        self,
+        candidate: SeedingCandidate,
+        primary: SeedPaths,
+    ) -> dict[PurePosixPath, PurePosixPath]:
+        locations = {
+            PurePosixPath(primary.qbit_content_path): PurePosixPath(
+                primary.qbit_save_path
+            )
+        }
+        info_hash = candidate.job.info_hash
+        sha384 = candidate.job.sha384
+        if info_hash is None or sha384 is None:  # pragma: no cover - store invariant
+            return locations
+        for alias in self.store.seeding_identity_candidates(info_hash, sha384):
+            try:
+                paths = prepare_seed(self.settings, alias)
+            except QBitArtifactError:
+                continue
+            locations[PurePosixPath(paths.qbit_content_path)] = PurePosixPath(
+                paths.qbit_save_path
+            )
+        return locations
 
     def _retry(self, candidate: SeedingCandidate, error: QBitRetryableError) -> None:
         self.store.retry_seeding(
@@ -333,15 +358,22 @@ def prepare_seed(settings: Settings, candidate: SeedingCandidate) -> SeedPaths:
     )
 
 
-def _validate_observation(observation: QBitObservation, paths: SeedPaths) -> None:
+def _validate_observation(
+    observation: QBitObservation,
+    paths: SeedPaths,
+    allowed_locations: dict[PurePosixPath, PurePosixPath],
+) -> None:
     torrent = observation.torrent
-    if PurePosixPath(torrent.content_path) != PurePosixPath(paths.qbit_content_path):
+    content_path = PurePosixPath(torrent.content_path)
+    expected_save_path = allowed_locations.get(content_path)
+    if expected_save_path is None:
         raise QBitArtifactError(
             "content_path_conflict",
-            "qBittorrent has the expected BTIH at a different content path: "
+            "qBittorrent has the expected BTIH outside every verified path for "
+            "that BTIH and SHA-384: "
             f"{torrent.content_path}",
         )
-    if PurePosixPath(torrent.save_path) != PurePosixPath(paths.qbit_save_path):
+    if PurePosixPath(torrent.save_path) != expected_save_path:
         raise QBitArtifactError(
             "save_path_conflict",
             "qBittorrent has the expected BTIH at a different save path: "

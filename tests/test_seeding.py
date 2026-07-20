@@ -147,6 +147,48 @@ class SeedingSchedulerTests(unittest.TestCase):
             1,
         )
 
+    def test_identical_btih_can_seed_verified_duplicate_release_paths(self) -> None:
+        alias = make_release(
+            release_id="c" * 40,
+            sd_hash="d" * 96,
+        )
+        alias_payload = self.settings.releases_dir / "alias" / "payload.zip"
+        alias_payload.parent.mkdir(parents=True)
+        alias_payload.write_bytes(b"payload")
+        alias_torrent = create_torrent(
+            alias_payload,
+            self.settings.outbox_dir / alias.id / alias.sd_hash / "payload.torrent",
+            piece_length=16 * 1024,
+        )
+        self.assertEqual(alias_torrent.info_hash, self.torrent.info_hash)
+        self.store.register(alias)
+        self.store.start_attempt(alias)
+        self.store.mark_verified(
+            alias,
+            file_path=alias_payload,
+            sha384=hashlib.sha384(b"payload").hexdigest(),
+            sha256=hashlib.sha256(b"payload").hexdigest(),
+        )
+        self.store.mark_awaiting_index(alias, alias_torrent)
+        self.client.observe.return_value = self.observation(
+            content_path="/downloads/releases/alias/payload.zip",
+            save_path="/downloads/releases/alias",
+        )
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.considered, 2)
+        self.assertEqual(result.green, 2)
+        self.client.add.assert_not_called()
+        self.assertEqual(
+            self.store.get(self.release.id, self.release.sd_hash).seeding_content_path,
+            "/downloads/releases/alias/payload.zip",
+        )
+        self.assertEqual(
+            self.store.get(alias.id, alias.sd_hash).seeding_state,
+            SeedingState.GREEN,
+        )
+
     def test_lost_seed_readiness_is_retryable_and_closes_publication_gate(self) -> None:
         self.client.observe.return_value = self.observation()
         self.scheduler.run()

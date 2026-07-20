@@ -466,6 +466,28 @@ class JobStore:
             for row in rows
         ]
 
+    def seeding_identity_candidates(
+        self,
+        info_hash: str,
+        sha384: str,
+    ) -> list[SeedingCandidate]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM jobs
+                WHERE state=? AND info_hash=? AND sha384=?
+                ORDER BY release_id, sd_hash
+                """,
+                (JobState.AWAITING_INDEX, info_hash, sha384),
+            ).fetchall()
+        return [
+            SeedingCandidate(
+                release=Release.from_api(json.loads(row["release_json"])),
+                job=_job_from_row(row),
+            )
+            for row in rows
+        ]
+
     def seeding_ready(self, job: Job) -> bool:
         return job.seeding_next_attempt_at <= self.clock()
 
