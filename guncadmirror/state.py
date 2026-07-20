@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
 
-from .models import JobState, Release, TorrentArtifact
+from .models import JobState, PublicationState, Release, TorrentArtifact
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -29,6 +29,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     magnet_uri TEXT,
     last_error TEXT,
     exclusion_reason TEXT,
+    publication_state TEXT NOT NULL DEFAULT 'pending',
+    publication_attempts INTEGER NOT NULL DEFAULT 0,
+    publication_next_attempt_at REAL NOT NULL DEFAULT 0,
+    publication_outcome TEXT,
+    publication_canonical INTEGER,
+    canonical_sha384 TEXT,
+    canonical_btih TEXT,
+    canonical_torrent_url TEXT,
+    canonical_magnet_uri TEXT,
+    winning_release_id TEXT,
+    publication_error_code TEXT,
+    publication_error TEXT,
+    publication_updated_at REAL,
     updated_at REAL NOT NULL,
     PRIMARY KEY (release_id, sd_hash)
 );
@@ -50,6 +63,25 @@ class Job:
     magnet_uri: str | None
     last_error: str | None
     exclusion_reason: str | None
+    publication_state: PublicationState
+    publication_attempts: int
+    publication_next_attempt_at: float
+    publication_outcome: str | None
+    publication_canonical: bool | None
+    canonical_sha384: str | None
+    canonical_btih: str | None
+    canonical_torrent_url: str | None
+    canonical_magnet_uri: str | None
+    winning_release_id: str | None
+    publication_error_code: str | None
+    publication_error: str | None
+    publication_updated_at: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationCandidate:
+    release: Release
+    job: Job
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +94,9 @@ class ArchiveEntry:
     file_name: str
     size: int | None
     magnet_uri: str | None
+    publication_state: PublicationState
+    canonical_magnet_uri: str | None
+    canonical_torrent_url: str | None
 
 
 class JobStore:
@@ -86,6 +121,26 @@ class JobStore:
                     connection.execute(
                         f"ALTER TABLE jobs ADD COLUMN {column} {definition}"
                     )
+            publication_columns = {
+                "publication_state": "TEXT NOT NULL DEFAULT 'pending'",
+                "publication_attempts": "INTEGER NOT NULL DEFAULT 0",
+                "publication_next_attempt_at": "REAL NOT NULL DEFAULT 0",
+                "publication_outcome": "TEXT",
+                "publication_canonical": "INTEGER",
+                "canonical_sha384": "TEXT",
+                "canonical_btih": "TEXT",
+                "canonical_torrent_url": "TEXT",
+                "canonical_magnet_uri": "TEXT",
+                "winning_release_id": "TEXT",
+                "publication_error_code": "TEXT",
+                "publication_error": "TEXT",
+                "publication_updated_at": "REAL",
+            }
+            for column, definition in publication_columns.items():
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE jobs ADD COLUMN {column} {definition}"
+                    )
             self._backfill_archive_fields(connection)
             connection.execute(
                 """
@@ -94,6 +149,19 @@ class JobStore:
                     state,
                     channel_handle COLLATE NOCASE,
                     release_name COLLATE NOCASE,
+                    release_id,
+                    sd_hash
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS jobs_publication_queue
+                ON jobs (
+                    state,
+                    publication_state,
+                    publication_next_attempt_at,
+                    sha384,
                     release_id,
                     sd_hash
                 )
@@ -234,6 +302,189 @@ class JobStore:
             rows = cursor.fetchall()
         return {row["state"]: row["count"] for row in rows}
 
+    def publication_counts(self) -> dict[str, int]:
+        with (
+            closing(self._connect()) as connection,
+            closing(
+                connection.execute(
+                    """
+                    SELECT publication_state, COUNT(*) AS count
+                    FROM jobs
+                    WHERE state=?
+                    GROUP BY publication_state
+                    """,
+                    (JobState.AWAITING_INDEX,),
+                )
+            ) as cursor,
+        ):
+            rows = cursor.fetchall()
+        return {row["publication_state"]: row["count"] for row in rows}
+
+    def recover_interrupted_publications(self) -> int:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs SET
+                    publication_state=?,
+                    publication_next_attempt_at=0,
+                    publication_error_code='interrupted',
+                    publication_error='Mirror stopped during publication',
+                    publication_updated_at=?
+                WHERE publication_state=?
+                """,
+                (
+                    PublicationState.RETRYING,
+                    now,
+                    PublicationState.PUBLISHING,
+                ),
+            )
+        return cursor.rowcount
+
+    def publication_candidates(self) -> list[PublicationCandidate]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM jobs
+                WHERE
+                    state=? AND
+                    publication_state IN (?, ?) AND
+                    sha384 IS NOT NULL AND
+                    torrent_path IS NOT NULL
+                ORDER BY sha384, release_id, sd_hash
+                """,
+                (
+                    JobState.AWAITING_INDEX,
+                    PublicationState.PENDING,
+                    PublicationState.RETRYING,
+                ),
+            ).fetchall()
+        candidates = []
+        for row in rows:
+            raw = json.loads(row["release_json"])
+            candidates.append(
+                PublicationCandidate(
+                    release=Release.from_api(raw),
+                    job=_job_from_row(row),
+                )
+            )
+        return candidates
+
+    def publication_ready(self, job: Job) -> bool:
+        return job.publication_next_attempt_at <= self.clock()
+
+    def start_publication(self, release_id: str, sd_hash: str) -> Job | None:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs SET
+                    publication_state=?,
+                    publication_attempts=publication_attempts + 1,
+                    publication_next_attempt_at=0,
+                    publication_error_code=NULL,
+                    publication_error=NULL,
+                    publication_updated_at=?
+                WHERE
+                    release_id=? AND sd_hash=? AND state=? AND
+                    publication_state IN (?, ?) AND
+                    publication_next_attempt_at <= ?
+                """,
+                (
+                    PublicationState.PUBLISHING,
+                    now,
+                    release_id,
+                    sd_hash,
+                    JobState.AWAITING_INDEX,
+                    PublicationState.PENDING,
+                    PublicationState.RETRYING,
+                    now,
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
+        return self.get(release_id, sd_hash)
+
+    def retry_publication(
+        self,
+        release_id: str,
+        sd_hash: str,
+        *,
+        code: str,
+        error: str,
+        retry_backoff: float,
+        retry_after: float | None = None,
+    ) -> Job:
+        job = self.get(release_id, sd_hash)
+        exponential = retry_backoff * (
+            2 ** min(max(job.publication_attempts - 1, 0), 10)
+        )
+        delay = max(exponential, retry_after or 0)
+        self._publication_update(
+            ((release_id, sd_hash),),
+            publication_state=PublicationState.RETRYING,
+            publication_next_attempt_at=self.clock() + delay,
+            publication_error_code=code,
+            publication_error=error,
+        )
+        return self.get(release_id, sd_hash)
+
+    def finish_publication(
+        self,
+        jobs: Iterable[tuple[str, str]],
+        *,
+        state: PublicationState,
+        outcome: str | None,
+        canonical: bool | None,
+        canonical_sha384: str | None,
+        canonical_btih: str | None,
+        canonical_torrent_url: str | None,
+        canonical_magnet_uri: str | None,
+        winning_release_id: str | None,
+        error_code: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        if state not in {
+            PublicationState.PUBLISHED,
+            PublicationState.DUPLICATE,
+            PublicationState.REJECTED,
+            PublicationState.CONFLICT,
+        }:
+            raise ValueError(f"invalid terminal publication state: {state}")
+        self._publication_update(
+            jobs,
+            publication_state=state,
+            publication_next_attempt_at=0,
+            publication_outcome=outcome,
+            publication_canonical=(None if canonical is None else int(canonical)),
+            canonical_sha384=canonical_sha384,
+            canonical_btih=canonical_btih,
+            canonical_torrent_url=canonical_torrent_url,
+            canonical_magnet_uri=canonical_magnet_uri,
+            winning_release_id=winning_release_id,
+            publication_error_code=error_code,
+            publication_error=error,
+        )
+
+    def next_publication_delay(self) -> float | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT MIN(publication_next_attempt_at) AS deadline
+                FROM jobs
+                WHERE state=? AND publication_state IN (?, ?)
+                """,
+                (
+                    JobState.AWAITING_INDEX,
+                    PublicationState.PENDING,
+                    PublicationState.RETRYING,
+                ),
+            ).fetchone()
+        deadline = row["deadline"]
+        if deadline is None:
+            return None
+        return max(float(deadline) - self.clock(), 0)
+
     def search_archive(
         self,
         query: str = "",
@@ -276,7 +527,10 @@ class JobStore:
                     release_slug,
                     release_json,
                     file_path,
-                    magnet_uri
+                    magnet_uri,
+                    publication_state,
+                    canonical_magnet_uri,
+                    canonical_torrent_url
                 FROM jobs
                 WHERE {where}
                 ORDER BY
@@ -328,6 +582,25 @@ class JobStore:
                 values,
             )
 
+    def _publication_update(
+        self,
+        jobs: Iterable[tuple[str, str]],
+        **fields: object,
+    ) -> None:
+        keys = tuple(jobs)
+        if not keys or not fields:
+            return
+        fields["publication_updated_at"] = self.clock()
+        assignments = ", ".join(f"{field}=?" for field in fields)
+        parameters = [
+            [*fields.values(), release_id, sd_hash] for release_id, sd_hash in keys
+        ]
+        with closing(self._connect()) as connection, connection:
+            connection.executemany(
+                f"UPDATE jobs SET {assignments} WHERE release_id=? AND sd_hash=?",
+                parameters,
+            )
+
 
 def _job_from_row(row: sqlite3.Row) -> Job:
     return Job(
@@ -344,6 +617,23 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         magnet_uri=row["magnet_uri"],
         last_error=row["last_error"],
         exclusion_reason=row["exclusion_reason"],
+        publication_state=PublicationState(row["publication_state"]),
+        publication_attempts=row["publication_attempts"],
+        publication_next_attempt_at=row["publication_next_attempt_at"],
+        publication_outcome=row["publication_outcome"],
+        publication_canonical=(
+            None
+            if row["publication_canonical"] is None
+            else bool(row["publication_canonical"])
+        ),
+        canonical_sha384=row["canonical_sha384"],
+        canonical_btih=row["canonical_btih"],
+        canonical_torrent_url=row["canonical_torrent_url"],
+        canonical_magnet_uri=row["canonical_magnet_uri"],
+        winning_release_id=row["winning_release_id"],
+        publication_error_code=row["publication_error_code"],
+        publication_error=row["publication_error"],
+        publication_updated_at=row["publication_updated_at"],
     )
 
 
@@ -398,6 +688,9 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         file_name=path.name if path is not None else "payload",
         size=_release_size_from_json(row["release_json"]),
         magnet_uri=row["magnet_uri"],
+        publication_state=PublicationState(row["publication_state"]),
+        canonical_magnet_uri=row["canonical_magnet_uri"],
+        canonical_torrent_url=row["canonical_torrent_url"],
     )
 
 

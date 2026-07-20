@@ -6,9 +6,11 @@ from threading import Event
 
 from .cancellation import AcquisitionCancelled
 from .index_client import IndexClient
+from .index_publisher import IndexPublisherClient
 from .lbry import LbryAcquirer, LbryClient
 from .odysee import OdyseeAcquirer
 from .pipeline import CycleResult, MirrorPipeline
+from .publication import PublicationCycleResult, PublicationScheduler
 from .publisher import OutboxPublisher
 from .settings import Settings
 from .state import JobStore
@@ -23,19 +25,32 @@ class Runtime:
     pipeline: MirrorPipeline
     stats: StatsCollector
     odysee: OdyseeAcquirer | None = None
+    publication: PublicationScheduler | None = None
+    lbry_ready: bool = False
+    publication_paused: bool = False
 
     def start(self, stop: Event | None = None) -> None:
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.stats.start()
         if self.settings.enable_webui:
             start_webui(self.stats)
+
+    def _ensure_lbry(self, stop: Event | None) -> None:
+        if self.lbry_ready:
+            return
         self.stats.set_state("Waiting for LBRY")
         self.lbry.wait_until_ready(self.settings.lbry_startup_timeout, stop=stop)
+        self.lbry_ready = True
         logging.getLogger("guncad-mirror").info("LBRY daemon is ready")
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
+        publication = self._run_publication(stop)
+        self._ensure_lbry(stop)
         self.stats.set_state("Enumerating Index releases")
         result = self.pipeline.run_cycle(stop)
+        if not publication.paused:
+            publication += self._run_publication(stop)
+        self.publication_paused = publication.paused
         summary = (
             f"Cycle complete: {result.discovered} discovered, {result.ready} ready, "
             f"{result.skipped} skipped, {result.failed} failed, "
@@ -43,6 +58,25 @@ class Runtime:
         )
         self.stats.set_state(summary)
         self.stats.log(summary, stdout=True)
+        return result
+
+    def _run_publication(
+        self,
+        stop: Event | None,
+    ) -> PublicationCycleResult:
+        if self.publication is None:
+            return PublicationCycleResult()
+        self.stats.set_state("Publishing staged torrents to the Index")
+        result = self.publication.run(stop)
+        self.publication_paused = result.paused
+        if result.attempted:
+            self.stats.log(
+                "Index publication pass: "
+                f"{result.attempted} attempted, {result.published} published, "
+                f"{result.duplicates} duplicates, {result.rejected} rejected, "
+                f"{result.conflicts} conflicts, {result.retrying} retrying",
+                stdout=True,
+            )
         return result
 
     def run_forever(self, stop: Event) -> None:
@@ -60,6 +94,15 @@ class Runtime:
                     f"Mirror cycle failed; retrying in {delay:.0f}s; "
                     "see application log"
                 )
+            if self.publication is not None:
+                publication_delay = self.publication.next_delay()
+                if publication_delay is not None:
+                    minimum = (
+                        self.settings.cycle_error_interval
+                        if self.publication_paused
+                        else 1
+                    )
+                    delay = min(delay, max(publication_delay, minimum))
             self.stats.set_state(f"Sleeping for {delay:.0f}s")
             stop.wait(delay)
 
@@ -72,6 +115,8 @@ class Runtime:
         ]
         if self.odysee is not None:
             cleanups.append(("Odysee HTTP session", self.odysee.close))
+        if self.publication is not None:
+            cleanups.append(("Index publication session", self.publication.close))
         for description, close in cleanups:
             try:
                 close()
@@ -81,6 +126,12 @@ class Runtime:
 
 def build_runtime(settings: Settings) -> Runtime:
     store = JobStore(settings.state_path)
+    recovered_publications = store.recover_interrupted_publications()
+    if recovered_publications:
+        logging.getLogger("guncad-mirror").warning(
+            "Recovered %d interrupted Index publication attempts",
+            recovered_publications,
+        )
     stats = StatsCollector(settings, store)
     lbry = LbryClient(
         settings.lbry_url,
@@ -124,10 +175,25 @@ def build_runtime(settings: Settings) -> Runtime:
         progress=stats,
         record_event=stats.log,
     )
+    publication = (
+        PublicationScheduler(
+            settings,
+            store,
+            IndexPublisherClient(
+                settings.publish_url,
+                settings.publish_token,
+                timeout=settings.publish_timeout,
+            ),
+            record_event=stats.log,
+        )
+        if settings.publish_enabled
+        else None
+    )
     return Runtime(
         settings=settings,
         lbry=lbry,
         pipeline=pipeline,
         stats=stats,
         odysee=odysee,
+        publication=publication,
     )

@@ -6,7 +6,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from guncadmirror.models import JobState, Release, TorrentArtifact
+from guncadmirror.models import JobState, PublicationState, Release, TorrentArtifact
 from guncadmirror.state import JobStore
 
 from .helpers import make_release, release_payload
@@ -89,6 +89,8 @@ class JobStoreTests(unittest.TestCase):
         )
         job = self.store.mark_awaiting_index(self.release, torrent)
         self.assertEqual(job.state, JobState.AWAITING_INDEX)
+        self.assertEqual(job.publication_state, PublicationState.PENDING)
+        self.assertEqual(job.publication_attempts, 0)
         self.assertFalse(self.store.ready_for_attempt(job))
         self.assertEqual(job.torrent_path, torrent_path)
         self.assertEqual(job.info_hash, "e" * 40)
@@ -192,11 +194,122 @@ class JobStoreTests(unittest.TestCase):
         self.assertIn("release_name", columns)
         self.assertIn("channel_handle", columns)
         self.assertIn("release_slug", columns)
+        self.assertIn("publication_state", columns)
+        self.assertIn("canonical_torrent_url", columns)
         entries, total = migrated.search_archive("legacy-slug")
         self.assertEqual(total, 1)
         self.assertEqual(entries[0].name, "Legacy Searchable Release")
         self.assertEqual(entries[0].channel_handle, "@channel:c")
         self.assertEqual(entries[0].slug, "legacy-slug:l")
+        self.assertEqual(entries[0].publication_state, PublicationState.PENDING)
+
+    def test_publication_lifecycle_is_independent_durable_and_retryable(self) -> None:
+        self._complete(self.release)
+        self.assertEqual(self.store.publication_counts(), {"pending": 1})
+        candidates = self.store.publication_candidates()
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].release, self.release)
+
+        publishing = self.store.start_publication(self.release.id, self.release.sd_hash)
+        self.assertIsNotNone(publishing)
+        self.assertEqual(publishing.publication_state, PublicationState.PUBLISHING)
+        self.assertEqual(publishing.publication_attempts, 1)
+        self.assertIsNone(
+            self.store.start_publication(self.release.id, self.release.sd_hash)
+        )
+
+        retrying = self.store.retry_publication(
+            self.release.id,
+            self.release.sd_hash,
+            code="network_error",
+            error="connection reset",
+            retry_backoff=5,
+            retry_after=7,
+        )
+        self.assertEqual(retrying.publication_state, PublicationState.RETRYING)
+        self.assertEqual(retrying.publication_next_attempt_at, 107)
+        self.assertEqual(retrying.publication_error_code, "network_error")
+        self.assertEqual(self.store.next_publication_delay(), 7)
+        self.assertFalse(
+            self.store.publication_ready(self.store.publication_candidates()[0].job)
+        )
+
+        self.now = 107
+        self.assertEqual(len(self.store.publication_candidates()), 1)
+        self.assertTrue(
+            self.store.publication_ready(self.store.publication_candidates()[0].job)
+        )
+        publishing = self.store.start_publication(self.release.id, self.release.sd_hash)
+        self.assertEqual(publishing.publication_attempts, 2)
+        self.store.finish_publication(
+            ((self.release.id, self.release.sd_hash),),
+            state=PublicationState.PUBLISHED,
+            outcome="created",
+            canonical=True,
+            canonical_sha384="c" * 96,
+            canonical_btih="e" * 40,
+            canonical_torrent_url="https://index.example/torrents/e.torrent",
+            canonical_magnet_uri="magnet:?xt=urn:btih:" + "e" * 40,
+            winning_release_id=self.release.id,
+        )
+        published = self.store.get(self.release.id, self.release.sd_hash)
+        self.assertEqual(published.state, JobState.AWAITING_INDEX)
+        self.assertEqual(published.publication_state, PublicationState.PUBLISHED)
+        self.assertEqual(published.publication_outcome, "created")
+        self.assertTrue(published.publication_canonical)
+        self.assertEqual(published.canonical_sha384, "c" * 96)
+        self.assertEqual(published.winning_release_id, self.release.id)
+        self.assertIsNone(self.store.next_publication_delay())
+
+        with self.assertRaises(ValueError):
+            self.store.finish_publication(
+                ((self.release.id, self.release.sd_hash),),
+                state=PublicationState.RETRYING,
+                outcome=None,
+                canonical=None,
+                canonical_sha384=None,
+                canonical_btih=None,
+                canonical_torrent_url=None,
+                canonical_magnet_uri=None,
+                winning_release_id=None,
+            )
+
+    def test_publication_alias_completion_and_crash_recovery(self) -> None:
+        alias_payload = release_payload(
+            release_id="1" * 40,
+            sd_hash=self.release.sd_hash,
+            name="Alias",
+        )
+        alias = Release.from_api(alias_payload)
+        self._complete(self.release)
+        self._complete(alias)
+        self.store.start_publication(self.release.id, self.release.sd_hash)
+
+        self.assertEqual(self.store.recover_interrupted_publications(), 1)
+        recovered = self.store.get(self.release.id, self.release.sd_hash)
+        self.assertEqual(recovered.publication_state, PublicationState.RETRYING)
+        self.assertEqual(recovered.publication_error_code, "interrupted")
+        self.assertEqual(self.store.recover_interrupted_publications(), 0)
+
+        keys = (
+            (self.release.id, self.release.sd_hash),
+            (alias.id, alias.sd_hash),
+        )
+        self.store.finish_publication(
+            keys,
+            state=PublicationState.DUPLICATE,
+            outcome="artifact_duplicate",
+            canonical=False,
+            canonical_sha384="c" * 96,
+            canonical_btih="f" * 40,
+            canonical_torrent_url="https://index.example/torrents/f.torrent",
+            canonical_magnet_uri="magnet:?xt=urn:btih:" + "f" * 40,
+            winning_release_id=alias.id,
+        )
+        self.assertEqual(self.store.publication_counts(), {"duplicate": 2})
+        entry = self.store.search_archive("Alias")[0][0]
+        self.assertEqual(entry.publication_state, PublicationState.DUPLICATE)
+        self.assertIn("f" * 40, entry.canonical_magnet_uri)
 
     def test_archive_search_is_filtered_paginated_and_literal(self) -> None:
         payloads = [

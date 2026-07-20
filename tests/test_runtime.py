@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.pipeline import CycleResult
+from guncadmirror.publication import PublicationCycleResult
 from guncadmirror.runtime import Runtime, build_runtime
 from guncadmirror.settings import Settings
 
@@ -27,15 +28,12 @@ class RuntimeTests(unittest.TestCase):
         self.stats = Mock()
         self.runtime = Runtime(self.settings, self.lbry, self.pipeline, self.stats)
 
-    def test_start_prepares_storage_stats_and_lbry(self) -> None:
+    def test_start_prepares_storage_and_stats_without_blocking_on_lbry(self) -> None:
         self.runtime.start()
         self.assertTrue(self.settings.data_dir.is_dir())
         self.stats.start.assert_called_once_with()
-        self.stats.set_state.assert_called_once_with("Waiting for LBRY")
-        self.lbry.wait_until_ready.assert_called_once_with(
-            self.settings.lbry_startup_timeout,
-            stop=None,
-        )
+        self.stats.set_state.assert_not_called()
+        self.lbry.wait_until_ready.assert_not_called()
         self.stats.log.assert_not_called()
 
     @patch("guncadmirror.runtime.start_webui")
@@ -52,7 +50,12 @@ class RuntimeTests(unittest.TestCase):
         expected = CycleResult(discovered=3, ready=1, skipped=1, failed=1)
         self.pipeline.run_cycle.return_value = expected
         self.assertEqual(self.runtime.run_cycle(), expected)
+        self.lbry.wait_until_ready.assert_called_once_with(
+            self.settings.lbry_startup_timeout,
+            stop=None,
+        )
         self.pipeline.run_cycle.assert_called_once_with(None)
+        self.stats.set_state.assert_any_call("Waiting for LBRY")
         self.stats.set_state.assert_any_call("Enumerating Index releases")
         self.stats.set_state.assert_any_call(
             "Cycle complete: 3 discovered, 1 ready, 1 skipped, 1 failed, 0 stopped"
@@ -116,13 +119,73 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(built.pipeline.record_event, built.stats.log)
         self.assertIs(built.pipeline.acquirer.progress, built.stats)
         self.assertIs(built.odysee.progress, built.stats)
+        self.assertIsNone(built.publication)
+
+    def test_publication_runs_before_lbry_and_after_new_artifacts(self) -> None:
+        self.runtime.publication = Mock()
+        self.runtime.publication.run.side_effect = [
+            PublicationCycleResult(considered=2, attempted=1, published=1),
+            PublicationCycleResult(considered=1, attempted=1, duplicates=1),
+        ]
+        self.pipeline.run_cycle.return_value = CycleResult(ready=1)
+
+        self.runtime.run_cycle()
+
+        self.assertEqual(self.runtime.publication.run.call_count, 2)
+        self.assertEqual(self.lbry.wait_until_ready.call_count, 1)
+        self.assertTrue(self.runtime.lbry_ready)
+        self.assertEqual(
+            [call.args[0] for call in self.stats.set_state.call_args_list[:2]],
+            ["Publishing staged torrents to the Index", "Waiting for LBRY"],
+        )
+        self.assertTrue(
+            any("1 attempted" in call.args[0] for call in self.stats.log.call_args_list)
+        )
+
+    def test_global_publication_pause_skips_second_pass_and_slows_retry(self) -> None:
+        self.runtime.publication = Mock()
+        self.runtime.publication.run.return_value = PublicationCycleResult(
+            considered=2,
+            attempted=1,
+            retrying=1,
+            paused=True,
+        )
+        self.runtime.publication.next_delay.return_value = 0
+        self.pipeline.run_cycle.return_value = CycleResult()
+        stop = Mock()
+        stop.is_set.side_effect = [False, True]
+
+        self.runtime.run_forever(stop)
+
+        self.runtime.publication.run.assert_called_once_with(stop)
+        stop.wait.assert_called_once_with(
+            min(self.settings.loop_interval, self.settings.cycle_error_interval)
+        )
 
     def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
+        self.runtime.publication = Mock()
         self.stats.stop.side_effect = RuntimeError("thread stuck")
         with self.assertLogs("guncad-mirror", level="ERROR"):
             self.runtime.stop()
         self.pipeline.index_client.close.assert_called_once_with()
         self.lbry.close.assert_called_once_with()
+        self.runtime.publication.close.assert_called_once_with()
+
+    def test_runtime_builder_enables_authenticated_publication(self) -> None:
+        settings = Settings(
+            endpoint=self.settings.endpoint,
+            data_dir=self.settings.data_dir,
+            publish_enabled=True,
+            publish_url="https://index.example/api/v2/torrents/publish/",
+            publish_token="secret",
+            publish_timeout=23,
+        )
+
+        built = build_runtime(settings)
+
+        self.assertIsNotNone(built.publication)
+        self.assertEqual(built.publication.client.url, settings.publish_url)
+        self.assertEqual(built.publication.client.timeout, 23)
 
 
 if __name__ == "__main__":
