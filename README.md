@@ -86,6 +86,14 @@ Select a separate service environment without editing the checked-in example:
 MIRROR_SMOKE_ENV_FILE=.mirror.env ./contrib/test-docker.sh
 ```
 
+Reuse a named bounded-test volume by setting `MIRROR_SMOKE_DATA_VOLUME`. The script refuses names containing `full-corpus`.
+
+```bash
+MIRROR_SMOKE_DATA_VOLUME=guncad-mirror-index-test-20260716 \
+MIRROR_SMOKE_ENV_FILE=.mirror.env \
+./contrib/test-docker.sh
+```
+
 Do not turn that script into a full-corpus runner. Use the production Compose file for a long-running backfill.
 
 ## Filtering the Index

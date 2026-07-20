@@ -25,3 +25,5 @@ services:
       retries: 12
 volumes:
   guncad-mirror-smoke:
+    name: "${MIRROR_SMOKE_DATA_VOLUME:?contrib/test-docker.sh must select a smoke-test
+      volume}"

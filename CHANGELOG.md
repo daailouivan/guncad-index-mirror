@@ -35,7 +35,7 @@
 * Added opt-in authenticated publication of verified manifests and torrent metainfo to GunCAD Index API v2
 * Added crash-safe publication states, durable retry deadlines, canonical winner receipts, and popularity-led SHA-384 scheduling
 * Added publication state and canonical Index links to the web UI, archive browser, and integrity reports without exposing bearer tokens
-* Added configurable Compose environment files so bounded smoke tests can use local publication credentials without changing the checked-in sample
+* Added configurable Compose environment files and named-volume guards so bounded smoke tests can use local publication credentials without changing the checked-in sample or mounting the full corpus
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
 * Added: More tracker announcement hosts and a script to pull a list from an authoritative source
