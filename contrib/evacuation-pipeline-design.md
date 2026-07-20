@@ -216,6 +216,12 @@ Mirror rebuilds a compact wire manifest from this source record, its SQLite ledg
 
 The response schema is `guncad-index-torrent-publication-v1`. Mirror accepts 200 `idempotent`, 201 `created` or `promoted`, and 409 `artifact_duplicate` only after the receipt matches the submitted descriptor, SHA-384, and BTIH. It stores the canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID. A contradictory receipt pauses publication instead of recording success.
 
+### Local publication checkpoint
+
+The bounded localhost test on July 20, 2026 started with 74 `awaiting_index` jobs in `guncad-mirror-index-test-20260716`. Mirror attempted all 74 before lbrynet finished starting. GunCAD Index accepted 72 with HTTP 201 & created 72 `TorrentArtifact`, 72 `TorrentMetainfo`, and 72 `TorrentPublicationReceipt` rows. The other two requests received HTTP 400 `unknown_sd_hash`: the local Index no longer had a current LBRY origin for the V1.2 or V1.3 GP9-NEO9 Consolidated Megapack descriptor.
+
+One accepted receipt was checked across both databases. Release `282f3c43908e1e0c514ce03a76d338872c02d076` retained the same descriptor hash, plaintext SHA-384, BTIH `eb33490202a2c177781782bac0eb941e3d90613a`, and winning release ID in Mirror & Index. Downloading the canonical torrent from Index produced SHA-256 `eb0e4b41df388829471a669fddbb46388f6114c5138ba66e674c230066fd8fbe`, byte-for-byte equal to Mirror's outbox torrent. Replaying the same multipart request returned HTTP 200 `idempotent`; the receipt count remained 72. A post-run archive audit found 74 valid artifacts, zero integrity issues, and no orphan manifests or torrents.
+
 ## Index handoff and continuity work
 
 ### Creator continuity before a shutdown
