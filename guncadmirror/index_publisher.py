@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from collections.abc import Mapping
@@ -348,6 +349,8 @@ def _retry_after(value: str | None, wall_clock: Callable[[], float]) -> float | 
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=UTC)
         seconds = deadline.timestamp() - wall_clock()
+    if not math.isfinite(seconds):
+        return None
     if seconds < 0:
         return 0
     return seconds

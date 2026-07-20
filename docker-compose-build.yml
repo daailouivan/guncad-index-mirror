@@ -3,7 +3,7 @@ services:
   guncad-mirror:
     build: .
     stop_grace_period: 2m
-    env_file: guncad-mirror.env
+    env_file: "${MIRROR_ENV_FILE:-guncad-mirror.env}"
     environment:
       MIRROR_API_ENDPOINT: "${MIRROR_SMOKE_API_ENDPOINT:?contrib/test-docker.sh must
         set a narrow API query}"

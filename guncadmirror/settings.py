@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -186,6 +187,8 @@ def _number(
         value = default if raw is None else float(raw)
     except ValueError as error:
         raise ConfigurationError(f"{name} must be numeric") from error
+    if not math.isfinite(value):
+        raise ConfigurationError(f"{name} must be finite")
     if value < minimum:
         raise ConfigurationError(f"{name} must be at least {minimum}")
     return value

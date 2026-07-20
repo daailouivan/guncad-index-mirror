@@ -266,6 +266,45 @@ class PublicationSchedulerTests(unittest.TestCase):
         self.assertTrue(any("Published" in event for event in self.events))
         self.assertTrue(any("existing canonical" in event for event in self.events))
 
+    def test_same_descriptor_with_different_btih_is_not_coalesced(self) -> None:
+        content = b"same payload"
+        leader = self.complete(
+            content,
+            release_id="1" * 40,
+            sd_hash="a" * 96,
+            popularity=2,
+        )
+        divergent = self.complete(
+            content,
+            release_id="2" * 40,
+            sd_hash="a" * 96,
+            popularity=1,
+            file_name="renamed.zip",
+        )
+        self.client.publish.side_effect = [
+            self.result(leader),
+            PublicationResult(
+                state=PublicationState.CONFLICT,
+                outcome=None,
+                canonical=None,
+                artifact=self.result(leader).artifact,
+                error_code="sd_hash_conflict",
+                error_message="Descriptor already committed",
+            ),
+        ]
+
+        cycle = self.scheduler.run()
+
+        self.assertEqual(cycle.attempted, 2)
+        self.assertEqual(cycle.published, 1)
+        self.assertEqual(cycle.conflicts, 1)
+        calls = [call.args[0].release_id for call in self.client.publish.call_args_list]
+        self.assertEqual(calls, [leader.id, divergent.id])
+        self.assertEqual(
+            self.store.get(divergent.id, divergent.sd_hash).publication_state,
+            PublicationState.CONFLICT,
+        )
+
     def test_retryable_failure_blocks_lower_priority_same_sha(self) -> None:
         content = b"same payload"
         leader = self.complete(

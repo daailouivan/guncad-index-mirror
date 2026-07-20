@@ -78,13 +78,24 @@
                                 {{ entry.slug }} · {{ entry.file_name }}
                                 {% if entry.size is not none %}· {{ entry.size | humanize_bytes }}{% endif %}
                             </p>
-                            <p class="fine-print breakable">Descriptor {{ entry.sd_hash[:12] }}</p>
+                            <p class="fine-print breakable">
+                                Descriptor {{ entry.sd_hash[:12] }} · Index publication: {{ entry.publication_state.value }}
+                            </p>
                             <div class="archive-actions">
                                 <a class="button"
                                    href="{{ url_for('download_payload', release_id=entry.release_id, sd_hash=entry.sd_hash) }}">Download file</a>
                                 <a class="button button-secondary"
                                    href="{{ url_for('download_torrent', release_id=entry.release_id, sd_hash=entry.sd_hash) }}">Download torrent</a>
-                                {% if entry.magnet_uri %}<a class="button button-secondary" href="{{ entry.magnet_uri }}">Magnet</a>{% endif %}
+                                {% if entry.canonical_torrent_url %}
+                                    <a class="button button-secondary"
+                                       href="{{ entry.canonical_torrent_url }}">Index torrent</a>
+                                {% endif %}
+                                {% if entry.canonical_magnet_uri %}
+                                    <a class="button button-secondary"
+                                       href="{{ entry.canonical_magnet_uri }}">Canonical magnet</a>
+                                {% elif entry.magnet_uri %}
+                                    <a class="button button-secondary" href="{{ entry.magnet_uri }}">Magnet</a>
+                                {% endif %}
                             </div>
                         </article>
                     {% endfor %}
@@ -110,7 +121,7 @@
             {% endif %}
         </main>
         <footer class="footer">
-            <p>Only locally verified <code>awaiting_index</code> artifacts are listed.</p>
+            <p>Only locally verified artifacts are listed. Index publication state does not affect local downloads.</p>
         </footer>
     </body>
 </html>

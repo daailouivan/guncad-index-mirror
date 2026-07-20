@@ -135,9 +135,13 @@ class PublicationScheduler:
         stop: Event | None,
     ) -> PublicationCycleResult:
         result = PublicationCycleResult()
-        descriptor_groups: dict[str, list[PublicationCandidate]] = defaultdict(list)
+        descriptor_groups: dict[tuple[str, str | None], list[PublicationCandidate]] = (
+            defaultdict(list)
+        )
         for candidate in candidates:
-            descriptor_groups[candidate.release.sd_hash].append(candidate)
+            descriptor_groups[
+                (candidate.release.sd_hash, candidate.job.info_hash)
+            ].append(candidate)
         ordered = sorted(
             descriptor_groups.values(),
             key=lambda group: _candidate_order(min(group, key=_candidate_order)),

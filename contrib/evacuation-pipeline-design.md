@@ -69,9 +69,13 @@ Index API v2
     -> create BitTorrent v1 metainfo and magnet URI
     -> atomically write torrent and manifest
     -> awaiting_index
+    -> optional authenticated Index publication
+    -> published, duplicate, rejected, conflict, or retrying
 ```
 
-The final state is named `awaiting_index` on purpose. There is no Index torrent-ingestion endpoint, credential, or POST request in this repository yet. The local outbox is a testable stopping point that prevents an unfinished client from silently publishing data.
+The acquisition state remains `awaiting_index` after publication. It means Mirror has a verified local payload, torrent, and source-evidence manifest. A second state machine records what happened at Index without converting a rejected API request into a missing local archive.
+
+Publication is disabled unless `MIRROR_PUBLISH_ENABLED`, `MIRROR_PUBLISH_URL`, and `MIRROR_PUBLISH_TOKEN` are set. This keeps an upgraded archive from writing to Index merely because the new image contains a client.
 
 ## Direct stream acquisition
 
@@ -123,6 +127,20 @@ pending -> acquiring -> verified -> awaiting_index
                    +-> failed -> acquiring after backoff
 excluded by policy -> acquiring after policy changes
 ```
+
+Publication starts only after `awaiting_index`:
+
+```text
+pending -> publishing -> published
+                     +-> duplicate
+                     +-> rejected
+                     +-> conflict
+                     +-> retrying -> publishing
+```
+
+The queue groups jobs by plaintext SHA-384. It submits the highest-popularity descriptor first, then processes other descriptors for the same bytes. Releases sharing one `(sd_hash, SHA-384, BTIH)` use one successful POST and receive the same canonical receipt. If two local rows somehow bind one descriptor to different BTIH values, Mirror submits both and lets Index retain the first permanent binding while returning an operator-visible conflict for the other. A retry deadline on the group leader blocks lower-popularity candidates, so a 429 response cannot hand the canonical race to whichever duplicate happened to run next.
+
+Publication attempts are committed before the HTTP request. A process that stops in `publishing` recovers that row to `retrying` at startup. Network failures, HTTP 429, and most server errors retain a backoff deadline; 401, 403, 404, and 503 pause all publication because they identify a token, route, or server-configuration problem.
 
 One release failure does not abort later releases. Failed jobs retain their typed error and retry deadline. Size and channel policy skips are terminal `excluded` jobs until the configured policy changes, and retain their exclusion reason without inflating the failure count. HTTP and JSON-RPC operations use bounded exponential retry. API pagination is bounded, rejects loops, and cannot leave the configured scheme and host. The process budgets two copies of each advertised payload plus a free-space reserve before starting acquisition. The stream timeout measures stalled time, not total transfer time: each decrease in `blobs_remaining` renews the deadline, so a large active download can finish without letting one dead stream hold the queue forever. If lbrynet exhausts its peer search and stops a stream, Mirror gives it one explicit resume attempt. A second stopped result fails the release immediately because no downloader remains active; the durable job ledger retries it during a later cycle.
 
@@ -183,7 +201,7 @@ The current fast idempotence check confirms that the payload, torrent, and manif
     "sha256": "<plaintext SHA-256>"
   },
   "torrent": {
-    "file_name": "<torrent filename>",
+    "file_name": "<assembled filename>",
     "piece_length": 1048576,
     "piece_count": 1,
     "btih": "<40-character BTIH>",
@@ -194,9 +212,11 @@ The current fast idempotence check confirms that the payload, torrent, and manif
 }
 ```
 
-The future Index endpoint should accept the torrent file and manifest as one idempotent request. A repeated submission with the same release ID, descriptor hash, plaintext checksum, and torrent checksum should return the existing record. A conflicting checksum should be rejected and retained for operator review, not overwritten.
+Mirror rebuilds a compact wire manifest from this source record, its SQLite ledger, and a fresh parse of the torrent. It sends that JSON plus the `.torrent` file to `/api/v2/torrents/publish/` as two multipart fields. Payload bytes stay on the Mirror node.
 
-## Planned Index work
+The response schema is `guncad-index-torrent-publication-v1`. Mirror accepts 200 `idempotent`, 201 `created` or `promoted`, and 409 `artifact_duplicate` only after the receipt matches the submitted descriptor, SHA-384, and BTIH. It stores the canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID. A contradictory receipt pauses publication instead of recording success.
+
+## Index handoff and continuity work
 
 ### Creator continuity before a shutdown
 
@@ -209,26 +229,28 @@ The highest-value work while Odysee remains writable is binding existing channel
 
 Those controls provide a reason to complete verification before an emergency. The nonce path stops working when Odysee channel editing stops, so it has a different deadline from bulk payload evacuation.
 
-### Torrent records before torrent uploads
+### Implemented torrent handoff
 
-Index should first learn how to describe a torrent mirror without exposing a public upload form:
+Index now accepts Mirror's compact evidence manifest and torrent metainfo without accepting the assembled payload. Its torrent application provides:
 
-- add torrent, magnet, plaintext checksum, size, and seeding-status fields to a release origin or mirror record;
-- add an origin state for releases uploaded through Index so external synchronization does not overwrite them;
-- expose torrent metadata through API v2;
-- add authenticated, idempotent ingestion for Mirror's outbox contract;
-- keep public UI controls behind a feature flag until the storage, moderation, and legal procedures exist.
+- authenticated publication with a shared high-entropy bearer;
+- permanent `(sd_hash, SHA-384, BTIH)` receipts;
+- SHA-384 artifact deduplication and popularity-led canonical election;
+- checksum and size backfill for descriptor-authenticated legacy origins;
+- direct torrent downloads, query-filtered RSS, and a bootstrap ZIP.
+
+Mirror keeps the assembled file. Index stores the metainfo and the evidence needed to associate it with existing releases. This limits the publication request to a few megabytes even when the payload is tens of gigabytes.
 
 ### Emergency feature flag
 
-If Odysee becomes unavailable, one feature flag can expose the prepared system:
+Index calls this switch `WINTER CONTINGENCY`. If Odysee becomes unavailable, it changes LBRY visibility and creator enrollment without disabling stored torrent metadata:
 
 - accept creator uploads that have no surviving external origin;
 - show torrent and magnet download controls;
 - publish query-filterable torrent RSS feeds;
 - advertise how to add a filtered feed to qBittorrent or another client.
 
-The Index already passes arbitrary search parameters through its feed views. A torrent feed can preserve that behavior, allowing a seeder to select channels, tags, platforms, or other Index queries without new policy code in Mirror.
+The Index passes arbitrary search parameters through its torrent feeds. A seeder can select channels, tags, platforms, or other Index queries without new policy code in Mirror.
 
 ## Recovery from an Index outage
 
@@ -281,18 +303,16 @@ The first entrypoint did not wait for lbrynet during container exit. This matter
 
 The corrected supervisor sends lbrynet `SIGTERM`, waits for both database checkpoints and `Headers.close()`, and only then lets the container exit. The first fixed run wrote a 234,352,496-byte header file. The next cold start added one new tip header instead of replaying the chain and reached ready about 12 seconds after Mirror's first RPC probe. The SDK continued filling older missing checkpoint chunks in the background, and those chunks were persisted on the next clean exit.
 
-The test did not contact a future Index upload endpoint because none exists.
+That first checkpoint stopped at the local outbox. It predates the Index publication endpoint and the publication client described above.
 
 ## Unresolved work
 
-The next external contract is on the Index side, not Mirror:
+The remaining work is operational:
 
-1. Define the torrent record and origin model.
-2. Define authenticated, idempotent outbox ingestion.
-3. Add creator accounts and Odysee nonce verification while channel editing still works.
-4. Expose torrent metadata in API v2.
-5. Produce query-filtered torrent RSS and static recovery snapshots.
-6. Decide moderation, takedown, access-control, and legal procedures before accepting bespoke uploads.
-7. Connect at least one BitTorrent client to the feed and prove retrieval from a second peer.
+1. Publish a bounded test archive into a non-production Index and verify its stored receipt, torrent download, and magnet.
+2. Backfill the archived corpus and investigate every terminal rejection or evidence conflict.
+3. Connect at least one BitTorrent client to a filtered feed and prove retrieval from a second peer.
+4. Decide moderation, takedown, access-control, and legal procedures before accepting bespoke uploads.
+5. Establish a scheduled integrity-scrub policy and measure peer failures on later reconciliation runs.
 
-Mirror still needs long-duration full-corpus testing, restart testing during acquisition, scheduled integrity-scrub policy, and measurement of LBRY peer failures across the catalog. None of those require changing the current boundary: verified bytes and torrent artifacts stop in the local outbox until Index is ready to receive them.
+Mirror has already completed one full-corpus acquisition, but that proves byte evacuation rather than long-term swarm health. The Index handoff, external seeding, and recovery snapshots need their own operational checks.

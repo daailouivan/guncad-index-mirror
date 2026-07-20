@@ -1,7 +1,7 @@
 # GunCAD Mirror
 
 > [!WARNING]
-> GunCAD Mirror has not had a stable release. Its current publication boundary is a local outbox. It does not upload torrents to GunCAD Index yet.
+> GunCAD Mirror has not had a stable release. Index publication is opt-in and writes production records. Test the endpoint and bearer against a non-production Index before enabling it on an existing archive.
 
 > [!WARNING]
 > This software downloads and prepares redistribution metadata for 3D-printable firearm files. Possession, export, or distribution may be illegal where you live. The operator is responsible for complying with applicable law.
@@ -21,7 +21,8 @@ For every valid API v2 release whose `origin.platform` is `lbry`, Mirror perform
 5. Compute the exact size, SHA-384, and SHA-256. When the Index supplies size or SHA-384 values, require an exact match.
 6. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
 7. Atomically write the torrent and `manifest.json` under `/data/outbox`.
-8. Mark the SQLite job `awaiting_index` and stop. No POST request is made.
+8. Mark the acquisition job `awaiting_index`. This state means the local payload, torrent, and manifest are complete.
+9. When publication is enabled, send the manifest and torrent to the configured Index endpoint. Store the returned canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID in SQLite.
 
 Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that lack an Odysee page remain eligible because Mirror acquires them by `sd_hash`; the public proxy may or may not have a CDN copy. Some early LBRY claims contain neither source size nor source hash. Mirror preserves those descriptor-authenticated payloads and records computed values, but never sends them through the CDN fallback or presents them as independently corroborated. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
@@ -44,6 +45,14 @@ podman compose --env-file guncad-mirror.env up -d
 ```
 
 The default endpoint scans the full GunCAD Index API v2 catalog. Edit `MIRROR_API_ENDPOINT` in `guncad-mirror.env` before startup if you want a filtered mirror.
+
+Index publication is disabled in the example configuration. Enabling it requires all three values below. The bearer belongs in the environment file, which should be readable only by the account that runs the container.
+
+```text
+MIRROR_PUBLISH_ENABLED="True"
+MIRROR_PUBLISH_URL="https://guncadindex.com/api/v2/torrents/publish/"
+MIRROR_PUBLISH_TOKEN="<high-entropy bearer>"
+```
 
 ### Running the local development image
 
@@ -71,6 +80,12 @@ To reuse the data produced by `contrib/test-docker.sh`, set `MIRROR_DATA_VOLUME`
 ./contrib/test-docker.sh
 ```
 
+Select a separate service environment without editing the checked-in example:
+
+```bash
+MIRROR_SMOKE_ENV_FILE=.mirror.env ./contrib/test-docker.sh
+```
+
 Do not turn that script into a full-corpus runner. Use the production Compose file for a long-running backfill.
 
 ## Filtering the Index
@@ -95,7 +110,9 @@ Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` 
 
 Open `http://localhost:8081/archive` to browse jobs in `awaiting_index`. Search terms match release names, channel handles, & LBRY origin slugs without scanning the full API JSON stored for each job. Multiple terms must all match. Results are ordered by channel & release name, 50 rows per page.
 
-Each result links to the assembled payload, its `.torrent` file, & its magnet URI. Payload responses support HTTP byte ranges, so an interrupted browser download can resume. Paths are read from the verified SQLite ledger; the server rejects unfinished jobs, missing files, & paths outside `/data` or `/data/outbox`.
+Each result links to the assembled payload and locally generated `.torrent` file. After Index publication, the card also shows the elected canonical torrent and magnet URI. A duplicate release may retain a different local BTIH while pointing seeders at the Index winner for its shared SHA-384.
+
+Payload responses support HTTP byte ranges, so an interrupted browser download can resume. Paths are read from the verified SQLite ledger; the server rejects unfinished jobs, missing files, & paths outside `/data` or `/data/outbox`.
 
 The supplied Compose mapping binds port 8081 on every host interface. The browser has no login or TLS. Anyone who can reach that port can search & download the assembled files, so bind it to `127.0.0.1` or place it behind access control unless public downloads are intentional.
 
@@ -117,8 +134,8 @@ The old pickle cache at `/data/sd_hash_cache.pkl` is ignored. The new SQLite led
 | --- | --- |
 | `/data/lbry` | lbrynet configuration, chain headers, stream database, stream descriptors, and encrypted blobs. Preserve this directory between runs. |
 | `/data/releases/<channel>/<release>-<sd-prefix>/` | Assembled plaintext payload and the raw API v2 `release.json`. |
-| `/data/outbox/<release-id>/<sd-hash>/` | Deterministic `.torrent` file and `manifest.json` prepared for the future Index publication API. |
-| `/data/mirror-state.sqlite3` | Durable job state, attempts, retry deadlines, verified hashes, torrent paths, BTIH values, and magnet URIs. |
+| `/data/outbox/<release-id>/<sd-hash>/` | Deterministic `.torrent` file and source-evidence `manifest.json` used to build the Index request. |
+| `/data/mirror-state.sqlite3` | Acquisition state, publication attempts, retry deadlines, verified hashes, local BTIH values, and canonical Index receipts. |
 | `/data/reports` | Consolidated archive audit output when `python -m guncadmirror.audit` is run. |
 | `/data/log` | Mirror and lbrynet logs. |
 
@@ -158,6 +175,11 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_ENABLE_WEBUI` | `false` | Serve the local status page on container port 5000. |
 | `MIRROR_TORRENT_PIECE_LENGTH` | `1048576` | BitTorrent v1 piece length. Must be a power of two and at least 16 KiB. |
 | `MIRROR_TORRENT_TRACKERS` | empty | Comma-separated HTTP, HTTPS, or UDP announce URLs. Empty creates trackerless metainfo. |
+| `MIRROR_PUBLISH_ENABLED` | `false` | Enable authenticated Index publication. URL and token become required. |
+| `MIRROR_PUBLISH_URL` | empty | Absolute HTTP(S) torrent publication endpoint. Embedded credentials are rejected. |
+| `MIRROR_PUBLISH_TOKEN` | empty | Bearer sent only in the `Authorization` header. Whitespace and control characters are rejected. |
+| `MIRROR_PUBLISH_CONCURRENCY` | `2` | Maximum SHA-384 groups published at once. Candidates within one group remain popularity ordered. |
+| `MIRROR_PUBLISH_TIMEOUT` | `60` | Read timeout for one publication POST. |
 
 The command-line entry point also accepts:
 
@@ -177,7 +199,21 @@ pending -> acquiring -> verified -> awaiting_index
 excluded by policy -> acquiring (after policy changes)
 ```
 
-`awaiting_index` is terminal only because the Index upload endpoint does not exist yet. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite. Size and channel-policy exclusions retain their reason without counting as failures; a later policy change makes them eligible for acquisition.
+`awaiting_index` is terminal for acquisition. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite. Size and channel-policy exclusions retain their reason without counting as failures; a later policy change makes them eligible for acquisition.
+
+Publication has a separate state machine:
+
+```text
+pending -> publishing -> published
+                     +-> duplicate
+                     +-> rejected
+                     +-> conflict
+                     +-> retrying -> publishing
+```
+
+Network errors, HTTP 429, and most HTTP 5xx responses enter `retrying`. Mirror honors `Retry-After` and keeps lower-popularity descriptors for the same SHA-384 behind the failed leader. Rows with the same descriptor, plaintext hash, and BTIH share one POST; a divergent BTIH is submitted separately so Index can report the descriptor conflict. HTTP 401, 403, 404, and 503 pause the whole publisher because retrying every queued artifact cannot repair a bad token, wrong route, or disabled server endpoint. A process exit during `publishing` recovers to `retrying` on startup.
+
+HTTP 200 and 201 responses end in `published`. An `artifact_duplicate` response ends in `duplicate` and stores the Index winner. Other HTTP 409 responses end in `conflict`; HTTP 400 and 413 responses end in `rejected`. These states never delete the local payload or torrent.
 
 The scheduler has three separate worker pools: four LBRY acquisitions, two Odysee fallbacks, and two local finalization jobs by default. A release gives up its LBRY slot before entering the Odysee queue, so two slow CDN transfers don't reduce the four LBRY slots. Mirror reserves space for encrypted blobs & plaintext before submitting work. A release waits when another active reservation is the only reason it can't start; actual free-space shortage records a skip and an operator event.
 
@@ -185,12 +221,32 @@ Each worker handles one release per stage. A failure does not discard completed 
 
 On termination, Tini forwards the container signal. Mirror returns after the current network call or file chunk, then the entrypoint waits for lbrynet to checkpoint its databases and flush chain headers before exiting.
 
+## Index publication request
+
+Mirror sends one `POST` with `Authorization: Bearer <token>` and exactly two multipart fields. `manifest` is compact JSON under 64 KiB. `torrent` is the generated BitTorrent metainfo under 4 MiB. The assembled payload is not part of this request.
+
+The wire manifest is rebuilt from the SQLite ledger and parsed torrent instead of forwarding the larger source-evidence manifest verbatim. Mirror parses the same strict single-file BitTorrent v1 subset as Index, recalculates the BTIH and torrent SHA-256, and checks the payload filename, length, magnet URI, and tracker order before opening the HTTP connection. Source manifests written before acquisition evidence existed are sent as `acquisition.transport=lbry`.
+
+Index responses use schema `guncad-index-torrent-publication-v1`:
+
+| HTTP status | Mirror result |
+| ---: | --- |
+| `201 created` or `201 promoted` | Store the canonical receipt and mark the job `published`. |
+| `200 idempotent` | Verify the receipt matches the submitted `sd_hash`, SHA-384, and BTIH, then mark `published`. |
+| `409 artifact_duplicate` | Store the winning torrent URL and magnet, then mark `duplicate`. |
+| Other `409` | Store the stable error code and any returned winner, then mark `conflict`. |
+| `400` or `413` | Mark `rejected`; changing credentials won't repair invalid evidence. |
+| Network error, `429`, or most `5xx` | Schedule a durable retry. |
+| `401`, `403`, `404`, or `503` | Pause the publisher and retry after the operator-level cooldown. |
+
+The client rejects a response whose receipt doesn't describe the exact submission. It also rejects malformed canonical URLs, magnets whose `xt` parameter doesn't name the returned BTIH, and a `canonical` flag that contradicts the returned artifact.
+
 ## Archive inventory and integrity audit
 
 Mirror can consolidate the SQLite ledger and per-release manifests into five operator-facing files:
 
 - `archive-summary.json`: counts, bytes, unique payloads, evidence classes, transports, and integrity totals.
-- `archive-artifacts.csv`: one row per `awaiting_index` job, including hashes, paths, BTIH, magnet URI, and acquisition evidence.
+- `archive-artifacts.csv`: one row per `awaiting_index` job, including local hashes, acquisition evidence, publication attempts, terminal errors, and canonical Index receipt fields.
 - `archive-failures.csv`: typed acquisition failures and retry state.
 - `archive-exclusions.csv`: releases omitted by configured size or channel policy, including the durable reason.
 - `archive-issues.csv`: missing files, path escapes, manifest contradictions, hash failures, unfinished jobs, and orphaned outbox files.
@@ -218,6 +274,7 @@ Mirror therefore keeps three separate identifiers:
 - Index release ID: metadata/job identity.
 - LBRY `sd_hash`: acquisition identity for one encrypted stream.
 - Index `origin.checksum`: expected SHA-384 of the assembled plaintext when the legacy claim provides one.
+- Torrent BTIH: identity of one BitTorrent `info` dictionary, including the payload filename and piece geometry.
 
 The torrent BTIH is computed from canonical bencoding of the BitTorrent v1 `info` dictionary. The outbox manifest also records SHA-256 of the plaintext and torrent file.
 
@@ -225,7 +282,6 @@ The manifest's `acquisition.transport` is `lbry` when descriptor and content blo
 
 ## Known limits
 
-- Mirror does not POST to GunCAD Index. The outbox is the handoff point for that future work.
 - Mirror does not run a BitTorrent client or seed generated torrents.
 - The patched RPC removes claim resolution from normal acquisition, but lbry-sdk's file manager still depends on wallet startup. A fresh data volume therefore pays the LBRY chain-header sync before downloads begin.
 - When connected to an unpatched stock daemon, Mirror falls back to claim URI resolution only if `stream_get` is absent. It rejects the result if the resolved `sd_hash` differs from the Index value.

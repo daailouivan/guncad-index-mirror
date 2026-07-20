@@ -107,6 +107,8 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_API_MAX_PAGES": "0"}, "at least"),
             ({"MIRROR_LBRY_CONCURRENCY": "0"}, "at least"),
             ({"MIRROR_LOOP_INTERVAL": "wat"}, "numeric"),
+            ({"MIRROR_LOOP_INTERVAL": "nan"}, "finite"),
+            ({"MIRROR_PUBLISH_TIMEOUT": "inf"}, "finite"),
             ({"MIRROR_LOOP_INTERVAL": "0"}, "at least"),
             ({"MIRROR_CYCLE_ERROR_INTERVAL": "0"}, "at least"),
             ({"MIRROR_API_ENDPOINT": "ftp://bad"}, "absolute HTTP"),

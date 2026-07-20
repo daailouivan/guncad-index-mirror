@@ -11,7 +11,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from guncadmirror.audit import audit_archive, main, write_report
-from guncadmirror.models import AcquisitionEvidence, AcquisitionTransport
+from guncadmirror.models import (
+    AcquisitionEvidence,
+    AcquisitionTransport,
+    PublicationState,
+)
 from guncadmirror.publisher import OutboxPublisher
 from guncadmirror.state import JobStore
 from guncadmirror.torrent import create_torrent
@@ -97,6 +101,9 @@ class ArchiveAuditTests(unittest.TestCase):
         self.assertEqual(len(report.artifacts), 1)
         artifact = report.artifacts[0]
         self.assertTrue(artifact.valid)
+        self.assertEqual(artifact.publication_state, "pending")
+        self.assertEqual(report.publication_counts, {"pending": 1})
+        self.assertEqual(report.summary()["publication_counts"], {"pending": 1})
         self.assertEqual(artifact.size, len(b"payload"))
         self.assertEqual(artifact.acquisition_transport, "odysee-cdn")
         self.assertIn("no peers", artifact.acquisition_lbry_failure)
@@ -131,6 +138,7 @@ class ArchiveAuditTests(unittest.TestCase):
         with paths[1].open(newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(rows[0]["release_id"], self.release.id)
+        self.assertEqual(rows[0]["publication_state"], "pending")
         with paths[3].open(newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(rows[0]["release_id"], self.excluded_release.id)
@@ -148,6 +156,69 @@ class ArchiveAuditTests(unittest.TestCase):
 
         self.assertTrue(report.artifacts[0].valid)
         self.assertEqual(report.artifacts[0].acquisition_transport, "lbry")
+
+    def test_validates_and_reports_terminal_publication_receipts(self) -> None:
+        btih = self.store.get(self.release.id, self.release.sd_hash).info_hash
+        self.store.finish_publication(
+            ((self.release.id, self.release.sd_hash),),
+            state=PublicationState.PUBLISHED,
+            outcome="created",
+            canonical=True,
+            canonical_sha384=hash_file(self.payload).sha384,
+            canonical_btih=btih,
+            canonical_torrent_url=f"https://index.example/torrents/{btih}/",
+            canonical_magnet_uri=f"magnet:?xt=urn:btih:{btih}",
+            winning_release_id=self.release.id,
+        )
+
+        report = audit_archive(self.data_dir)
+
+        artifact = report.artifacts[0]
+        self.assertTrue(artifact.valid)
+        self.assertEqual(artifact.publication_state, "published")
+        self.assertEqual(artifact.publication_outcome, "created")
+        self.assertTrue(artifact.publication_canonical)
+        self.assertEqual(artifact.canonical_btih, btih)
+        self.assertEqual(report.publication_counts, {"published": 1})
+
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE jobs SET canonical_magnet_uri='bad'
+                WHERE release_id=? AND sd_hash=?
+                """,
+                (self.release.id, self.release.sd_hash),
+            )
+        messages = [issue.message for issue in audit_archive(self.data_dir).issues]
+        self.assertIn("magnet URI does not identify the job BTIH", messages)
+
+    def test_reports_invalid_publication_states_and_terminal_errors(self) -> None:
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE jobs SET publication_state='mystery'
+                WHERE release_id=? AND sd_hash=?
+                """,
+                (self.release.id, self.release.sd_hash),
+            )
+        report = audit_archive(self.data_dir)
+        self.assertTrue(
+            any("unknown publication state" in issue.message for issue in report.issues)
+        )
+
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE jobs SET
+                    publication_state='conflict', publication_error_code=NULL
+                WHERE release_id=? AND sd_hash=?
+                """,
+                (self.release.id, self.release.sd_hash),
+            )
+        report = audit_archive(self.data_dir)
+        self.assertTrue(
+            any("no reason code" in issue.message for issue in report.issues)
+        )
 
     def test_finds_bitrot_manifest_contradictions_and_orphans(self) -> None:
         self.payload.write_bytes(b"payloae")

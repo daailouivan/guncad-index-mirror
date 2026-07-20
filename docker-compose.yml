@@ -3,7 +3,7 @@ services:
   guncad-mirror:
     image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
     stop_grace_period: 2m
-    env_file: guncad-mirror.env
+    env_file: "${MIRROR_ENV_FILE:-guncad-mirror.env}"
     volumes:
       - guncad-mirror:/data:Z
     ports:

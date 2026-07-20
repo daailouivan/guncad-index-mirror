@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from guncadmirror.models import Release, TorrentArtifact
+from guncadmirror.models import PublicationState, Release, TorrentArtifact
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
 from guncadmirror.webui import create_app, start
@@ -46,6 +46,10 @@ class WebUiTests(unittest.TestCase):
             "mirror_lbry_concurrency": 4,
             "mirror_odysee_concurrency": 2,
             "mirror_finalize_concurrency": 2,
+            "mirror_publish_enabled": False,
+            "mirror_publish_url": "",
+            "mirror_publish_concurrency": 2,
+            "mirror_publish_timeout": 60,
             "mirror_enable_webui": True,
             "mirror_blacklisted_handles": (),
             "mirror_release_max_size": 1024,
@@ -60,6 +64,7 @@ class WebUiTests(unittest.TestCase):
             "mirror_outbox_dir": "/data/outbox",
             "disk_space_used": 123,
             "job_counts": {"awaiting_index": 2, "excluded": 1},
+            "publication_counts": {"pending": 2},
             "known_jobs": 3,
             "activity": None,
             "activities": [],
@@ -136,6 +141,8 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Torrents staged", response.data)
         self.assertIn(b"excluded by policy", response.data)
         self.assertIn(b"Publication stops at the local outbox", response.data)
+        self.assertIn(b"Index publication", response.data)
+        self.assertIn(b"2</span> pending", response.data)
         self.assertIn(b"Browse verified files", response.data)
         self.assertNotIn(b"LBRY-only mode", response.data)
         self.assertNotIn(b"Assemble Files", response.data)
@@ -262,6 +269,49 @@ class WebUiTests(unittest.TestCase):
             client.get(f"/archive/{second.id}/bad/payload").status_code,
             404,
         )
+
+        self.store.finish_publication(
+            ((first.id, first.sd_hash),),
+            state=PublicationState.DUPLICATE,
+            outcome="artifact_duplicate",
+            canonical=False,
+            canonical_sha384="c" * 96,
+            canonical_btih="f" * 40,
+            canonical_torrent_url="https://index.example/torrents/f/",
+            canonical_magnet_uri="magnet:?xt=urn:btih:" + "f" * 40,
+            winning_release_id=second.id,
+        )
+        response = client.get("/archive?q=Alpha")
+        self.assertIn(b"Index publication: duplicate", response.data)
+        self.assertIn(b"Index torrent", response.data)
+        self.assertIn(b"Canonical magnet", response.data)
+
+    def test_enabled_publication_and_terminal_counts_render_without_a_token(
+        self,
+    ) -> None:
+        snapshot = self.collector.snapshot.return_value
+        snapshot.update(
+            {
+                "mirror_publish_enabled": True,
+                "mirror_publish_url": "https://index.example/api/v2/torrents/publish/",
+                "mirror_publish_concurrency": 3,
+                "mirror_publish_timeout": 20,
+                "publication_counts": {
+                    "published": 4,
+                    "duplicate": 2,
+                    "rejected": 1,
+                    "conflict": 1,
+                },
+            }
+        )
+
+        response = create_app(self.collector).test_client().get("/")
+
+        self.assertIn(b"Index publication is enabled", response.data)
+        self.assertIn(b"6</span>", response.data)
+        self.assertIn(b"operator attention", response.data)
+        self.assertIn(b"Publication workers", response.data)
+        self.assertNotIn(b"secret", response.data)
 
     def test_archive_downloads_reject_unfinished_missing_and_escaped_paths(
         self,

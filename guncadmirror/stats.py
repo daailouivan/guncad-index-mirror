@@ -53,11 +53,16 @@ class StatsCollector:
             "mirror_download_timeout": settings.download_timeout,
             "mirror_torrent_piece_length": settings.torrent_piece_length,
             "mirror_torrent_trackers": settings.torrent_trackers,
+            "mirror_publish_enabled": settings.publish_enabled,
+            "mirror_publish_url": settings.publish_url,
+            "mirror_publish_concurrency": settings.publish_concurrency,
+            "mirror_publish_timeout": settings.publish_timeout,
             "mirror_data_dir": str(settings.data_dir),
             "mirror_releases_dir": str(settings.releases_dir),
             "mirror_outbox_dir": str(settings.outbox_dir),
             "disk_space_used": 0,
             "job_counts": {},
+            "publication_counts": {},
             "known_jobs": 0,
             "activity": None,
             "activities": [],
@@ -138,12 +143,14 @@ class StatsCollector:
 
     def collect(self) -> None:
         counts = self.store.counts()
+        publication_counts = self.store.publication_counts()
         values = {
             "psutil_cpu": psutil.cpu_percent(interval=None),
             "psutil_mem": psutil.virtual_memory().percent,
             "psutil_net": psutil.net_io_counters(),
             "psutil_disk": psutil.disk_usage(self.settings.data_dir),
             "job_counts": counts,
+            "publication_counts": publication_counts,
             "known_jobs": sum(counts.values()),
         }
         with self._lock:

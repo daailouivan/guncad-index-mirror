@@ -17,7 +17,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from urllib.parse import parse_qs, urlsplit
 
-from .models import JobState, Release, ReleaseValidationError
+from .models import JobState, PublicationState, Release, ReleaseValidationError
 from .paths import ensure_within
 from .verification import hash_file
 
@@ -47,6 +47,19 @@ class ArtifactRecord:
     acquisition_transport: str | None
     acquisition_source_url: str | None
     acquisition_lbry_failure: str | None
+    publication_state: str
+    publication_attempts: int
+    publication_next_attempt_at: float
+    publication_outcome: str | None
+    publication_canonical: bool | None
+    canonical_sha384: str | None
+    canonical_btih: str | None
+    canonical_torrent_url: str | None
+    canonical_magnet_uri: str | None
+    winning_release_id: str | None
+    publication_error_code: str | None
+    publication_error: str | None
+    publication_updated_at: float | None
     updated_at: float
     valid: bool
     validation_errors: str
@@ -88,6 +101,7 @@ class ArchiveReport:
     data_dir: str
     rehashed_payloads: bool
     job_counts: Mapping[str, int]
+    publication_counts: Mapping[str, int]
     artifacts: tuple[ArtifactRecord, ...]
     failures: tuple[FailureRecord, ...]
     exclusions: tuple[ExclusionRecord, ...]
@@ -111,6 +125,7 @@ class ArchiveReport:
             "data_dir": self.data_dir,
             "rehashed_payloads": self.rehashed_payloads,
             "job_counts": dict(sorted(self.job_counts.items())),
+            "publication_counts": dict(sorted(self.publication_counts.items())),
             "artifacts": {
                 "total": len(self.artifacts),
                 "valid": len(valid),
@@ -155,6 +170,7 @@ def audit_archive(
 
     job_counts = Counter(str(row["state"]) for row in rows)
     ready_rows = [row for row in rows if row["state"] == JobState.AWAITING_INDEX]
+    publication_counts = Counter(str(row["publication_state"]) for row in ready_rows)
     artifacts: list[ArtifactRecord] = []
     failures: list[FailureRecord] = []
     exclusions: list[ExclusionRecord] = []
@@ -222,6 +238,7 @@ def audit_archive(
         data_dir=str(data_dir),
         rehashed_payloads=rehash_payloads,
         job_counts=dict(job_counts),
+        publication_counts=dict(publication_counts),
         artifacts=tuple(artifacts),
         failures=tuple(failures),
         exclusions=tuple(exclusions),
@@ -340,6 +357,8 @@ def _audit_artifact(
             errors,
         )
 
+    _validate_publication(row, errors)
+
     issues = [AuditIssue(release_id, sd_hash, message) for message in errors]
     artifact = ArtifactRecord(
         release_id=release_id,
@@ -362,11 +381,101 @@ def _audit_artifact(
         acquisition_transport=transport,
         acquisition_source_url=source_url,
         acquisition_lbry_failure=lbry_failure,
+        publication_state=str(row["publication_state"]),
+        publication_attempts=int(row["publication_attempts"]),
+        publication_next_attempt_at=float(row["publication_next_attempt_at"]),
+        publication_outcome=row["publication_outcome"],
+        publication_canonical=(
+            None
+            if row["publication_canonical"] is None
+            else bool(row["publication_canonical"])
+        ),
+        canonical_sha384=row["canonical_sha384"],
+        canonical_btih=row["canonical_btih"],
+        canonical_torrent_url=row["canonical_torrent_url"],
+        canonical_magnet_uri=row["canonical_magnet_uri"],
+        winning_release_id=row["winning_release_id"],
+        publication_error_code=row["publication_error_code"],
+        publication_error=row["publication_error"],
+        publication_updated_at=(
+            None
+            if row["publication_updated_at"] is None
+            else float(row["publication_updated_at"])
+        ),
         updated_at=float(row["updated_at"]),
         valid=not errors,
         validation_errors=" | ".join(errors),
     )
     return artifact, issues, manifest_path, torrent_path
+
+
+def _validate_publication(row: sqlite3.Row, errors: list[str]) -> None:
+    try:
+        state = PublicationState(row["publication_state"])
+    except ValueError:
+        errors.append(f"unknown publication state {row['publication_state']!r}")
+        return
+    if state in {PublicationState.PUBLISHED, PublicationState.DUPLICATE}:
+        for field, length in (
+            ("canonical_sha384", 96),
+            ("canonical_btih", 40),
+            ("winning_release_id", 40),
+        ):
+            value = row[field]
+            _expect(
+                errors,
+                isinstance(value, str)
+                and len(value) == length
+                and all(character in "0123456789abcdef" for character in value),
+                f"published job {field} is not a lowercase hexadecimal digest",
+            )
+        _expect(
+            errors,
+            _is_safe_http_url(row["canonical_torrent_url"]),
+            "published job has an invalid canonical torrent URL",
+        )
+        _validate_magnet(row["canonical_magnet_uri"], row["canonical_btih"], errors)
+        _expect(
+            errors,
+            row["canonical_sha384"] == row["sha384"],
+            "published canonical SHA-384 differs from the payload",
+        )
+        canonical = row["publication_canonical"]
+        _expect(
+            errors,
+            canonical in {0, 1}
+            and bool(canonical) == (row["canonical_btih"] == row["info_hash"]),
+            "published canonical flag contradicts the BTIH",
+        )
+        expected_outcomes = (
+            {"artifact_duplicate"}
+            if state is PublicationState.DUPLICATE
+            else {"created", "promoted", "idempotent"}
+        )
+        _expect(
+            errors,
+            row["publication_outcome"] in expected_outcomes,
+            "published job has an invalid outcome",
+        )
+    if state in {PublicationState.REJECTED, PublicationState.CONFLICT}:
+        _expect(
+            errors,
+            isinstance(row["publication_error_code"], str)
+            and bool(row["publication_error_code"]),
+            "terminal publication error has no reason code",
+        )
+
+
+def _is_safe_http_url(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    parsed = urlsplit(value)
+    return bool(
+        parsed.scheme in {"http", "https"}
+        and parsed.netloc
+        and not parsed.username
+        and not parsed.password
+    )
 
 
 def _validate_manifest(

@@ -32,6 +32,10 @@
 * Changed stream timeouts to measure time without blob progress so large healthy downloads are not rejected by a wall-clock deadline
 * Made termination signals cancel network acquisition and local hashing without deleting resumable bytes or recording a failed job
 * Removed the optional assembly, pickle cache, and Index-failure claim-search paths; plaintext assembly is now required for verified torrent generation
+* Added opt-in authenticated publication of verified manifests and torrent metainfo to GunCAD Index API v2
+* Added crash-safe publication states, durable retry deadlines, canonical winner receipts, and popularity-led SHA-384 scheduling
+* Added publication state and canonical Index links to the web UI, archive browser, and integrity reports without exposing bearer tokens
+* Added configurable Compose environment files so bounded smoke tests can use local publication credentials without changing the checked-in sample
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
 * Added: More tracker announcement hosts and a script to pull a list from an authoritative source

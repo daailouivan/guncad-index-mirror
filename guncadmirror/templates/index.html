@@ -35,6 +35,13 @@
         {% set awaiting_index = job_counts.get('awaiting_index', 0) %}
         {% set excluded = job_counts.get('excluded', 0) %}
         {% set failed = job_counts.get('failed', 0) %}
+        {% set publication_pending = publication_counts.get('pending', 0) %}
+        {% set publication_publishing = publication_counts.get('publishing', 0) %}
+        {% set publication_retrying = publication_counts.get('retrying', 0) %}
+        {% set publication_published = publication_counts.get('published', 0) %}
+        {% set publication_duplicates = publication_counts.get('duplicate', 0) %}
+        {% set publication_rejected = publication_counts.get('rejected', 0) %}
+        {% set publication_conflicts = publication_counts.get('conflict', 0) %}
         <header class="header">
             <img src="{{ url_for('static', filename='logo.png') }}"
                  class="logo"
@@ -53,10 +60,23 @@
                     Mirror will retry after backoff. Check the event log and container log for the cause.
                 </div>
             {% endif %}
-            <div class="banner banner-note">
-                <strong>Publication stops at the local outbox.</strong>
-                A job in <code>awaiting_index</code> has a verified payload, torrent, magnet URI, and manifest. Mirror does not POST any of them yet.
-            </div>
+            {% if publication_rejected or publication_conflicts %}
+                <div class="banner banner-error">
+                    <strong>Index publication needs operator attention.</strong>
+                    {{ publication_rejected }} rejected and {{ publication_conflicts }} conflicted job{% if publication_rejected + publication_conflicts != 1 %}s{% endif %} are terminal. Check notable events and the container log before changing evidence.
+                </div>
+            {% endif %}
+            {% if mirror_publish_enabled %}
+                <div class="banner banner-note">
+                    <strong>Index publication is enabled.</strong>
+                    Mirror sends verified manifests and torrents to <code>{{ mirror_publish_url }}</code>. Payload bytes remain local.
+                </div>
+            {% else %}
+                <div class="banner banner-note">
+                    <strong>Publication stops at the local outbox.</strong>
+                    Set <code>MIRROR_PUBLISH_ENABLED=True</code>, an Index endpoint, and a bearer token to publish staged torrents.
+                </div>
+            {% endif %}
             <section class="panel archive-callout">
                 <div>
                     <h2>Browsable archive</h2>
@@ -106,6 +126,10 @@
                     <span class="metric-label">Torrents staged</span>
                 </div>
                 <div class="metric">
+                    <span class="metric-value">{{ publication_published + publication_duplicates }}</span>
+                    <span class="metric-label">Index receipts</span>
+                </div>
+                <div class="metric">
                     <span class="metric-value">{{ failed }}</span>
                     <span class="metric-label">Failed jobs</span>
                 </div>
@@ -121,6 +145,21 @@
                     <span class="metric-value">{{ psutil_disk.free | humanize_bytes }}</span>
                     <span class="metric-label">Data volume free</span>
                 </div>
+            </section>
+            <section class="panel">
+                <h2>Index publication</h2>
+                <div class="job-grid">
+                    <div><span>{{ publication_pending }}</span> pending</div>
+                    <div><span>{{ publication_publishing }}</span> publishing</div>
+                    <div><span>{{ publication_retrying }}</span> retrying</div>
+                    <div><span>{{ publication_published }}</span> accepted</div>
+                    <div><span>{{ publication_duplicates }}</span> canonical duplicates</div>
+                    <div><span>{{ publication_rejected }}</span> rejected</div>
+                    <div><span>{{ publication_conflicts }}</span> evidence conflicts</div>
+                </div>
+                <p class="fine-print">
+                    Publication state is separate from acquisition state. A rejected POST does not discard its verified local payload or torrent.
+                </p>
             </section>
             <section class="panel">
                 <h2>Pipeline jobs</h2>
@@ -176,6 +215,28 @@
                                 <td>{{ mirror_max_releases_per_run or 'No cap' }}</td>
                                 <td>Bounds work without changing the configured search.</td>
                             </tr>
+                            <tr>
+                                <th scope="row">Index publication</th>
+                                <td>{{ 'Enabled' if mirror_publish_enabled else 'Disabled' }}</td>
+                                <td>Authenticated upload of verified manifests and torrent metainfo. The bearer token is never displayed.</td>
+                            </tr>
+                            {% if mirror_publish_enabled %}
+                                <tr>
+                                    <th scope="row">Publication endpoint</th>
+                                    <td class="breakable">{{ mirror_publish_url }}</td>
+                                    <td>Receives the two-part publication request.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Publication workers</th>
+                                    <td>{{ mirror_publish_concurrency }}</td>
+                                    <td>Maximum simultaneous SHA-384 groups; candidates within one payload group remain popularity ordered.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Publication timeout</th>
+                                    <td>{{ mirror_publish_timeout | humanize_seconds }}</td>
+                                    <td>Read timeout for one Index POST attempt.</td>
+                                </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">LBRY RPC</th>
                                 <td class="breakable">{{ mirror_lbry_url }}</td>

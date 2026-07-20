@@ -236,6 +236,13 @@ class IndexPublisherClientTests(unittest.TestCase):
             self.client.publish(self.submission)
         self.assertEqual(raised.exception.retry_after, 0)
 
+        for value in ("nan", "inf", "-inf"):
+            with self.subTest(value=value):
+                response.headers = {"Retry-After": value}
+                with self.assertRaises(RetryablePublicationError) as raised:
+                    self.client.publish(self.submission)
+                self.assertIsNone(raised.exception.retry_after)
+
     def test_manifest_encoding_is_canonical_and_bounded(self) -> None:
         self.assertEqual(encode_manifest({"z": 1, "a": 2}), b'{"a":2,"z":1}')
         with self.assertRaises(ValueError):

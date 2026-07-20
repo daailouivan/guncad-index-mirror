@@ -6,7 +6,10 @@ set -e
 default_endpoint='https://guncadindex.com/api/v2/releases/?format=json&limit=50&query=channel%3A%22%40ciwielab%3Ab%22%20OR%20channel%3A%22%40Decimal_Dot%3Ad%22%20OR%20channel%3AMaverick0197'
 MIRROR_SMOKE_API_ENDPOINT="${MIRROR_SMOKE_API_ENDPOINT:-$default_endpoint}"
 MIRROR_SMOKE_PROJECT="${MIRROR_SMOKE_PROJECT:-guncad-mirror-smoke}"
+MIRROR_SMOKE_ENV_FILE="${MIRROR_SMOKE_ENV_FILE:-guncad-mirror.env}"
+MIRROR_ENV_FILE="$MIRROR_SMOKE_ENV_FILE"
 export MIRROR_SMOKE_API_ENDPOINT
+export MIRROR_ENV_FILE
 
 case "$MIRROR_SMOKE_API_ENDPOINT" in
 	*"query="*) ;;
@@ -27,14 +30,19 @@ composefile="docker-compose-build.yml"
 	echo "Could not read compose file: $composefile"
 	exit 2
 }
+[ -r "$MIRROR_SMOKE_ENV_FILE" ] || {
+	echo "Could not read environment file: $MIRROR_SMOKE_ENV_FILE"
+	exit 2
+}
 
 echo "Live-test endpoint: $MIRROR_SMOKE_API_ENDPOINT"
 echo "Release cap: ${MIRROR_SMOKE_RELEASES:-1}"
 echo "Compose project: $MIRROR_SMOKE_PROJECT"
+echo "Service environment: $MIRROR_SMOKE_ENV_FILE"
 "$docker" compose \
 	-f "$composefile" \
 	--project-name "$MIRROR_SMOKE_PROJECT" \
-	--env-file guncad-mirror.env \
+	--env-file "$MIRROR_SMOKE_ENV_FILE" \
 	up \
 	--build \
 	--force-recreate \
