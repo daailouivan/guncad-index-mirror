@@ -13,12 +13,19 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
 from urllib.parse import parse_qs, urlsplit
 
-from .models import JobState, PublicationState, Release, ReleaseValidationError
+from .models import (
+    JobState,
+    PublicationState,
+    Release,
+    ReleaseValidationError,
+    SeedingState,
+)
 from .paths import ensure_within
+from .qbittorrent import UPLOAD_STATES
 from .verification import hash_file
 
 REPORT_SCHEMA = "guncad-mirror-archive-report-v1"
@@ -47,6 +54,19 @@ class ArtifactRecord:
     acquisition_transport: str | None
     acquisition_source_url: str | None
     acquisition_lbry_failure: str | None
+    seeding_state: str
+    seeding_attempts: int
+    seeding_next_attempt_at: float
+    seeding_client: str | None
+    seeding_client_version: str | None
+    seeding_observed_state: str | None
+    seeding_content_path: str | None
+    seeding_dht_nodes: int | None
+    seeding_working_trackers: int | None
+    seeding_checked_at: float | None
+    seeding_error_code: str | None
+    seeding_error: str | None
+    seeding_updated_at: float | None
     publication_state: str
     publication_attempts: int
     publication_next_attempt_at: float
@@ -101,6 +121,7 @@ class ArchiveReport:
     data_dir: str
     rehashed_payloads: bool
     job_counts: Mapping[str, int]
+    seeding_counts: Mapping[str, int]
     publication_counts: Mapping[str, int]
     artifacts: tuple[ArtifactRecord, ...]
     failures: tuple[FailureRecord, ...]
@@ -125,6 +146,7 @@ class ArchiveReport:
             "data_dir": self.data_dir,
             "rehashed_payloads": self.rehashed_payloads,
             "job_counts": dict(sorted(self.job_counts.items())),
+            "seeding_counts": dict(sorted(self.seeding_counts.items())),
             "publication_counts": dict(sorted(self.publication_counts.items())),
             "artifacts": {
                 "total": len(self.artifacts),
@@ -170,6 +192,7 @@ def audit_archive(
 
     job_counts = Counter(str(row["state"]) for row in rows)
     ready_rows = [row for row in rows if row["state"] == JobState.AWAITING_INDEX]
+    seeding_counts = Counter(str(row["seeding_state"]) for row in ready_rows)
     publication_counts = Counter(str(row["publication_state"]) for row in ready_rows)
     artifacts: list[ArtifactRecord] = []
     failures: list[FailureRecord] = []
@@ -238,6 +261,7 @@ def audit_archive(
         data_dir=str(data_dir),
         rehashed_payloads=rehash_payloads,
         job_counts=dict(job_counts),
+        seeding_counts=dict(seeding_counts),
         publication_counts=dict(publication_counts),
         artifacts=tuple(artifacts),
         failures=tuple(failures),
@@ -357,6 +381,7 @@ def _audit_artifact(
             errors,
         )
 
+    _validate_seeding(row, errors)
     _validate_publication(row, errors)
 
     issues = [AuditIssue(release_id, sd_hash, message) for message in errors]
@@ -381,6 +406,27 @@ def _audit_artifact(
         acquisition_transport=transport,
         acquisition_source_url=source_url,
         acquisition_lbry_failure=lbry_failure,
+        seeding_state=str(row["seeding_state"]),
+        seeding_attempts=int(row["seeding_attempts"]),
+        seeding_next_attempt_at=float(row["seeding_next_attempt_at"]),
+        seeding_client=row["seeding_client"],
+        seeding_client_version=row["seeding_client_version"],
+        seeding_observed_state=row["seeding_observed_state"],
+        seeding_content_path=row["seeding_content_path"],
+        seeding_dht_nodes=row["seeding_dht_nodes"],
+        seeding_working_trackers=row["seeding_working_trackers"],
+        seeding_checked_at=(
+            None
+            if row["seeding_checked_at"] is None
+            else float(row["seeding_checked_at"])
+        ),
+        seeding_error_code=row["seeding_error_code"],
+        seeding_error=row["seeding_error"],
+        seeding_updated_at=(
+            None
+            if row["seeding_updated_at"] is None
+            else float(row["seeding_updated_at"])
+        ),
         publication_state=str(row["publication_state"]),
         publication_attempts=int(row["publication_attempts"]),
         publication_next_attempt_at=float(row["publication_next_attempt_at"]),
@@ -407,6 +453,92 @@ def _audit_artifact(
         validation_errors=" | ".join(errors),
     )
     return artifact, issues, manifest_path, torrent_path
+
+
+def _validate_seeding(row: sqlite3.Row, errors: list[str]) -> None:
+    try:
+        state = SeedingState(row["seeding_state"])
+    except ValueError:
+        errors.append(f"unknown seeding state {row['seeding_state']!r}")
+        return
+    _expect(
+        errors,
+        isinstance(row["seeding_attempts"], int) and row["seeding_attempts"] >= 0,
+        "seeding attempt count is invalid",
+    )
+    _expect(
+        errors,
+        isinstance(row["seeding_next_attempt_at"], (int, float))
+        and row["seeding_next_attempt_at"] >= 0,
+        "seeding retry deadline is invalid",
+    )
+    if state in {SeedingState.RETRYING, SeedingState.BLOCKED}:
+        _expect(
+            errors,
+            isinstance(row["seeding_error_code"], str)
+            and bool(row["seeding_error_code"]),
+            "seeding failure has no reason code",
+        )
+        _expect(
+            errors,
+            isinstance(row["seeding_error"], str) and bool(row["seeding_error"]),
+            "seeding failure has no detail",
+        )
+    if state is not SeedingState.GREEN:
+        return
+    _expect(
+        errors,
+        row["seeding_client"] == "qbittorrent",
+        "green seed has no qBittorrent client receipt",
+    )
+    _expect(
+        errors,
+        isinstance(row["seeding_client_version"], str)
+        and bool(row["seeding_client_version"]),
+        "green seed has no qBittorrent version",
+    )
+    _expect(
+        errors,
+        row["seeding_observed_state"] in UPLOAD_STATES,
+        "green seed isn't in a qBittorrent upload state",
+    )
+    content_path = row["seeding_content_path"]
+    _expect(
+        errors,
+        isinstance(content_path, str)
+        and bool(content_path)
+        and PurePosixPath(content_path).is_absolute(),
+        "green seed has an invalid qBittorrent content path",
+    )
+    dht_nodes = row["seeding_dht_nodes"]
+    working_trackers = row["seeding_working_trackers"]
+    _expect(
+        errors,
+        isinstance(dht_nodes, int) and dht_nodes >= 0,
+        "green seed has an invalid DHT node count",
+    )
+    _expect(
+        errors,
+        isinstance(working_trackers, int) and working_trackers >= 0,
+        "green seed has an invalid working tracker count",
+    )
+    if isinstance(dht_nodes, int) and isinstance(working_trackers, int):
+        _expect(
+            errors,
+            dht_nodes > 0 or working_trackers > 0,
+            "green seed has no peer-discovery path",
+        )
+    _expect(
+        errors,
+        isinstance(row["seeding_checked_at"], (int, float))
+        and row["seeding_checked_at"] >= 0,
+        "green seed has no check timestamp",
+    )
+    _expect(
+        errors,
+        row["seeding_error_code"] is None and row["seeding_error"] is None,
+        "green seed retains a failure",
+    )
 
 
 def _validate_publication(row: sqlite3.Row, errors: list[str]) -> None:

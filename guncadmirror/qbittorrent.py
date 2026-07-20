@@ -45,6 +45,7 @@ class QBitTorrent:
     save_path: str
     progress: float
     amount_left: int
+    total_size: int
     state: str
     force_start: bool
 
@@ -54,6 +55,7 @@ class QBitTorrent:
             self.progress == 1.0
             and self.amount_left == 0
             and self.state in UPLOAD_STATES
+            and self.force_start
         )
 
 
@@ -140,6 +142,7 @@ class QBitClient:
         save_path = value.get("save_path")
         progress = value.get("progress")
         amount_left = value.get("amount_left")
+        total_size = value.get("size")
         state = value.get("state")
         force_start = value.get("force_start")
         if not isinstance(returned_hash, str) or returned_hash.lower() != info_hash:
@@ -159,6 +162,12 @@ class QBitClient:
             or amount_left < 0
         ):
             raise self._invalid_response("torrent remaining byte count is invalid")
+        if (
+            isinstance(total_size, bool)
+            or not isinstance(total_size, int)
+            or total_size <= 0
+        ):
+            raise self._invalid_response("torrent size is invalid")
         if not _bounded_string(state, maximum=128) or not isinstance(force_start, bool):
             raise self._invalid_response("torrent state is invalid")
         return QBitTorrent(
@@ -167,6 +176,7 @@ class QBitClient:
             save_path=save_path,
             progress=float(progress),
             amount_left=amount_left,
+            total_size=total_size,
             state=state,
             force_start=force_start,
         )

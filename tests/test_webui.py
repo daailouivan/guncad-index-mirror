@@ -46,6 +46,14 @@ class WebUiTests(unittest.TestCase):
             "mirror_lbry_concurrency": 4,
             "mirror_odysee_concurrency": 2,
             "mirror_finalize_concurrency": 2,
+            "mirror_qbittorrent_enabled": True,
+            "mirror_qbittorrent_url": "http://qbittorrent:8080",
+            "mirror_qbittorrent_data_dir": "/downloads",
+            "mirror_qbittorrent_timeout": 15,
+            "mirror_qbittorrent_ready_timeout": 120,
+            "mirror_qbittorrent_recheck_interval": 300,
+            "mirror_qbittorrent_category": "guncad-mirror",
+            "mirror_qbittorrent_tag": "guncad-mirror",
             "mirror_publish_enabled": False,
             "mirror_publish_url": "",
             "mirror_publish_concurrency": 2,
@@ -64,6 +72,7 @@ class WebUiTests(unittest.TestCase):
             "mirror_outbox_dir": "/data/outbox",
             "disk_space_used": 123,
             "job_counts": {"awaiting_index": 2, "excluded": 1},
+            "seeding_counts": {"pending": 1, "green": 1},
             "publication_counts": {"pending": 2},
             "known_jobs": 3,
             "activity": None,
@@ -139,6 +148,10 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"shall not be infringed", response.data)
         self.assertIn(b"Sleeping", response.data)
         self.assertIn(b"Torrents staged", response.data)
+        self.assertIn(b"qB seeders green", response.data)
+        self.assertIn(b"qBittorrent seeding", response.data)
+        self.assertIn(b"1</span> green", response.data)
+        self.assertIn(b"http://qbittorrent:8080", response.data)
         self.assertIn(b"excluded by policy", response.data)
         self.assertIn(b"Publication stops at the local outbox", response.data)
         self.assertIn(b"Index publication", response.data)

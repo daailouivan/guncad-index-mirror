@@ -6,7 +6,13 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from guncadmirror.models import JobState, PublicationState, Release, TorrentArtifact
+from guncadmirror.models import (
+    JobState,
+    PublicationState,
+    Release,
+    SeedingState,
+    TorrentArtifact,
+)
 from guncadmirror.state import JobStore
 
 from .helpers import make_release, release_payload
@@ -23,7 +29,13 @@ class JobStoreTests(unittest.TestCase):
         )
         self.release = make_release()
 
-    def _complete(self, release: Release, *, content: bytes = b"payload") -> None:
+    def _complete(
+        self,
+        release: Release,
+        *,
+        content: bytes = b"payload",
+        seeded: bool = True,
+    ) -> None:
         payload = Path(self.temporary.name) / "payloads" / f"{release.id}.zip"
         payload.parent.mkdir(exist_ok=True)
         payload.write_bytes(content)
@@ -51,6 +63,17 @@ class JobStoreTests(unittest.TestCase):
                 trackers=(),
             ),
         )
+        if seeded:
+            self.store.mark_seed_green(
+                release.id,
+                release.sd_hash,
+                client_version="v5.2.3",
+                observed_state="forcedUP",
+                content_path=str(payload),
+                dht_nodes=42,
+                working_trackers=0,
+                recheck_interval=300,
+            )
 
     def test_job_lifecycle_is_durable_and_registration_is_idempotent(self) -> None:
         job = self.store.register(self.release)
@@ -90,6 +113,7 @@ class JobStoreTests(unittest.TestCase):
         job = self.store.mark_awaiting_index(self.release, torrent)
         self.assertEqual(job.state, JobState.AWAITING_INDEX)
         self.assertEqual(job.publication_state, PublicationState.PENDING)
+        self.assertEqual(job.seeding_state, SeedingState.PENDING)
         self.assertEqual(job.publication_attempts, 0)
         self.assertFalse(self.store.ready_for_attempt(job))
         self.assertEqual(job.torrent_path, torrent_path)
@@ -196,12 +220,81 @@ class JobStoreTests(unittest.TestCase):
         self.assertIn("release_slug", columns)
         self.assertIn("publication_state", columns)
         self.assertIn("canonical_torrent_url", columns)
+        self.assertIn("seeding_state", columns)
+        self.assertIn("seeding_checked_at", columns)
         entries, total = migrated.search_archive("legacy-slug")
         self.assertEqual(total, 1)
         self.assertEqual(entries[0].name, "Legacy Searchable Release")
         self.assertEqual(entries[0].channel_handle, "@channel:c")
         self.assertEqual(entries[0].slug, "legacy-slug:l")
         self.assertEqual(entries[0].publication_state, PublicationState.PENDING)
+
+    def test_seeding_lifecycle_gates_publication_and_recovers_interruptions(
+        self,
+    ) -> None:
+        self._complete(self.release, seeded=False)
+        job = self.store.get(self.release.id, self.release.sd_hash)
+        self.assertEqual(job.seeding_state, SeedingState.PENDING)
+        self.assertEqual(self.store.seeding_counts(), {"pending": 1})
+        self.assertEqual(self.store.next_seeding_delay(), 0)
+        self.assertEqual(self.store.publication_candidates(), [])
+        self.assertIsNone(
+            self.store.start_publication(self.release.id, self.release.sd_hash)
+        )
+
+        injecting = self.store.start_seeding(self.release.id, self.release.sd_hash)
+        self.assertEqual(injecting.seeding_state, SeedingState.INJECTING)
+        self.assertEqual(injecting.seeding_attempts, 1)
+        retrying = self.store.retry_seeding(
+            self.release.id,
+            self.release.sd_hash,
+            code="network_error",
+            error="connection reset",
+            retry_backoff=5,
+        )
+        self.assertEqual(retrying.seeding_state, SeedingState.RETRYING)
+        self.assertEqual(retrying.seeding_next_attempt_at, 105)
+        self.assertFalse(self.store.seeding_ready(retrying))
+
+        self.now = 105
+        self.store.start_seeding(self.release.id, self.release.sd_hash)
+        blocked = self.store.block_seeding(
+            self.release.id,
+            self.release.sd_hash,
+            code="content_path_conflict",
+            error="wrong path",
+            retry_after=30,
+        )
+        self.assertEqual(blocked.seeding_state, SeedingState.BLOCKED)
+        self.assertEqual(blocked.seeding_next_attempt_at, 135)
+
+        self.now = 135
+        self.store.start_seeding(self.release.id, self.release.sd_hash)
+        green = self.store.mark_seed_green(
+            self.release.id,
+            self.release.sd_hash,
+            client_version="v5.2.3",
+            observed_state="forcedUP",
+            content_path="/downloads/payload.zip",
+            dht_nodes=12,
+            working_trackers=1,
+            recheck_interval=60,
+        )
+        self.assertEqual(green.seeding_state, SeedingState.GREEN)
+        self.assertEqual(green.seeding_attempts, 0)
+        self.assertEqual(green.seeding_next_attempt_at, 195)
+        self.assertEqual(green.seeding_checked_at, 135)
+        self.assertEqual(len(self.store.publication_candidates()), 1)
+
+        self.now = 196
+        self.assertEqual(self.store.publication_candidates(), [])
+        self.assertTrue(self.store.seeding_ready(green))
+        self.store.start_seeding(self.release.id, self.release.sd_hash)
+        self.assertEqual(self.store.recover_interrupted_seeding(), 1)
+        recovered = self.store.get(self.release.id, self.release.sd_hash)
+        self.assertEqual(recovered.seeding_state, SeedingState.RETRYING)
+        self.assertEqual(recovered.seeding_error_code, "interrupted")
+        self.assertEqual(self.store.recover_interrupted_seeding(), 0)
 
     def test_publication_lifecycle_is_independent_durable_and_retryable(self) -> None:
         self._complete(self.release)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -11,6 +12,7 @@ DEFAULT_ENDPOINT = "https://guncadindex.com/api/v2/releases/?format=json&limit=1
 DEFAULT_ODYSEE_PROXY_URL = "https://api.na-backend.odysee.com/api/v1/proxy"
 TRUTHY = frozenset({"1", "true", "t", "yes", "on", "enabled"})
 FALSY = frozenset({"0", "false", "f", "no", "off", "disabled", ""})
+QBIT_API_KEY_RE = re.compile(r"^qbt_[A-Za-z0-9]{28}$")
 
 
 class ConfigurationError(ValueError):
@@ -42,6 +44,18 @@ class Settings:
     blacklisted_handles: tuple[str, ...] = ()
     torrent_piece_length: int = 1024**2
     torrent_trackers: tuple[str, ...] = ()
+    qbittorrent_enabled: bool = False
+    qbittorrent_url: str = "http://qbittorrent:8080"
+    qbittorrent_api_key: str = ""
+    qbittorrent_username: str = ""
+    qbittorrent_password: str = ""
+    qbittorrent_data_dir: Path = Path("/downloads")
+    qbittorrent_timeout: float = 15
+    qbittorrent_ready_timeout: float = 120
+    qbittorrent_poll_interval: float = 2
+    qbittorrent_recheck_interval: float = 5 * 60
+    qbittorrent_category: str = "guncad-mirror"
+    qbittorrent_tag: str = "guncad-mirror"
     publish_enabled: bool = False
     publish_url: str = ""
     publish_token: str = ""
@@ -94,6 +108,32 @@ class Settings:
                 env, "MIRROR_TORRENT_PIECE_LENGTH", 1024**2, minimum=16 * 1024
             ),
             torrent_trackers=_list(env.get("MIRROR_TORRENT_TRACKERS", "")),
+            qbittorrent_enabled=_boolean(env, "MIRROR_QBITTORRENT_ENABLED", False),
+            qbittorrent_url=env.get(
+                "MIRROR_QBITTORRENT_URL", "http://qbittorrent:8080"
+            ).strip(),
+            qbittorrent_api_key=env.get("MIRROR_QBITTORRENT_API_KEY", ""),
+            qbittorrent_username=env.get("MIRROR_QBITTORRENT_USERNAME", ""),
+            qbittorrent_password=env.get("MIRROR_QBITTORRENT_PASSWORD", ""),
+            qbittorrent_data_dir=Path(
+                env.get("MIRROR_QBITTORRENT_DATA_DIR", "/downloads")
+            ),
+            qbittorrent_timeout=_number(
+                env, "MIRROR_QBITTORRENT_TIMEOUT", 15, minimum=1
+            ),
+            qbittorrent_ready_timeout=_number(
+                env, "MIRROR_QBITTORRENT_READY_TIMEOUT", 120, minimum=1
+            ),
+            qbittorrent_poll_interval=_number(
+                env, "MIRROR_QBITTORRENT_POLL_INTERVAL", 2, minimum=0.05
+            ),
+            qbittorrent_recheck_interval=_number(
+                env, "MIRROR_QBITTORRENT_RECHECK_INTERVAL", 5 * 60, minimum=5
+            ),
+            qbittorrent_category=env.get(
+                "MIRROR_QBITTORRENT_CATEGORY", "guncad-mirror"
+            ).strip(),
+            qbittorrent_tag=env.get("MIRROR_QBITTORRENT_TAG", "guncad-mirror").strip(),
             publish_enabled=_boolean(env, "MIRROR_PUBLISH_ENABLED", False),
             publish_url=env.get("MIRROR_PUBLISH_URL", "").strip(),
             publish_token=env.get("MIRROR_PUBLISH_TOKEN", ""),
@@ -129,7 +169,48 @@ class Settings:
             parsed = urlsplit(tracker)
             if parsed.scheme not in {"http", "https", "udp"} or not parsed.netloc:
                 raise ConfigurationError(f"invalid torrent tracker URL: {tracker}")
+        _validate_http_url(self.qbittorrent_url, "MIRROR_QBITTORRENT_URL")
+        if not self.qbittorrent_data_dir.is_absolute():
+            raise ConfigurationError(
+                "MIRROR_QBITTORRENT_DATA_DIR must be an absolute path"
+            )
+        if self.qbittorrent_api_key and not QBIT_API_KEY_RE.fullmatch(
+            self.qbittorrent_api_key
+        ):
+            raise ConfigurationError(
+                "MIRROR_QBITTORRENT_API_KEY must be a qBittorrent qbt_ API key"
+            )
+        credentials_present = bool(
+            self.qbittorrent_username or self.qbittorrent_password
+        )
+        if self.qbittorrent_api_key and credentials_present:
+            raise ConfigurationError(
+                "configure either qBittorrent API-key or password authentication, not both"
+            )
+        if self.qbittorrent_enabled and not self.qbittorrent_api_key:
+            if not self.qbittorrent_username or not self.qbittorrent_password:
+                raise ConfigurationError(
+                    "qBittorrent username and password are required when API-key authentication is not configured"
+                )
+        for name, value in (
+            ("MIRROR_QBITTORRENT_USERNAME", self.qbittorrent_username),
+            ("MIRROR_QBITTORRENT_PASSWORD", self.qbittorrent_password),
+        ):
+            if len(value) > 4096 or "\x00" in value or "\r" in value or "\n" in value:
+                raise ConfigurationError(f"{name} contains an invalid value")
+        for name, value in (
+            ("MIRROR_QBITTORRENT_CATEGORY", self.qbittorrent_category),
+            ("MIRROR_QBITTORRENT_TAG", self.qbittorrent_tag),
+        ):
+            if not value or len(value) > 128 or "," in value:
+                raise ConfigurationError(
+                    f"{name} must be 1-128 characters without commas"
+                )
         if self.publish_enabled:
+            if not self.qbittorrent_enabled:
+                raise ConfigurationError(
+                    "MIRROR_QBITTORRENT_ENABLED is required when publication is enabled"
+                )
             _validate_http_url(self.publish_url, "MIRROR_PUBLISH_URL")
             if not self.publish_token:
                 raise ConfigurationError(

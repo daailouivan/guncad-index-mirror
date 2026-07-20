@@ -114,6 +114,16 @@ class PublicationSchedulerTests(unittest.TestCase):
             sha256=hashes.sha256,
         )
         self.store.mark_awaiting_index(release, torrent)
+        self.store.mark_seed_green(
+            release.id,
+            release.sd_hash,
+            client_version="v5.2.3",
+            observed_state="forcedUP",
+            content_path=f"/downloads/releases/{release.id}/{file_name}",
+            dht_nodes=1,
+            working_trackers=0,
+            recheck_interval=300,
+        )
         return release
 
     def result(

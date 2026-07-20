@@ -30,6 +30,9 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.publish_token, "")
         self.assertEqual(settings.publish_concurrency, 2)
         self.assertEqual(settings.publish_timeout, 60)
+        self.assertFalse(settings.qbittorrent_enabled)
+        self.assertEqual(settings.qbittorrent_url, "http://qbittorrent:8080")
+        self.assertEqual(settings.qbittorrent_data_dir, Path("/downloads"))
 
     def test_reads_every_supported_environment_shape(self):
         settings = Settings.from_env(
@@ -59,6 +62,16 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_TORRENT_TRACKERS": (
                     "udp://tracker.test:80,http://tracker2.test/announce"
                 ),
+                "MIRROR_QBITTORRENT_ENABLED": "true",
+                "MIRROR_QBITTORRENT_URL": "https://qbit.example/api",
+                "MIRROR_QBITTORRENT_API_KEY": "qbt_" + "a" * 28,
+                "MIRROR_QBITTORRENT_DATA_DIR": "/archive-in-qbit",
+                "MIRROR_QBITTORRENT_TIMEOUT": "11",
+                "MIRROR_QBITTORRENT_READY_TIMEOUT": "22",
+                "MIRROR_QBITTORRENT_POLL_INTERVAL": ".25",
+                "MIRROR_QBITTORRENT_RECHECK_INTERVAL": "33",
+                "MIRROR_QBITTORRENT_CATEGORY": "archive",
+                "MIRROR_QBITTORRENT_TAG": "winter",
                 "MIRROR_PUBLISH_ENABLED": "true",
                 "MIRROR_PUBLISH_URL": "https://index.example/api/v2/torrents/publish/",
                 "MIRROR_PUBLISH_TOKEN": "secret-token",
@@ -87,6 +100,16 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.enable_webui)
         self.assertEqual(settings.blacklisted_handles, ("bad", "worse", "worst"))
         self.assertEqual(len(settings.torrent_trackers), 2)
+        self.assertTrue(settings.qbittorrent_enabled)
+        self.assertEqual(settings.qbittorrent_url, "https://qbit.example/api")
+        self.assertEqual(settings.qbittorrent_api_key, "qbt_" + "a" * 28)
+        self.assertEqual(settings.qbittorrent_data_dir, Path("/archive-in-qbit"))
+        self.assertEqual(settings.qbittorrent_timeout, 11)
+        self.assertEqual(settings.qbittorrent_ready_timeout, 22)
+        self.assertEqual(settings.qbittorrent_poll_interval, 0.25)
+        self.assertEqual(settings.qbittorrent_recheck_interval, 33)
+        self.assertEqual(settings.qbittorrent_category, "archive")
+        self.assertEqual(settings.qbittorrent_tag, "winter")
         self.assertTrue(settings.publish_enabled)
         self.assertEqual(
             settings.publish_url,
@@ -116,11 +139,48 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_ODYSEE_PROXY_URL": "not-a-url"}, "absolute HTTP"),
             ({"MIRROR_TORRENT_PIECE_LENGTH": "20000"}, "power of two"),
             ({"MIRROR_TORRENT_TRACKERS": "wat://tracker"}, "tracker URL"),
-            ({"MIRROR_PUBLISH_ENABLED": "true"}, "MIRROR_PUBLISH_URL"),
+            ({"MIRROR_QBITTORRENT_URL": "ftp://bad"}, "absolute HTTP"),
+            (
+                {"MIRROR_QBITTORRENT_ENABLED": "true"},
+                "username and password",
+            ),
+            (
+                {
+                    "MIRROR_QBITTORRENT_ENABLED": "true",
+                    "MIRROR_QBITTORRENT_API_KEY": "bad",
+                },
+                "qbt_ API key",
+            ),
+            (
+                {
+                    "MIRROR_QBITTORRENT_ENABLED": "true",
+                    "MIRROR_QBITTORRENT_API_KEY": "qbt_" + "a" * 28,
+                    "MIRROR_QBITTORRENT_USERNAME": "mirror",
+                },
+                "not both",
+            ),
+            ({"MIRROR_QBITTORRENT_DATA_DIR": "relative"}, "absolute path"),
+            ({"MIRROR_QBITTORRENT_TAG": "bad,tag"}, "without commas"),
+            (
+                {"MIRROR_PUBLISH_ENABLED": "true"},
+                "MIRROR_QBITTORRENT_ENABLED",
+            ),
+            (
+                {
+                    "MIRROR_PUBLISH_ENABLED": "true",
+                    "MIRROR_QBITTORRENT_ENABLED": "true",
+                    "MIRROR_QBITTORRENT_USERNAME": "mirror",
+                    "MIRROR_QBITTORRENT_PASSWORD": "secret",
+                },
+                "MIRROR_PUBLISH_URL",
+            ),
             (
                 {
                     "MIRROR_PUBLISH_ENABLED": "true",
                     "MIRROR_PUBLISH_URL": "https://index.example/publish/",
+                    "MIRROR_QBITTORRENT_ENABLED": "true",
+                    "MIRROR_QBITTORRENT_USERNAME": "mirror",
+                    "MIRROR_QBITTORRENT_PASSWORD": "secret",
                 },
                 "MIRROR_PUBLISH_TOKEN",
             ),

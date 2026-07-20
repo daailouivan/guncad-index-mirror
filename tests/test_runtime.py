@@ -9,6 +9,7 @@ from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.pipeline import CycleResult
 from guncadmirror.publication import PublicationCycleResult
 from guncadmirror.runtime import Runtime, build_runtime
+from guncadmirror.seeding import SeedingCycleResult
 from guncadmirror.settings import Settings
 
 
@@ -142,6 +143,47 @@ class RuntimeTests(unittest.TestCase):
             any("1 attempted" in call.args[0] for call in self.stats.log.call_args_list)
         )
 
+    def test_seeding_gates_each_publication_pass(self) -> None:
+        calls: list[str] = []
+        self.runtime.seeding = Mock()
+        self.runtime.seeding.run.side_effect = lambda _stop: (
+            calls.append("seed") or SeedingCycleResult(attempted=1, green=1)
+        )
+        self.runtime.publication = Mock()
+        self.runtime.publication.run.side_effect = lambda _stop: (
+            calls.append("publish") or PublicationCycleResult(attempted=1, published=1)
+        )
+        self.lbry.wait_until_ready.side_effect = lambda *_args, **_kwargs: calls.append(
+            "lbry"
+        )
+        self.pipeline.run_cycle.side_effect = lambda _stop: (
+            calls.append("pipeline") or CycleResult(ready=1)
+        )
+
+        self.runtime.run_cycle()
+
+        self.assertEqual(
+            calls,
+            ["seed", "publish", "lbry", "pipeline", "seed", "publish"],
+        )
+        self.assertFalse(self.runtime.seeding_degraded)
+
+    def test_qbittorrent_failure_closes_publication_gate(self) -> None:
+        self.runtime.seeding = Mock()
+        self.runtime.seeding.run.return_value = SeedingCycleResult(
+            retrying=1,
+            error_code="network_error",
+            error="connection refused",
+        )
+        self.runtime.publication = Mock()
+        self.pipeline.run_cycle.return_value = CycleResult()
+
+        self.runtime.run_cycle()
+
+        self.assertEqual(self.runtime.seeding.run.call_count, 2)
+        self.runtime.publication.run.assert_not_called()
+        self.assertTrue(self.runtime.seeding_degraded)
+
     def test_global_publication_pause_skips_second_pass_and_slows_retry(self) -> None:
         self.runtime.publication = Mock()
         self.runtime.publication.run.return_value = PublicationCycleResult(
@@ -164,17 +206,40 @@ class RuntimeTests(unittest.TestCase):
 
     def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
         self.runtime.publication = Mock()
+        self.runtime.seeding = Mock()
         self.stats.stop.side_effect = RuntimeError("thread stuck")
         with self.assertLogs("guncad-mirror", level="ERROR"):
             self.runtime.stop()
         self.pipeline.index_client.close.assert_called_once_with()
         self.lbry.close.assert_called_once_with()
+        self.runtime.seeding.close.assert_called_once_with()
         self.runtime.publication.close.assert_called_once_with()
+
+    def test_qbittorrent_failure_uses_error_interval(self) -> None:
+        self.runtime.seeding = Mock()
+        self.runtime.seeding.run.return_value = SeedingCycleResult(
+            retrying=1,
+            error_code="network_error",
+            error="connection refused",
+        )
+        self.runtime.seeding.next_delay.return_value = 0
+        self.pipeline.run_cycle.return_value = CycleResult()
+        stop = Mock()
+        stop.is_set.side_effect = [False, True]
+
+        self.runtime.run_forever(stop)
+
+        stop.wait.assert_called_once_with(
+            min(self.settings.loop_interval, self.settings.cycle_error_interval)
+        )
 
     def test_runtime_builder_enables_authenticated_publication(self) -> None:
         settings = Settings(
             endpoint=self.settings.endpoint,
             data_dir=self.settings.data_dir,
+            qbittorrent_enabled=True,
+            qbittorrent_username="mirror",
+            qbittorrent_password="secret",
             publish_enabled=True,
             publish_url="https://index.example/api/v2/torrents/publish/",
             publish_token="secret",
@@ -184,6 +249,8 @@ class RuntimeTests(unittest.TestCase):
         built = build_runtime(settings)
 
         self.assertIsNotNone(built.publication)
+        self.assertIsNotNone(built.seeding)
+        self.assertEqual(built.seeding.client.url, settings.qbittorrent_url)
         self.assertEqual(built.publication.client.url, settings.publish_url)
         self.assertEqual(built.publication.client.timeout, 23)
 

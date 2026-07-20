@@ -53,6 +53,16 @@ class StatsCollector:
             "mirror_download_timeout": settings.download_timeout,
             "mirror_torrent_piece_length": settings.torrent_piece_length,
             "mirror_torrent_trackers": settings.torrent_trackers,
+            "mirror_qbittorrent_enabled": settings.qbittorrent_enabled,
+            "mirror_qbittorrent_url": settings.qbittorrent_url,
+            "mirror_qbittorrent_data_dir": str(settings.qbittorrent_data_dir),
+            "mirror_qbittorrent_timeout": settings.qbittorrent_timeout,
+            "mirror_qbittorrent_ready_timeout": settings.qbittorrent_ready_timeout,
+            "mirror_qbittorrent_recheck_interval": (
+                settings.qbittorrent_recheck_interval
+            ),
+            "mirror_qbittorrent_category": settings.qbittorrent_category,
+            "mirror_qbittorrent_tag": settings.qbittorrent_tag,
             "mirror_publish_enabled": settings.publish_enabled,
             "mirror_publish_url": settings.publish_url,
             "mirror_publish_concurrency": settings.publish_concurrency,
@@ -62,6 +72,7 @@ class StatsCollector:
             "mirror_outbox_dir": str(settings.outbox_dir),
             "disk_space_used": 0,
             "job_counts": {},
+            "seeding_counts": {},
             "publication_counts": {},
             "known_jobs": 0,
             "activity": None,
@@ -143,6 +154,7 @@ class StatsCollector:
 
     def collect(self) -> None:
         counts = self.store.counts()
+        seeding_counts = self.store.seeding_counts()
         publication_counts = self.store.publication_counts()
         values = {
             "psutil_cpu": psutil.cpu_percent(interval=None),
@@ -150,6 +162,7 @@ class StatsCollector:
             "psutil_net": psutil.net_io_counters(),
             "psutil_disk": psutil.disk_usage(self.settings.data_dir),
             "job_counts": counts,
+            "seeding_counts": seeding_counts,
             "publication_counts": publication_counts,
             "known_jobs": sum(counts.values()),
         }

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import time
 
-from .models import JobState, PublicationState, Release, TorrentArtifact
+from .models import JobState, PublicationState, Release, SeedingState, TorrentArtifact
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -29,6 +29,19 @@ CREATE TABLE IF NOT EXISTS jobs (
     magnet_uri TEXT,
     last_error TEXT,
     exclusion_reason TEXT,
+    seeding_state TEXT NOT NULL DEFAULT 'pending',
+    seeding_attempts INTEGER NOT NULL DEFAULT 0,
+    seeding_next_attempt_at REAL NOT NULL DEFAULT 0,
+    seeding_error_code TEXT,
+    seeding_error TEXT,
+    seeding_client TEXT,
+    seeding_client_version TEXT,
+    seeding_observed_state TEXT,
+    seeding_content_path TEXT,
+    seeding_dht_nodes INTEGER,
+    seeding_working_trackers INTEGER,
+    seeding_checked_at REAL,
+    seeding_updated_at REAL,
     publication_state TEXT NOT NULL DEFAULT 'pending',
     publication_attempts INTEGER NOT NULL DEFAULT 0,
     publication_next_attempt_at REAL NOT NULL DEFAULT 0,
@@ -63,6 +76,19 @@ class Job:
     magnet_uri: str | None
     last_error: str | None
     exclusion_reason: str | None
+    seeding_state: SeedingState
+    seeding_attempts: int
+    seeding_next_attempt_at: float
+    seeding_error_code: str | None
+    seeding_error: str | None
+    seeding_client: str | None
+    seeding_client_version: str | None
+    seeding_observed_state: str | None
+    seeding_content_path: str | None
+    seeding_dht_nodes: int | None
+    seeding_working_trackers: int | None
+    seeding_checked_at: float | None
+    seeding_updated_at: float | None
     publication_state: PublicationState
     publication_attempts: int
     publication_next_attempt_at: float
@@ -85,6 +111,12 @@ class PublicationCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class SeedingCandidate:
+    release: Release
+    job: Job
+
+
+@dataclass(frozen=True, slots=True)
 class ArchiveEntry:
     release_id: str
     sd_hash: str
@@ -94,6 +126,11 @@ class ArchiveEntry:
     file_name: str
     size: int | None
     magnet_uri: str | None
+    seeding_state: SeedingState
+    seeding_observed_state: str | None
+    seeding_dht_nodes: int | None
+    seeding_working_trackers: int | None
+    seeding_error_code: str | None
     publication_state: PublicationState
     canonical_magnet_uri: str | None
     canonical_torrent_url: str | None
@@ -117,6 +154,26 @@ class JobStore:
                 "release_slug": "TEXT NOT NULL DEFAULT ''",
             }
             for column, definition in archive_columns.items():
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE jobs ADD COLUMN {column} {definition}"
+                    )
+            seeding_columns = {
+                "seeding_state": "TEXT NOT NULL DEFAULT 'pending'",
+                "seeding_attempts": "INTEGER NOT NULL DEFAULT 0",
+                "seeding_next_attempt_at": "REAL NOT NULL DEFAULT 0",
+                "seeding_error_code": "TEXT",
+                "seeding_error": "TEXT",
+                "seeding_client": "TEXT",
+                "seeding_client_version": "TEXT",
+                "seeding_observed_state": "TEXT",
+                "seeding_content_path": "TEXT",
+                "seeding_dht_nodes": "INTEGER",
+                "seeding_working_trackers": "INTEGER",
+                "seeding_checked_at": "REAL",
+                "seeding_updated_at": "REAL",
+            }
+            for column, definition in seeding_columns.items():
                 if column not in columns:
                     connection.execute(
                         f"ALTER TABLE jobs ADD COLUMN {column} {definition}"
@@ -149,6 +206,18 @@ class JobStore:
                     state,
                     channel_handle COLLATE NOCASE,
                     release_name COLLATE NOCASE,
+                    release_id,
+                    sd_hash
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS jobs_seeding_queue
+                ON jobs (
+                    state,
+                    seeding_state,
+                    seeding_next_attempt_at,
                     release_id,
                     sd_hash
                 )
@@ -261,6 +330,19 @@ class JobStore:
             torrent_path=str(torrent.torrent_path),
             info_hash=torrent.info_hash,
             magnet_uri=torrent.magnet_uri,
+            seeding_state=SeedingState.PENDING,
+            seeding_attempts=0,
+            seeding_next_attempt_at=0,
+            seeding_error_code=None,
+            seeding_error=None,
+            seeding_client=None,
+            seeding_client_version=None,
+            seeding_observed_state=None,
+            seeding_content_path=None,
+            seeding_dht_nodes=None,
+            seeding_working_trackers=None,
+            seeding_checked_at=None,
+            seeding_updated_at=self.clock(),
             last_error=None,
             exclusion_reason=None,
         )
@@ -320,6 +402,199 @@ class JobStore:
             rows = cursor.fetchall()
         return {row["publication_state"]: row["count"] for row in rows}
 
+    def seeding_counts(self) -> dict[str, int]:
+        with (
+            closing(self._connect()) as connection,
+            closing(
+                connection.execute(
+                    """
+                    SELECT seeding_state, COUNT(*) AS count
+                    FROM jobs
+                    WHERE state=?
+                    GROUP BY seeding_state
+                    """,
+                    (JobState.AWAITING_INDEX,),
+                )
+            ) as cursor,
+        ):
+            rows = cursor.fetchall()
+        return {row["seeding_state"]: row["count"] for row in rows}
+
+    def recover_interrupted_seeding(self) -> int:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs SET
+                    seeding_state=?,
+                    seeding_next_attempt_at=0,
+                    seeding_error_code='interrupted',
+                    seeding_error='Mirror stopped during qBittorrent injection',
+                    seeding_updated_at=?
+                WHERE seeding_state=?
+                """,
+                (SeedingState.RETRYING, now, SeedingState.INJECTING),
+            )
+        return cursor.rowcount
+
+    def seeding_candidates(self) -> list[SeedingCandidate]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM jobs
+                WHERE
+                    state=? AND
+                    seeding_state IN (?, ?, ?, ?) AND
+                    file_path IS NOT NULL AND
+                    torrent_path IS NOT NULL AND
+                    info_hash IS NOT NULL
+                ORDER BY seeding_next_attempt_at, release_id, sd_hash
+                """,
+                (
+                    JobState.AWAITING_INDEX,
+                    SeedingState.PENDING,
+                    SeedingState.RETRYING,
+                    SeedingState.BLOCKED,
+                    SeedingState.GREEN,
+                ),
+            ).fetchall()
+        return [
+            SeedingCandidate(
+                release=Release.from_api(json.loads(row["release_json"])),
+                job=_job_from_row(row),
+            )
+            for row in rows
+        ]
+
+    def seeding_ready(self, job: Job) -> bool:
+        return job.seeding_next_attempt_at <= self.clock()
+
+    def start_seeding(self, release_id: str, sd_hash: str) -> Job | None:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs SET
+                    seeding_state=?,
+                    seeding_attempts=seeding_attempts + 1,
+                    seeding_next_attempt_at=0,
+                    seeding_error_code=NULL,
+                    seeding_error=NULL,
+                    seeding_updated_at=?
+                WHERE
+                    release_id=? AND sd_hash=? AND state=? AND
+                    seeding_state IN (?, ?, ?, ?) AND
+                    seeding_next_attempt_at <= ?
+                """,
+                (
+                    SeedingState.INJECTING,
+                    now,
+                    release_id,
+                    sd_hash,
+                    JobState.AWAITING_INDEX,
+                    SeedingState.PENDING,
+                    SeedingState.RETRYING,
+                    SeedingState.BLOCKED,
+                    SeedingState.GREEN,
+                    now,
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
+        return self.get(release_id, sd_hash)
+
+    def retry_seeding(
+        self,
+        release_id: str,
+        sd_hash: str,
+        *,
+        code: str,
+        error: str,
+        retry_backoff: float,
+    ) -> Job:
+        job = self.get(release_id, sd_hash)
+        delay = retry_backoff * (2 ** min(max(job.seeding_attempts - 1, 0), 10))
+        self._seeding_update(
+            release_id,
+            sd_hash,
+            seeding_state=SeedingState.RETRYING,
+            seeding_next_attempt_at=self.clock() + delay,
+            seeding_error_code=code,
+            seeding_error=error,
+        )
+        return self.get(release_id, sd_hash)
+
+    def block_seeding(
+        self,
+        release_id: str,
+        sd_hash: str,
+        *,
+        code: str,
+        error: str,
+        retry_after: float,
+    ) -> Job:
+        self._seeding_update(
+            release_id,
+            sd_hash,
+            seeding_state=SeedingState.BLOCKED,
+            seeding_next_attempt_at=self.clock() + retry_after,
+            seeding_error_code=code,
+            seeding_error=error,
+        )
+        return self.get(release_id, sd_hash)
+
+    def mark_seed_green(
+        self,
+        release_id: str,
+        sd_hash: str,
+        *,
+        client_version: str,
+        observed_state: str,
+        content_path: str,
+        dht_nodes: int,
+        working_trackers: int,
+        recheck_interval: float,
+    ) -> Job:
+        now = self.clock()
+        self._seeding_update(
+            release_id,
+            sd_hash,
+            seeding_state=SeedingState.GREEN,
+            seeding_attempts=0,
+            seeding_next_attempt_at=now + recheck_interval,
+            seeding_error_code=None,
+            seeding_error=None,
+            seeding_client="qbittorrent",
+            seeding_client_version=client_version,
+            seeding_observed_state=observed_state,
+            seeding_content_path=content_path,
+            seeding_dht_nodes=dht_nodes,
+            seeding_working_trackers=working_trackers,
+            seeding_checked_at=now,
+        )
+        return self.get(release_id, sd_hash)
+
+    def next_seeding_delay(self) -> float | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT MIN(seeding_next_attempt_at) AS deadline
+                FROM jobs
+                WHERE state=? AND seeding_state IN (?, ?, ?, ?)
+                """,
+                (
+                    JobState.AWAITING_INDEX,
+                    SeedingState.PENDING,
+                    SeedingState.RETRYING,
+                    SeedingState.BLOCKED,
+                    SeedingState.GREEN,
+                ),
+            ).fetchone()
+        deadline = row["deadline"]
+        if deadline is None:
+            return None
+        return max(float(deadline) - self.clock(), 0)
+
     def recover_interrupted_publications(self) -> int:
         now = self.clock()
         with closing(self._connect()) as connection, connection:
@@ -342,12 +617,15 @@ class JobStore:
         return cursor.rowcount
 
     def publication_candidates(self) -> list[PublicationCandidate]:
+        now = self.clock()
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT * FROM jobs
                 WHERE
                     state=? AND
+                    seeding_state=? AND
+                    seeding_next_attempt_at > ? AND
                     publication_state IN (?, ?) AND
                     sha384 IS NOT NULL AND
                     torrent_path IS NOT NULL
@@ -355,6 +633,8 @@ class JobStore:
                 """,
                 (
                     JobState.AWAITING_INDEX,
+                    SeedingState.GREEN,
+                    now,
                     PublicationState.PENDING,
                     PublicationState.RETRYING,
                 ),
@@ -387,6 +667,7 @@ class JobStore:
                     publication_updated_at=?
                 WHERE
                     release_id=? AND sd_hash=? AND state=? AND
+                    seeding_state=? AND seeding_next_attempt_at > ? AND
                     publication_state IN (?, ?) AND
                     publication_next_attempt_at <= ?
                 """,
@@ -396,6 +677,8 @@ class JobStore:
                     release_id,
                     sd_hash,
                     JobState.AWAITING_INDEX,
+                    SeedingState.GREEN,
+                    now,
                     PublicationState.PENDING,
                     PublicationState.RETRYING,
                     now,
@@ -467,15 +750,22 @@ class JobStore:
         )
 
     def next_publication_delay(self) -> float | None:
+        now = self.clock()
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
                 SELECT MIN(publication_next_attempt_at) AS deadline
                 FROM jobs
-                WHERE state=? AND publication_state IN (?, ?)
+                WHERE
+                    state=? AND
+                    seeding_state=? AND
+                    seeding_next_attempt_at > ? AND
+                    publication_state IN (?, ?)
                 """,
                 (
                     JobState.AWAITING_INDEX,
+                    SeedingState.GREEN,
+                    now,
                     PublicationState.PENDING,
                     PublicationState.RETRYING,
                 ),
@@ -528,6 +818,11 @@ class JobStore:
                     release_json,
                     file_path,
                     magnet_uri,
+                    seeding_state,
+                    seeding_observed_state,
+                    seeding_dht_nodes,
+                    seeding_working_trackers,
+                    seeding_error_code,
                     publication_state,
                     canonical_magnet_uri,
                     canonical_torrent_url
@@ -601,6 +896,23 @@ class JobStore:
                 parameters,
             )
 
+    def _seeding_update(
+        self,
+        release_id: str,
+        sd_hash: str,
+        **fields: object,
+    ) -> None:
+        if not fields:
+            return
+        fields["seeding_updated_at"] = self.clock()
+        assignments = ", ".join(f"{field}=?" for field in fields)
+        values = [*fields.values(), release_id, sd_hash]
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                f"UPDATE jobs SET {assignments} WHERE release_id=? AND sd_hash=?",
+                values,
+            )
+
 
 def _job_from_row(row: sqlite3.Row) -> Job:
     return Job(
@@ -617,6 +929,19 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         magnet_uri=row["magnet_uri"],
         last_error=row["last_error"],
         exclusion_reason=row["exclusion_reason"],
+        seeding_state=SeedingState(row["seeding_state"]),
+        seeding_attempts=row["seeding_attempts"],
+        seeding_next_attempt_at=row["seeding_next_attempt_at"],
+        seeding_error_code=row["seeding_error_code"],
+        seeding_error=row["seeding_error"],
+        seeding_client=row["seeding_client"],
+        seeding_client_version=row["seeding_client_version"],
+        seeding_observed_state=row["seeding_observed_state"],
+        seeding_content_path=row["seeding_content_path"],
+        seeding_dht_nodes=row["seeding_dht_nodes"],
+        seeding_working_trackers=row["seeding_working_trackers"],
+        seeding_checked_at=row["seeding_checked_at"],
+        seeding_updated_at=row["seeding_updated_at"],
         publication_state=PublicationState(row["publication_state"]),
         publication_attempts=row["publication_attempts"],
         publication_next_attempt_at=row["publication_next_attempt_at"],
@@ -688,6 +1013,11 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         file_name=path.name if path is not None else "payload",
         size=_release_size_from_json(row["release_json"]),
         magnet_uri=row["magnet_uri"],
+        seeding_state=SeedingState(row["seeding_state"]),
+        seeding_observed_state=row["seeding_observed_state"],
+        seeding_dht_nodes=row["seeding_dht_nodes"],
+        seeding_working_trackers=row["seeding_working_trackers"],
+        seeding_error_code=row["seeding_error_code"],
         publication_state=PublicationState(row["publication_state"]),
         canonical_magnet_uri=row["canonical_magnet_uri"],
         canonical_torrent_url=row["canonical_torrent_url"],

@@ -40,6 +40,14 @@ class PublicationState(StrEnum):
     CONFLICT = "conflict"
 
 
+class SeedingState(StrEnum):
+    PENDING = "pending"
+    INJECTING = "injecting"
+    RETRYING = "retrying"
+    GREEN = "green"
+    BLOCKED = "blocked"
+
+
 class AcquisitionTransport(StrEnum):
     LBRY = "lbry"
     ODYSEE_CDN = "odysee-cdn"

@@ -79,8 +79,15 @@
                                 {% if entry.size is not none %}· {{ entry.size | humanize_bytes }}{% endif %}
                             </p>
                             <p class="fine-print breakable">
-                                Descriptor {{ entry.sd_hash[:12] }} · Index publication: {{ entry.publication_state.value }}
+                                Descriptor {{ entry.sd_hash[:12] }} · qB seed: {{ entry.seeding_state.value }} · Index publication: {{ entry.publication_state.value }}
                             </p>
+                            {% if entry.seeding_observed_state %}
+                                <p class="fine-print">
+                                    qB state {{ entry.seeding_observed_state }} · {{ entry.seeding_dht_nodes or 0 }} DHT nodes · {{ entry.seeding_working_trackers or 0 }} working trackers
+                                </p>
+                            {% elif entry.seeding_error_code %}
+                                <p class="fine-print">qB error: {{ entry.seeding_error_code }}</p>
+                            {% endif %}
                             <div class="archive-actions">
                                 <a class="button"
                                    href="{{ url_for('download_payload', release_id=entry.release_id, sd_hash=entry.sd_hash) }}">Download file</a>

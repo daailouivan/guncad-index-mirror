@@ -46,6 +46,7 @@ class QBitClientTests(unittest.TestCase):
             "save_path": "/downloads/releases",
             "progress": 1.0,
             "amount_left": 0,
+            "size": 7,
             "state": "stalledUP",
             "force_start": True,
         } | overrides

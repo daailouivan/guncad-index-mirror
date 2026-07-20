@@ -35,6 +35,11 @@
         {% set awaiting_index = job_counts.get('awaiting_index', 0) %}
         {% set excluded = job_counts.get('excluded', 0) %}
         {% set failed = job_counts.get('failed', 0) %}
+        {% set seeding_pending = seeding_counts.get('pending', 0) %}
+        {% set seeding_injecting = seeding_counts.get('injecting', 0) %}
+        {% set seeding_retrying = seeding_counts.get('retrying', 0) %}
+        {% set seeding_green = seeding_counts.get('green', 0) %}
+        {% set seeding_blocked = seeding_counts.get('blocked', 0) %}
         {% set publication_pending = publication_counts.get('pending', 0) %}
         {% set publication_publishing = publication_counts.get('publishing', 0) %}
         {% set publication_retrying = publication_counts.get('retrying', 0) %}
@@ -64,6 +69,12 @@
                 <div class="banner banner-error">
                     <strong>Index publication needs operator attention.</strong>
                     {{ publication_rejected }} rejected and {{ publication_conflicts }} conflicted job{% if publication_rejected + publication_conflicts != 1 %}s{% endif %} are terminal. Check notable events and the container log before changing evidence.
+                </div>
+            {% endif %}
+            {% if seeding_blocked %}
+                <div class="banner banner-error">
+                    <strong>{{ seeding_blocked }} torrent{% if seeding_blocked != 1 %}s{% endif %} can't enter seed mode.</strong>
+                    Index publication stays closed for those artifacts. Check notable events for the BTIH, path, or local-file conflict.
                 </div>
             {% endif %}
             {% if mirror_publish_enabled %}
@@ -126,6 +137,10 @@
                     <span class="metric-label">Torrents staged</span>
                 </div>
                 <div class="metric">
+                    <span class="metric-value">{{ seeding_green }}</span>
+                    <span class="metric-label">qB seeders green</span>
+                </div>
+                <div class="metric">
                     <span class="metric-value">{{ publication_published + publication_duplicates }}</span>
                     <span class="metric-label">Index receipts</span>
                 </div>
@@ -145,6 +160,19 @@
                     <span class="metric-value">{{ psutil_disk.free | humanize_bytes }}</span>
                     <span class="metric-label">Data volume free</span>
                 </div>
+            </section>
+            <section class="panel">
+                <h2>qBittorrent seeding</h2>
+                <div class="job-grid">
+                    <div><span>{{ seeding_pending }}</span> pending injection</div>
+                    <div><span>{{ seeding_injecting }}</span> injecting</div>
+                    <div><span>{{ seeding_retrying }}</span> retrying</div>
+                    <div><span>{{ seeding_green }}</span> green</div>
+                    <div><span>{{ seeding_blocked }}</span> blocked</div>
+                </div>
+                <p class="fine-print">
+                    Green means qBittorrent has the exact BTIH at the assembled file's mounted path, reports 100% complete in forced upload mode, & can reach DHT or a working tracker. Mirror rechecks green torrents every {{ mirror_qbittorrent_recheck_interval | humanize_seconds }}.
+                </p>
             </section>
             <section class="panel">
                 <h2>Index publication</h2>
@@ -215,6 +243,28 @@
                                 <td>{{ mirror_max_releases_per_run or 'No cap' }}</td>
                                 <td>Bounds work without changing the configured search.</td>
                             </tr>
+                            <tr>
+                                <th scope="row">qBittorrent seed gate</th>
+                                <td>{{ 'Enabled' if mirror_qbittorrent_enabled else 'Disabled' }}</td>
+                                <td>Blocks Index publication until the generated torrent is active against the verified local payload.</td>
+                            </tr>
+                            {% if mirror_qbittorrent_enabled %}
+                                <tr>
+                                    <th scope="row">qBittorrent Web API</th>
+                                    <td class="breakable">{{ mirror_qbittorrent_url }}</td>
+                                    <td>Private control endpoint. Its credentials are never displayed.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">qBittorrent archive mount</th>
+                                    <td class="breakable">{{ mirror_qbittorrent_data_dir }}</td>
+                                    <td>Read-only qBittorrent path corresponding to Mirror's data directory.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Seed activation timeout</th>
+                                    <td>{{ mirror_qbittorrent_ready_timeout | humanize_seconds }}</td>
+                                    <td>Maximum wait for qBittorrent to report upload mode & peer discovery.</td>
+                                </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Index publication</th>
                                 <td>{{ 'Enabled' if mirror_publish_enabled else 'Disabled' }}</td>

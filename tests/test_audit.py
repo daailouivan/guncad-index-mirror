@@ -101,8 +101,11 @@ class ArchiveAuditTests(unittest.TestCase):
         self.assertEqual(len(report.artifacts), 1)
         artifact = report.artifacts[0]
         self.assertTrue(artifact.valid)
+        self.assertEqual(artifact.seeding_state, "pending")
         self.assertEqual(artifact.publication_state, "pending")
+        self.assertEqual(report.seeding_counts, {"pending": 1})
         self.assertEqual(report.publication_counts, {"pending": 1})
+        self.assertEqual(report.summary()["seeding_counts"], {"pending": 1})
         self.assertEqual(report.summary()["publication_counts"], {"pending": 1})
         self.assertEqual(artifact.size, len(b"payload"))
         self.assertEqual(artifact.acquisition_transport, "odysee-cdn")
@@ -138,6 +141,7 @@ class ArchiveAuditTests(unittest.TestCase):
         with paths[1].open(newline="") as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(rows[0]["release_id"], self.release.id)
+        self.assertEqual(rows[0]["seeding_state"], "pending")
         self.assertEqual(rows[0]["publication_state"], "pending")
         with paths[3].open(newline="") as stream:
             rows = list(csv.DictReader(stream))
@@ -191,6 +195,52 @@ class ArchiveAuditTests(unittest.TestCase):
             )
         messages = [issue.message for issue in audit_archive(self.data_dir).issues]
         self.assertIn("magnet URI does not identify the job BTIH", messages)
+
+    def test_validates_qbittorrent_seed_receipts(self) -> None:
+        self.store.mark_seed_green(
+            self.release.id,
+            self.release.sd_hash,
+            client_version="v5.2.3",
+            observed_state="forcedUP",
+            content_path="/downloads/releases/channel/payload.zip",
+            dht_nodes=12,
+            working_trackers=0,
+            recheck_interval=300,
+        )
+
+        report = audit_archive(self.data_dir)
+
+        artifact = report.artifacts[0]
+        self.assertTrue(artifact.valid)
+        self.assertEqual(artifact.seeding_state, "green")
+        self.assertEqual(artifact.seeding_client, "qbittorrent")
+        self.assertEqual(artifact.seeding_observed_state, "forcedUP")
+        self.assertEqual(report.seeding_counts, {"green": 1})
+
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE jobs SET
+                    seeding_observed_state='stoppedUP',
+                    seeding_dht_nodes=0,
+                    seeding_working_trackers=0,
+                    seeding_error_code='stale'
+                WHERE release_id=? AND sd_hash=?
+                """,
+                (self.release.id, self.release.sd_hash),
+            )
+        messages = [issue.message for issue in audit_archive(self.data_dir).issues]
+        self.assertIn("green seed isn't in a qBittorrent upload state", messages)
+        self.assertIn("green seed has no peer-discovery path", messages)
+        self.assertIn("green seed retains a failure", messages)
+
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute(
+                "UPDATE jobs SET seeding_state='mystery' WHERE release_id=?",
+                (self.release.id,),
+            )
+        messages = [issue.message for issue in audit_archive(self.data_dir).issues]
+        self.assertTrue(any("unknown seeding state" in message for message in messages))
 
     def test_reports_invalid_publication_states_and_terminal_errors(self) -> None:
         with closing(sqlite3.connect(self.store.path)) as connection, connection:
