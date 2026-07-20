@@ -4,8 +4,16 @@ services:
     image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
     stop_grace_period: 2m
     env_file: "${MIRROR_ENV_FILE:-guncad-mirror.env}"
+    environment:
+      MIRROR_QBITTORRENT_ENABLED: "true"
+      MIRROR_QBITTORRENT_URL: "http://qbittorrent:8080"
+      MIRROR_QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      MIRROR_QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:?set a qBittorrent control password}"
+      MIRROR_QBITTORRENT_DATA_DIR: "/downloads"
+    depends_on:
+      - qbittorrent
     volumes:
-      - guncad-mirror:/data:Z
+      - guncad-mirror:/data:z
     ports:
       # LBRY uses this port to serve rehosted content. If not exposed, you're
       # just leeching.
@@ -22,6 +30,38 @@ services:
       interval: 5s
       timeout: 15s
       retries: 12
+  qbittorrent:
+    build:
+      context: .
+      dockerfile: Dockerfile.qbittorrent
+    image: "${MIRROR_QBITTORRENT_IMAGE:-guncad-mirror-qbittorrent:5.2.3-1}"
+    read_only: true
+    stop_grace_period: 30m
+    environment:
+      PUID: "${MIRROR_UID:-1000}"
+      PGID: "${MIRROR_GID:-1000}"
+      QBT_LEGAL_NOTICE: confirm
+      QBT_TORRENTING_PORT: "6881"
+      QBT_WEBUI_PORT: "8080"
+      QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:?set a qBittorrent control password}"
+      TZ: "${TZ:-UTC}"
+    tmpfs:
+      - /tmp
+    volumes:
+      - guncad-mirror-qbittorrent:/config:Z
+      - guncad-mirror:/downloads:ro,z
+    ports:
+      - "${MIRROR_BITTORRENT_PORT:-6881}:6881/tcp"
+      - "${MIRROR_BITTORRENT_PORT:-6881}:6881/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 12
 volumes:
   guncad-mirror:
     name: "${MIRROR_DATA_VOLUME:-guncad-mirror}"
+  guncad-mirror-qbittorrent:
+    name: "${MIRROR_QBITTORRENT_VOLUME:-guncad-mirror-qbittorrent}"

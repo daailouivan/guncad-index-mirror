@@ -11,6 +11,7 @@ venv
 .trivyignore
 contrib/*
 !contrib/lbry-sdk-direct-sd.patch
+!contrib/qbittorrent-entrypoint.py
 data-dumps
 data*.json
 docker-data

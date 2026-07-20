@@ -7,10 +7,12 @@ default_endpoint='https://guncadindex.com/api/v2/releases/?format=json&limit=50&
 MIRROR_SMOKE_API_ENDPOINT="${MIRROR_SMOKE_API_ENDPOINT:-$default_endpoint}"
 MIRROR_SMOKE_PROJECT="${MIRROR_SMOKE_PROJECT:-guncad-mirror-smoke}"
 MIRROR_SMOKE_DATA_VOLUME="${MIRROR_SMOKE_DATA_VOLUME:-${MIRROR_SMOKE_PROJECT}_guncad-mirror-smoke}"
+MIRROR_SMOKE_QBITTORRENT_VOLUME="${MIRROR_SMOKE_QBITTORRENT_VOLUME:-${MIRROR_SMOKE_PROJECT}_qbittorrent}"
 MIRROR_SMOKE_ENV_FILE="${MIRROR_SMOKE_ENV_FILE:-guncad-mirror.env}"
 MIRROR_ENV_FILE="$MIRROR_SMOKE_ENV_FILE"
 export MIRROR_SMOKE_API_ENDPOINT
 export MIRROR_SMOKE_DATA_VOLUME
+export MIRROR_SMOKE_QBITTORRENT_VOLUME
 export MIRROR_ENV_FILE
 
 case "$MIRROR_SMOKE_API_ENDPOINT" in
@@ -23,6 +25,12 @@ esac
 case "$MIRROR_SMOKE_DATA_VOLUME" in
 	*full-corpus*)
 		echo "Refusing to mount a full-corpus volume in the bounded smoke test"
+		exit 3
+		;;
+esac
+case "$MIRROR_SMOKE_QBITTORRENT_VOLUME" in
+	*full-corpus*)
+		echo "Refusing to mount a full-corpus qBittorrent volume in the bounded smoke test"
 		exit 3
 		;;
 esac
@@ -47,6 +55,7 @@ echo "Live-test endpoint: $MIRROR_SMOKE_API_ENDPOINT"
 echo "Release cap: ${MIRROR_SMOKE_RELEASES:-1}"
 echo "Compose project: $MIRROR_SMOKE_PROJECT"
 echo "Data volume: $MIRROR_SMOKE_DATA_VOLUME"
+echo "qBittorrent volume: $MIRROR_SMOKE_QBITTORRENT_VOLUME"
 echo "Service environment: $MIRROR_SMOKE_ENV_FILE"
 "$docker" compose \
 	-f "$composefile" \

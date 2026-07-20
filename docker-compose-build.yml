@@ -11,11 +11,18 @@ services:
       MIRROR_ENABLE_WEBUI: "false"
       MIRROR_MAX_RELEASES_PER_RUN: "${MIRROR_SMOKE_RELEASES:-1}"
       MIRROR_MIN_FREE_SPACE: "${MIRROR_SMOKE_MIN_FREE_SPACE:-1073741824}"
+      MIRROR_QBITTORRENT_ENABLED: "true"
+      MIRROR_QBITTORRENT_URL: "http://qbittorrent:8080"
+      MIRROR_QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      MIRROR_QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:-mirror}"
+      MIRROR_QBITTORRENT_DATA_DIR: "/downloads"
+    depends_on:
+      - qbittorrent
     command:
       - "-v"
       - "--once"
     volumes:
-      - guncad-mirror-smoke:/data:Z
+      - guncad-mirror-smoke:/data:z
     healthcheck:
       test: |
         curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
@@ -23,7 +30,42 @@ services:
       interval: 5s
       timeout: 15s
       retries: 12
+  qbittorrent:
+    build:
+      context: .
+      dockerfile: Dockerfile.qbittorrent
+    image: "${MIRROR_QBITTORRENT_IMAGE:-guncad-mirror-qbittorrent:5.2.3-1}"
+    read_only: true
+    stop_grace_period: 30m
+    environment:
+      PUID: "${MIRROR_UID:-1000}"
+      PGID: "${MIRROR_GID:-1000}"
+      QBT_LEGAL_NOTICE: confirm
+      QBT_TORRENTING_PORT: "6881"
+      QBT_WEBUI_PORT: "8080"
+      QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:-mirror}"
+      QBITTORRENT_HOST_HEADER_VALIDATION: "false"
+      TZ: "${TZ:-UTC}"
+    tmpfs:
+      - /tmp
+    volumes:
+      - guncad-mirror-smoke-qbittorrent:/config:Z
+      - guncad-mirror-smoke:/downloads:ro,z
+    ports:
+      - "${MIRROR_SMOKE_BITTORRENT_PORT:-6881}:6881/tcp"
+      - "${MIRROR_SMOKE_BITTORRENT_PORT:-6881}:6881/udp"
+      - "127.0.0.1:${MIRROR_SMOKE_QBITTORRENT_WEBUI_PORT:-8083}:8080/tcp"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 12
 volumes:
   guncad-mirror-smoke:
     name: "${MIRROR_SMOKE_DATA_VOLUME:?contrib/test-docker.sh must select a smoke-test
       volume}"
+  guncad-mirror-smoke-qbittorrent:
+    name: "${MIRROR_SMOKE_QBITTORRENT_VOLUME:?contrib/test-docker.sh must select a
+      smoke-test qBittorrent volume}"
