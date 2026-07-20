@@ -702,7 +702,8 @@ class MirrorPipeline:
                 and artifact_document.get("sha384") == sha384
                 and artifact_document.get("sha256") == sha256
                 and torrent_document.get("btih") == info_hash
-                and torrent_document.get("file_name") == safe_torrent.name
+                and torrent_document.get("file_name")
+                in {safe_file.name, safe_torrent.name}
                 and torrent_document.get("piece_length")
                 == self.settings.torrent_piece_length
                 and torrent_document.get("piece_count")

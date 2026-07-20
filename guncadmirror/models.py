@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,6 +30,16 @@ class JobState(StrEnum):
     FAILED = "failed"
 
 
+class PublicationState(StrEnum):
+    PENDING = "pending"
+    PUBLISHING = "publishing"
+    RETRYING = "retrying"
+    PUBLISHED = "published"
+    DUPLICATE = "duplicate"
+    REJECTED = "rejected"
+    CONFLICT = "conflict"
+
+
 class AcquisitionTransport(StrEnum):
     LBRY = "lbry"
     ODYSEE_CDN = "odysee-cdn"
@@ -51,6 +62,7 @@ class Release:
     sd_hash: str
     sha384: str | None
     size: int | None
+    popularity: float
     lbry_only: bool
     raw: Mapping[str, Any] = field(repr=False, compare=False)
 
@@ -106,6 +118,18 @@ class Release:
         else:
             size = raw_size or None
 
+        raw_popularity = origin.get("popularity", 1.0)
+        if (
+            isinstance(raw_popularity, bool)
+            or not isinstance(raw_popularity, (int, float))
+            or not math.isfinite(raw_popularity)
+            or raw_popularity < 0
+        ):
+            raise ReleaseValidationError(
+                "origin popularity must be a finite nonnegative number"
+            )
+        popularity = float(raw_popularity)
+
         raw_lbry_only = extra.get("lbry_only", False)
         if not isinstance(raw_lbry_only, bool):
             raise ReleaseValidationError("origin extra lbry_only must be a boolean")
@@ -125,6 +149,7 @@ class Release:
             sd_hash=sd_hash,
             sha384=sha384,
             size=size,
+            popularity=popularity,
             lbry_only=raw_lbry_only,
             raw=dict(value),
         )

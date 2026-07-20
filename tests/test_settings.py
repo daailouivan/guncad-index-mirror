@@ -25,6 +25,11 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.state_path, Path("/data/mirror-state.sqlite3"))
         self.assertEqual(settings.outbox_dir, Path("/data/outbox"))
         self.assertEqual(settings.releases_dir, Path("/data/releases"))
+        self.assertFalse(settings.publish_enabled)
+        self.assertEqual(settings.publish_url, "")
+        self.assertEqual(settings.publish_token, "")
+        self.assertEqual(settings.publish_concurrency, 2)
+        self.assertEqual(settings.publish_timeout, 60)
 
     def test_reads_every_supported_environment_shape(self):
         settings = Settings.from_env(
@@ -54,6 +59,11 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_TORRENT_TRACKERS": (
                     "udp://tracker.test:80,http://tracker2.test/announce"
                 ),
+                "MIRROR_PUBLISH_ENABLED": "true",
+                "MIRROR_PUBLISH_URL": "https://index.example/api/v2/torrents/publish/",
+                "MIRROR_PUBLISH_TOKEN": "secret-token",
+                "MIRROR_PUBLISH_CONCURRENCY": "3",
+                "MIRROR_PUBLISH_TIMEOUT": "17.5",
             }
         )
 
@@ -77,6 +87,14 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.enable_webui)
         self.assertEqual(settings.blacklisted_handles, ("bad", "worse", "worst"))
         self.assertEqual(len(settings.torrent_trackers), 2)
+        self.assertTrue(settings.publish_enabled)
+        self.assertEqual(
+            settings.publish_url,
+            "https://index.example/api/v2/torrents/publish/",
+        )
+        self.assertEqual(settings.publish_token, "secret-token")
+        self.assertEqual(settings.publish_concurrency, 3)
+        self.assertEqual(settings.publish_timeout, 17.5)
 
     def test_uses_process_environment_when_not_injected(self):
         with patch.dict("os.environ", {"MIRROR_ENABLE_WEBUI": "true"}, clear=True):
@@ -96,6 +114,17 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_ODYSEE_PROXY_URL": "not-a-url"}, "absolute HTTP"),
             ({"MIRROR_TORRENT_PIECE_LENGTH": "20000"}, "power of two"),
             ({"MIRROR_TORRENT_TRACKERS": "wat://tracker"}, "tracker URL"),
+            ({"MIRROR_PUBLISH_ENABLED": "true"}, "MIRROR_PUBLISH_URL"),
+            (
+                {
+                    "MIRROR_PUBLISH_ENABLED": "true",
+                    "MIRROR_PUBLISH_URL": "https://index.example/publish/",
+                },
+                "MIRROR_PUBLISH_TOKEN",
+            ),
+            ({"MIRROR_PUBLISH_TOKEN": "bad token"}, "non-whitespace"),
+            ({"MIRROR_PUBLISH_CONCURRENCY": "0"}, "at least"),
+            ({"MIRROR_PUBLISH_TIMEOUT": "0"}, "at least"),
         ]
         for env, message in cases:
             with (

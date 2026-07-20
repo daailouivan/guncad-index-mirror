@@ -25,6 +25,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.url_lbry, "lbry://release#r")
         self.assertEqual(release.sd_hash, "b" * 96)
         self.assertEqual(release.size, len(b"payload"))
+        self.assertEqual(release.popularity, 1.0)
         self.assertFalse(release.lbry_only)
         self.assertEqual(json.loads(release.to_json()), payload)
 
@@ -101,6 +102,9 @@ class ReleaseTests(unittest.TestCase):
                 (changed(("origin", "checksum"), "BAD"), "origin checksum"),
                 (changed(("origin", "size"), True), "origin size"),
                 (changed(("origin", "size"), -1), "origin size"),
+                (changed(("origin", "popularity"), True), "origin popularity"),
+                (changed(("origin", "popularity"), -1), "origin popularity"),
+                (changed(("origin", "popularity"), "popular"), "origin popularity"),
                 (changed(("origin", "links"), None), "origin links"),
                 (changed(("origin", "links"), []), "LBRY"),
                 (

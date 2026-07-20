@@ -59,6 +59,7 @@ class OutboxPublisherTests(unittest.TestCase):
         self.assertIsNone(document["acquisition"]["source_url"])
         self.assertEqual(document["artifact"]["sha384"], hashes.sha384)
         self.assertEqual(document["torrent"]["btih"], torrent.info_hash)
+        self.assertEqual(document["torrent"]["file_name"], file_path.name)
         self.assertEqual(document["torrent"]["trackers"], list(torrent.trackers))
 
 

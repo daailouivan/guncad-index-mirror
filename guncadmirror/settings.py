@@ -41,6 +41,11 @@ class Settings:
     blacklisted_handles: tuple[str, ...] = ()
     torrent_piece_length: int = 1024**2
     torrent_trackers: tuple[str, ...] = ()
+    publish_enabled: bool = False
+    publish_url: str = ""
+    publish_token: str = ""
+    publish_concurrency: int = 2
+    publish_timeout: float = 60
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -88,6 +93,13 @@ class Settings:
                 env, "MIRROR_TORRENT_PIECE_LENGTH", 1024**2, minimum=16 * 1024
             ),
             torrent_trackers=_list(env.get("MIRROR_TORRENT_TRACKERS", "")),
+            publish_enabled=_boolean(env, "MIRROR_PUBLISH_ENABLED", False),
+            publish_url=env.get("MIRROR_PUBLISH_URL", "").strip(),
+            publish_token=env.get("MIRROR_PUBLISH_TOKEN", ""),
+            publish_concurrency=_integer(
+                env, "MIRROR_PUBLISH_CONCURRENCY", 2, minimum=1
+            ),
+            publish_timeout=_number(env, "MIRROR_PUBLISH_TIMEOUT", 60, minimum=1),
         )
         settings.validate()
         return settings
@@ -116,6 +128,24 @@ class Settings:
             parsed = urlsplit(tracker)
             if parsed.scheme not in {"http", "https", "udp"} or not parsed.netloc:
                 raise ConfigurationError(f"invalid torrent tracker URL: {tracker}")
+        if self.publish_enabled:
+            _validate_http_url(self.publish_url, "MIRROR_PUBLISH_URL")
+            if not self.publish_token:
+                raise ConfigurationError(
+                    "MIRROR_PUBLISH_TOKEN is required when publication is enabled"
+                )
+        elif self.publish_url:
+            _validate_http_url(self.publish_url, "MIRROR_PUBLISH_URL")
+        if self.publish_token and (
+            len(self.publish_token) > 4096
+            or any(
+                character.isspace() or ord(character) < 32
+                for character in self.publish_token
+            )
+        ):
+            raise ConfigurationError(
+                "MIRROR_PUBLISH_TOKEN must be a non-whitespace bearer value"
+            )
 
 
 def _validate_http_url(value: str, name: str) -> None:

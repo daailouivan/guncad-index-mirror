@@ -26,6 +26,7 @@ def release_payload(
             "slug": "release:r",
             "external_id": release_id,
             "size": len(content),
+            "popularity": 1.0,
             "checksum": hashlib.sha384(content).hexdigest(),
             "links": [
                 {"name": "Odysee", "url": "https://odysee.com/release:r"},

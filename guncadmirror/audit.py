@@ -455,7 +455,11 @@ def _validate_manifest(
         if torrent_path is not None:
             _expect(
                 errors,
-                torrent_doc.get("file_name") == torrent_path.name,
+                torrent_doc.get("file_name")
+                in {
+                    torrent_path.name,
+                    file_path.name if file_path is not None else None,
+                },
                 "torrent file name mismatch",
             )
         piece_length = torrent_doc.get("piece_length")

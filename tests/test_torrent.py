@@ -1,17 +1,47 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlsplit
 
+from guncadmirror import torrent as torrent_module
 from guncadmirror.cancellation import AcquisitionCancelled
-from guncadmirror.torrent import TorrentError, bencode, create_torrent
+from guncadmirror.torrent import TorrentError, bencode, create_torrent, parse_torrent
+
+
+def torrent_bytes(
+    *,
+    name: str = "payload.zip",
+    length: int = 100,
+    piece_length: int = 16 * 1024,
+    announce: str | None = "https://tracker.example/announce",
+    announce_list: list[list[str]] | None = None,
+) -> bytes:
+    piece_count = math.ceil(length / piece_length)
+    document = {
+        b"info": {
+            b"length": length,
+            b"name": name.encode(),
+            b"piece length": piece_length,
+            b"pieces": b"p" * 20 * piece_count,
+        }
+    }
+    if announce is not None:
+        document[b"announce"] = announce
+    if announce_list is not None:
+        document[b"announce-list"] = announce_list
+    return bencode(document)
 
 
 class TorrentTests(unittest.TestCase):
+    def assert_invalid(self, raw: bytes) -> None:
+        with self.assertRaises(TorrentError):
+            parse_torrent(raw)
+
     def test_bencode_canonical_types_and_dictionary_order(self):
         self.assertEqual(bencode(b"spam"), b"4:spam")
         self.assertEqual(bencode("é"), b"2:\xc3\xa9")
@@ -75,6 +105,171 @@ class TorrentTests(unittest.TestCase):
             self.assertEqual(query["dn"], ["payload file.bin"])
             self.assertEqual(query["tr"], list(trackers))
             self.assertEqual(progress, [0, 16384, 16388])
+
+            parsed = parse_torrent(first_bytes)
+            self.assertEqual(parsed.info_hash, artifact.info_hash)
+            self.assertEqual(parsed.torrent_sha256, artifact.torrent_sha256)
+            self.assertEqual(parsed.file_name, payload.name)
+            self.assertEqual(parsed.file_length, payload.stat().st_size)
+            self.assertEqual(parsed.piece_length, artifact.piece_length)
+            self.assertEqual(parsed.piece_count, artifact.piece_count)
+            self.assertEqual(parsed.trackers, artifact.trackers)
+            self.assertEqual(parsed.magnet_uri, artifact.magnet_uri)
+
+    def test_strict_parser_supports_trackerless_and_deduplicates_trackers(self):
+        raw = torrent_bytes(
+            announce_list=[
+                ["udp://tracker.example:80/announce"],
+                ["https://tracker.example/announce"],
+            ]
+        )
+        parsed = parse_torrent(raw)
+        self.assertEqual(
+            parsed.trackers,
+            (
+                "https://tracker.example/announce",
+                "udp://tracker.example:80/announce",
+            ),
+        )
+        self.assertIn("&tr=", parsed.magnet_uri)
+
+        trackerless = parse_torrent(torrent_bytes(announce=None))
+        self.assertEqual(trackerless.trackers, ())
+        self.assertNotIn("&tr=", trackerless.magnet_uri)
+
+    def test_strict_parser_rejects_invalid_root_info_and_bencode(self):
+        oversized_length = str(torrent_module.MAX_BENCODE_STRING + 1).encode() + b":"
+        too_deep = b"l" * (torrent_module.MAX_BENCODE_DEPTH + 2) + b"e" * (
+            torrent_module.MAX_BENCODE_DEPTH + 2
+        )
+        too_many_list_values = (
+            b"l" + b"0:" * (torrent_module.MAX_BENCODE_ITEMS + 1) + b"e"
+        )
+        dictionary_entries = b"".join(
+            bencode(f"{index:05d}".encode()) + b"0:"
+            for index in range(torrent_module.MAX_BENCODE_ITEMS + 1)
+        )
+        cases = [
+            b"",
+            b"0:",
+            b"degarbage",
+            b"de",
+            b"d4:info0:e",
+            bencode({b"info": {b"files": []}}),
+            b"x",
+            b"i1",
+            b"ie",
+            b"i-0e",
+            b"i+1e",
+            b"i01e",
+            b"i-e",
+            b"i9223372036854775808e",
+            b"1",
+            b"01:a",
+            b"a:a",
+            oversized_length,
+            b"2:a",
+            b"l",
+            too_deep,
+            too_many_list_values,
+            b"d",
+            b"d1:a",
+            b"di1e0:e",
+            b"d1:b0:1:a0:e",
+            b"d1:a0:1:a0:e",
+            b"d" + dictionary_entries + b"e",
+        ]
+        for raw in cases:
+            with self.subTest(raw=raw[:30]):
+                self.assert_invalid(raw)
+
+    def test_strict_parser_rejects_invalid_piece_geometry(self):
+        valid = {
+            b"length": 100,
+            b"name": b"payload.zip",
+            b"piece length": 16 * 1024,
+            b"pieces": b"p" * 20,
+        }
+        cases = []
+        for key, value in (
+            (b"length", 0),
+            (b"piece length", 0),
+            (b"piece length", 1000),
+            (b"piece length", torrent_module.MAX_PIECE_LENGTH * 2),
+            (b"pieces", b""),
+            (b"pieces", 1),
+            (b"pieces", b"bad"),
+            (b"pieces", b"p" * 40),
+        ):
+            info = dict(valid)
+            info[key] = value
+            cases.append(bencode({b"info": info}))
+        for raw in cases:
+            with self.subTest(raw=raw[-50:]):
+                self.assert_invalid(raw)
+
+    def test_strict_parser_rejects_unsafe_file_names(self):
+        for name in (
+            b"",
+            b"a" * 256,
+            b"\xff",
+            b".",
+            b"..",
+            b"folder/file.zip",
+            b"folder\\file.zip",
+            b"nul\x00.zip",
+            b"line\n.zip",
+            b"delete\x7f.zip",
+        ):
+            with self.subTest(name=name):
+                self.assert_invalid(
+                    bencode(
+                        {
+                            b"info": {
+                                b"length": 1,
+                                b"name": name,
+                                b"piece length": 16 * 1024,
+                                b"pieces": b"p" * 20,
+                            }
+                        }
+                    )
+                )
+
+    def test_strict_parser_rejects_malformed_trackers(self):
+        valid_info = {
+            b"length": 1,
+            b"name": b"payload.zip",
+            b"piece length": 16 * 1024,
+            b"pieces": b"p" * 20,
+        }
+        documents: list[dict[bytes, object]] = [
+            {b"announce-list": b"nope", b"info": valid_info},
+            {b"announce-list": [b"no-tier"], b"info": valid_info},
+            {b"announce": 4, b"info": valid_info},
+            {b"announce": b"\xff", b"info": valid_info},
+        ]
+        documents.extend(
+            {b"announce": tracker.encode(), b"info": valid_info}
+            for tracker in (
+                "x" * 2049,
+                "ftp://tracker.example/announce",
+                "https:///missing-host",
+                "https://user@tracker.example/announce",
+                "https://user:pass@tracker.example/announce",
+                "https://tracker.example/line\nfeed",
+            )
+        )
+        documents.append(
+            {
+                b"announce-list": [
+                    [f"https://tracker-{index}.example/announce"] for index in range(65)
+                ],
+                b"info": valid_info,
+            }
+        )
+        for document in documents:
+            with self.subTest(keys=document.keys()):
+                self.assert_invalid(bencode(document))
 
     def test_rejects_missing_empty_and_invalid_piece_configuration(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -66,7 +66,7 @@ class OutboxPublisher:
                 "sha256": hashes.sha256,
             },
             "torrent": {
-                "file_name": torrent.torrent_path.name,
+                "file_name": torrent.file_path.name,
                 "piece_length": torrent.piece_length,
                 "piece_count": torrent.piece_count,
                 "btih": torrent.info_hash,
