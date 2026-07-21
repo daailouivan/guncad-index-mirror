@@ -8,4 +8,4 @@ docker="$(which docker 2>/dev/null || true)"
 	exit 1
 }
 
-"$docker" run --rm -v "$PWD:/project" -it ghcr.io/google/yamlfmt:latest "$@"
+"$docker" run --rm -v "$PWD:/project:Z" -w /project ghcr.io/google/yamlfmt:latest "$@"

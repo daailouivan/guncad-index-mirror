@@ -14,6 +14,7 @@ variables:
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: ""
   IMAGE_TARBALL: container-$CI_COMMIT_SHORT_SHA.tar
+  QBITTORRENT_IMAGE_TARBALL: qbittorrent-container-$CI_COMMIT_SHORT_SHA.tar
   IMAGE_TAG: $REGISTRY:$CI_COMMIT_SHORT_SHA
   IMAGE_TAG_RELEASE: $REGISTRY:$CI_COMMIT_TAG
   IMAGE_TAG_BLEEDING: $REGISTRY:bleeding
@@ -112,9 +113,12 @@ Build Container:
     - docker buildx build --platform linux/amd64 --build-arg commit_sha=$CI_COMMIT_SHORT_SHA
       --build-arg commit_tag=$CI_COMMIT_TAG --tag=$IMAGE_TAG --output type=oci,dest=$IMAGE_TARBALL
       .
+    - docker buildx build --platform linux/amd64 --file Dockerfile.qbittorrent --output
+      type=oci,dest=$QBITTORRENT_IMAGE_TARBALL .
   artifacts:
     paths:
       - $IMAGE_TARBALL
+      - $QBITTORRENT_IMAGE_TARBALL
     expire_in: 1h
 Scan Container:
   image:
@@ -129,6 +133,17 @@ Scan Container:
   script:
     - trivy image --input container --platform linux/amd64 --scanners vuln,secret,misconfig
       --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+Scan qBittorrent Container:
+  image:
+    name: ghcr.io/aquasecurity/trivy:0.69.3
+    entrypoint: [""]
+  stage: Scan
+  allow_failure: true
+  retry: 0
+  before_script: []
+  script:
+    - trivy image --input $QBITTORRENT_IMAGE_TARBALL --platform linux/amd64 --scanners
+      vuln,secret,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 Publish SHA:
   image:
     name: quay.io/containers/skopeo:latest

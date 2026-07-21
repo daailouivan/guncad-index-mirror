@@ -53,8 +53,11 @@ def configure() -> None:
     host_header_validation = environment_boolean(
         "QBITTORRENT_HOST_HEADER_VALIDATION", True
     )
-    webui_port = int(os.environ.get("QBT_WEBUI_PORT", "8080"))
-    torrenting_port = int(os.environ.get("QBT_TORRENTING_PORT", "6881"))
+    try:
+        webui_port = int(os.environ.get("QBT_WEBUI_PORT", "8080"))
+        torrenting_port = int(os.environ.get("QBT_TORRENTING_PORT", "6881"))
+    except ValueError as error:
+        raise SystemExit("qBittorrent ports must be integers") from error
     if not 1 <= webui_port <= 65535 or not 1 <= torrenting_port <= 65535:
         raise SystemExit("qBittorrent ports must be between 1 and 65535")
 

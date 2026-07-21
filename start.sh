@@ -72,6 +72,28 @@ echo "  MIRROR_CYCLE_ERROR_INTERVAL:   ${MIRROR_CYCLE_ERROR_INTERVAL:-Default}"
 echo "  MIRROR_DOWNLOAD_TIMEOUT:       ${MIRROR_DOWNLOAD_TIMEOUT:-Default}"
 echo "  MIRROR_TORRENT_PIECE_LENGTH:   ${MIRROR_TORRENT_PIECE_LENGTH:-Default}"
 echo "  MIRROR_TORRENT_TRACKERS:       ${MIRROR_TORRENT_TRACKERS:-Unset}"
+echo "  MIRROR_QBITTORRENT_ENABLED:    ${MIRROR_QBITTORRENT_ENABLED:-false}"
+echo "  MIRROR_QBITTORRENT_URL:        ${MIRROR_QBITTORRENT_URL:-Default}"
+echo "  MIRROR_QBITTORRENT_DATA_DIR:   ${MIRROR_QBITTORRENT_DATA_DIR:-Default}"
+echo "  MIRROR_QBITTORRENT_TIMEOUT:    ${MIRROR_QBITTORRENT_TIMEOUT:-Default}"
+echo "  MIRROR_QBITTORRENT_READY_TIMEOUT: ${MIRROR_QBITTORRENT_READY_TIMEOUT:-Default}"
+echo "  MIRROR_QBITTORRENT_RECHECK_INTERVAL: ${MIRROR_QBITTORRENT_RECHECK_INTERVAL:-Default}"
+if [ -n "${MIRROR_QBITTORRENT_API_KEY:-}" ]; then
+	echo "  qBittorrent authentication:   API key configured"
+elif [ -n "${MIRROR_QBITTORRENT_USERNAME:-}" ] && [ -n "${MIRROR_QBITTORRENT_PASSWORD:-}" ]; then
+	echo "  qBittorrent authentication:   username/password configured"
+else
+	echo "  qBittorrent authentication:   Unset or incomplete"
+fi
+echo "  MIRROR_PUBLISH_ENABLED:        ${MIRROR_PUBLISH_ENABLED:-false}"
+echo "  MIRROR_PUBLISH_URL:            ${MIRROR_PUBLISH_URL:-Unset}"
+echo "  MIRROR_PUBLISH_CONCURRENCY:    ${MIRROR_PUBLISH_CONCURRENCY:-Default}"
+echo "  MIRROR_PUBLISH_TIMEOUT:        ${MIRROR_PUBLISH_TIMEOUT:-Default}"
+if [ -n "${MIRROR_PUBLISH_TOKEN:-}" ]; then
+	echo "  Index publication bearer:     Configured"
+else
+	echo "  Index publication bearer:     Unset"
+fi
 echo ""
 echo "If you have any questions or concerns, reach out:"
 echo "  Source (and docs):             https://gitlab.com/guncad-index/mirror"
