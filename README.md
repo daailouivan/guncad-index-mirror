@@ -6,9 +6,9 @@
 > [!WARNING]
 > This software downloads and prepares redistribution metadata for 3D-printable firearm files. Possession, export, or distribution may be illegal where you live. The operator is responsible for complying with applicable law.
 
-GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD Index API v2 releases, downloads each supported stream by its LBRY descriptor hash, verifies the assembled bytes against the Index checksum and size, and writes deterministic BitTorrent v1 artifacts. If the LBRY swarm cannot supply a claimed stream, Mirror can recover plaintext from Odysee's public CDN after matching the claim ID, descriptor, size, and hash.
+GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD Index API v2 releases, downloads each supported stream by its LBRY descriptor hash, verifies the assembled bytes against the Index checksum and size, and writes deterministic BitTorrent v1 artifacts. If the LBRY swarm can't supply a claimed stream, Mirror can recover plaintext from Odysee's public CDN after matching the claim ID, descriptor, size, and hash.
 
-It is not a replacement for a BitTorrent client. It does not seed the generated torrents. The intended post-Odysee seeder is an ordinary client such as qBittorrent or Transmission, eventually fed by a query-filterable torrent RSS feed from GunCAD Index.
+The supplied Compose stack runs qBittorrent beside Mirror. qBittorrent receives each generated torrent at the assembled payload's existing path, then seeds that file without downloading a second copy. Mirror won't publish a torrent to GunCAD Index until qBittorrent reports the same BTIH, a ledger-verified archive path and byte count, 100% completion, forced upload mode, and a working DHT or tracker path.
 
 ## Current data path
 
@@ -22,7 +22,8 @@ For every valid API v2 release whose `origin.platform` is `lbry`, Mirror perform
 6. Create deterministic single-file BitTorrent v1 metainfo and a magnet URI.
 7. Atomically write the torrent and `manifest.json` under `/data/outbox`.
 8. Mark the acquisition job `awaiting_index`. This state means the local payload, torrent, and manifest are complete.
-9. When publication is enabled, send the manifest and torrent to the configured Index endpoint. Store the returned canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID in SQLite.
+9. Add the torrent to qBittorrent at the assembled file's read-only mounted path. Record a short-lived green receipt only after qBittorrent reports upload mode and peer discovery.
+10. When publication is enabled, send the manifest and torrent to the configured Index endpoint only while that green receipt remains current. Store the returned canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID in SQLite.
 
 Unsupported origins, including Printables, are skipped and visible in debug logs. LBRY-only releases that lack an Odysee page remain eligible because Mirror acquires them by `sd_hash`; the public proxy may or may not have a CDN copy. Some early LBRY claims contain neither source size nor source hash. Mirror preserves those descriptor-authenticated payloads and records computed values, but never sends them through the CDN fallback or presents them as independently corroborated. A malformed release is isolated from other rows on the same page. HTTP failures, pagination loops, cross-origin pagination, contradictory LBRY responses, checksum mismatches, and download timeouts are treated as errors rather than empty results or successful downloads.
 
@@ -32,7 +33,9 @@ Mirror needs a persistent `/data` volume. A complete LBRY evacuation stores both
 
 The container runs as UID 1000 after creating the top-level data directories. Existing bind-mounted data must be writable by that UID. Startup does not recursively change ownership because doing so would walk the entire archive on every restart.
 
-The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. Forward those ports if this node should contribute data to other LBRY peers. The web UI is exposed on host port 8081 by the supplied Compose file. The status page refreshes every 10 seconds and reports the active release, acquisition transport, bytes or LBRY blobs remaining, average transfer rate for the current phase, and estimated time remaining. Its `/archive` page lists completed payloads, torrents, & magnet links.
+The packaged daemon serves cached LBRY blobs on TCP 5567 and participates in the LBRY DHT on TCP and UDP 4444. qBittorrent listens on TCP and UDP 6881. Forward those ports if this node should serve either network. The Mirror web UI is exposed on host port 8081. It reports active transfers, seed-gate state, Index publication state, and recent operator events. Its `/archive` page lists completed payloads, torrents, magnet links, and the last qBittorrent observation.
+
+Set `MIRROR_QBITTORRENT_PASSWORD` in `guncad-mirror.env` before starting the production Compose stack. An empty value stops Compose before either container starts. qBittorrent's Web API stays on the private Compose network; the production file does not publish its control UI on the host.
 
 ```bash
 docker compose --env-file guncad-mirror.env up -d
@@ -54,6 +57,8 @@ MIRROR_PUBLISH_URL="https://guncadindex.com/api/v2/torrents/publish/"
 MIRROR_PUBLISH_TOKEN="<high-entropy bearer>"
 ```
 
+Publication also requires `MIRROR_QBITTORRENT_ENABLED=true`. The supplied Compose file sets that value and mounts Mirror's `/data` volume read-only at `/downloads` inside qBittorrent. Mirror's process receives Web API credentials; it never writes them to SQLite, the status page, or audit output.
+
 ### Running the local development image
 
 Build and tag the current checkout:
@@ -74,7 +79,7 @@ To reuse the data produced by `contrib/test-docker.sh`, set `MIRROR_DATA_VOLUME`
 
 ### Narrow live smoke test
 
-`contrib/test-docker.sh` builds the checkout and runs one release from a hard-coded, mixed-origin API query. The script refuses endpoints without a `query=` parameter. Its default Compose project is `guncad-mirror-smoke`, which keeps the test volume separate from a production Compose deployment and preserves LBRY headers between smoke runs.
+`contrib/test-docker.sh` builds the checkout and runs one release from a hard-coded, mixed-origin API query. The script refuses endpoints without a `query=` parameter. Its default Compose project is `guncad-mirror-smoke`, which keeps the Mirror and qBittorrent test volumes separate from production and preserves both clients' state between smoke runs.
 
 ```bash
 ./contrib/test-docker.sh
@@ -86,7 +91,7 @@ Select a separate service environment without editing the checked-in example:
 MIRROR_SMOKE_ENV_FILE=.mirror.env ./contrib/test-docker.sh
 ```
 
-Reuse a named bounded-test volume by setting `MIRROR_SMOKE_DATA_VOLUME`. The script refuses names containing `full-corpus`.
+Reuse named bounded-test volumes by setting `MIRROR_SMOKE_DATA_VOLUME` and `MIRROR_SMOKE_QBITTORRENT_VOLUME`. The script refuses either name when it contains `full-corpus`. The smoke stack exposes qBittorrent's authenticated diagnostic UI only on `127.0.0.1:8083`; its default test username and password are both `mirror` unless overridden.
 
 ```bash
 MIRROR_SMOKE_DATA_VOLUME=guncad-mirror-index-test-20260716 \
@@ -118,7 +123,7 @@ Mirror preserves and follows same-origin API pagination. `MIRROR_API_MAX_PAGES` 
 
 Open `http://localhost:8081/archive` to browse jobs in `awaiting_index`. Search terms match release names, channel handles, & LBRY origin slugs without scanning the full API JSON stored for each job. Multiple terms must all match. Results are ordered by channel & release name, 50 rows per page.
 
-Each result links to the assembled payload and locally generated `.torrent` file. After Index publication, the card also shows the elected canonical torrent and magnet URI. A duplicate release may retain a different local BTIH while pointing seeders at the Index winner for its shared SHA-384.
+Each result links to the assembled payload and locally generated `.torrent` file. The card shows qBittorrent's durable seed state, last observed upload state, DHT node count, and working tracker count. After Index publication, it also shows the elected canonical torrent and magnet URI. A duplicate release may retain a different local BTIH while pointing seeders at the Index winner for its shared SHA-384.
 
 Payload responses support HTTP byte ranges, so an interrupted browser download can resume. Paths are read from the verified SQLite ledger; the server rejects unfinished jobs, missing files, & paths outside `/data` or `/data/outbox`.
 
@@ -136,6 +141,8 @@ If `MIRROR_ASSEMBLE_FILES=True` was set in 0.4.1, an intact payload under `/data
 
 The old pickle cache at `/data/sd_hash_cache.pkl` is ignored. The new SQLite ledger starts empty, so every selected release passes through verification & torrent generation once even when all of its bytes are already local.
 
+An evacuation build from before qBittorrent integration already has `/data/releases`, `/data/outbox`, and `mirror-state.sqlite3`. Reuse that volume. Startup adds the seeding columns with `pending` defaults, then qBittorrent imports each existing torrent at its existing payload path. Mirror checks the torrent name, BTIH, and payload byte count before injection; it does not reacquire the LBRY stream or regenerate a valid outbox artifact. Keep the new qBittorrent config volume as well, because it contains the client's fast-resume records.
+
 ## Data layout
 
 | Path | Contents |
@@ -143,9 +150,11 @@ The old pickle cache at `/data/sd_hash_cache.pkl` is ignored. The new SQLite led
 | `/data/lbry` | lbrynet configuration, chain headers, stream database, stream descriptors, and encrypted blobs. Preserve this directory between runs. |
 | `/data/releases/<channel>/<release>-<sd-prefix>/` | Assembled plaintext payload and the raw API v2 `release.json`. |
 | `/data/outbox/<release-id>/<sd-hash>/` | Deterministic `.torrent` file and source-evidence `manifest.json` used to build the Index request. |
-| `/data/mirror-state.sqlite3` | Acquisition state, publication attempts, retry deadlines, verified hashes, local BTIH values, and canonical Index receipts. |
+| `/data/mirror-state.sqlite3` | Acquisition, seeding, and publication state; retry deadlines; verified hashes; local BTIH values; qBittorrent observations; and canonical Index receipts. |
 | `/data/reports` | Consolidated archive audit output when `python -m guncadmirror.audit` is run. |
 | `/data/log` | Mirror and lbrynet logs. |
+
+Compose also creates `guncad-mirror-qbittorrent` for qBittorrent configuration and fast-resume state. qBittorrent sees the Mirror data volume at `/downloads` with a read-only mount. It can read and seed payloads but can't rename, truncate, or delete the archived copy.
 
 Do not delete `/data/lbry` to clear a failed job. Delete or repair only the affected release/outbox artifacts, then let the next cycle retry. Removing LBRY state forces a chain-header sync and discards useful blobs.
 
@@ -183,7 +192,19 @@ All byte values are integers. All time values are seconds. Boolean values accept
 | `MIRROR_ENABLE_WEBUI` | `false` | Serve the local status page on container port 5000. |
 | `MIRROR_TORRENT_PIECE_LENGTH` | `1048576` | BitTorrent v1 piece length. Must be a power of two and at least 16 KiB. |
 | `MIRROR_TORRENT_TRACKERS` | empty | Comma-separated HTTP, HTTPS, or UDP announce URLs. Empty creates trackerless metainfo. |
-| `MIRROR_PUBLISH_ENABLED` | `false` | Enable authenticated Index publication. URL and token become required. |
+| `MIRROR_QBITTORRENT_ENABLED` | `false` | Reconcile staged torrents with qBittorrent. Must be true when Index publication is enabled. The supplied Compose files set it to true. |
+| `MIRROR_QBITTORRENT_URL` | `http://qbittorrent:8080` | Private qBittorrent Web API endpoint. Embedded credentials are rejected. |
+| `MIRROR_QBITTORRENT_API_KEY` | empty | qBittorrent 5.2 API key in `qbt_` format. Configure this or username/password, never both. |
+| `MIRROR_QBITTORRENT_USERNAME` | empty | Web API username when API-key authentication isn't used. |
+| `MIRROR_QBITTORRENT_PASSWORD` | empty | Web API password. The value is never included in status or audit output. |
+| `MIRROR_QBITTORRENT_DATA_DIR` | `/downloads` | qBittorrent path corresponding to Mirror's data-volume root. Must be absolute. |
+| `MIRROR_QBITTORRENT_TIMEOUT` | `15` | Web API read timeout. |
+| `MIRROR_QBITTORRENT_READY_TIMEOUT` | `120` | Maximum wait for an injected torrent to report upload mode and peer discovery. |
+| `MIRROR_QBITTORRENT_POLL_INTERVAL` | `2` | Delay between readiness checks during injection. |
+| `MIRROR_QBITTORRENT_RECHECK_INTERVAL` | `300` | Lifetime of one green seed receipt before qBittorrent must be checked again. |
+| `MIRROR_QBITTORRENT_CATEGORY` | `guncad-mirror` | Category assigned to imported torrents. |
+| `MIRROR_QBITTORRENT_TAG` | `guncad-mirror` | Tag assigned to imported torrents. Commas are rejected. |
+| `MIRROR_PUBLISH_ENABLED` | `false` | Enable authenticated Index publication. qBittorrent, URL, and token become required. |
 | `MIRROR_PUBLISH_URL` | empty | Absolute HTTP(S) torrent publication endpoint. Embedded credentials are rejected. |
 | `MIRROR_PUBLISH_TOKEN` | empty | Bearer sent only in the `Authorization` header. Whitespace and control characters are rejected. |
 | `MIRROR_PUBLISH_CONCURRENCY` | `2` | Maximum SHA-384 groups published at once. Candidates within one group remain popularity ordered. |
@@ -209,7 +230,17 @@ excluded by policy -> acquiring (after policy changes)
 
 `awaiting_index` is terminal for acquisition. If a required local artifact disappears, Mirror rebuilds the job on the next scan. Failed jobs use exponential backoff and retain the last typed error in SQLite. Size and channel-policy exclusions retain their reason without counting as failures; a later policy change makes them eligible for acquisition.
 
-Publication has a separate state machine:
+Seeding has its own durable state machine:
+
+```text
+pending -> injecting -> green -> injecting (after the receipt expires)
+                    +-> retrying -> injecting
+                    +-> blocked -> injecting after operator repair or recheck
+```
+
+`green` is a five-minute lease at the default setting. Mirror requires the exact local BTIH, a ledger-verified qBittorrent content and save path, payload size, 100% completion, zero remaining bytes, forced upload mode, a connected or firewalled transfer state, and either a nonzero DHT node count or a working tracker. qBittorrent stores one entry per BTIH, so jobs with the same BTIH and SHA-384 may share the path of either verified local copy. No unrelated path is accepted. Network failures enter `retrying`. A mismatched path, payload size, incomplete download state, or broken local torrent enters `blocked` and appears in notable events. A process exit during `injecting` recovers to `retrying` on startup.
+
+Publication has a third state machine:
 
 ```text
 pending -> publishing -> published
@@ -219,7 +250,7 @@ pending -> publishing -> published
                      +-> retrying -> publishing
 ```
 
-Network errors, HTTP 429, and most HTTP 5xx responses enter `retrying`. Mirror honors `Retry-After` and keeps lower-popularity descriptors for the same SHA-384 behind the failed leader. Rows with the same descriptor, plaintext hash, and BTIH share one POST; a divergent BTIH is submitted separately so Index can report the descriptor conflict. HTTP 401, 403, 404, and 503 pause the whole publisher because retrying every queued artifact cannot repair a bad token, wrong route, or disabled server endpoint. A process exit during `publishing` recovers to `retrying` on startup.
+Publication candidates must have an unexpired green seed receipt. Network errors, HTTP 429, and most HTTP 5xx responses enter `retrying`. Mirror honors `Retry-After` and keeps lower-popularity descriptors for the same SHA-384 behind the failed leader. Rows with the same descriptor, plaintext hash, and BTIH share one POST; a divergent BTIH is submitted separately so Index can report the descriptor conflict. HTTP 401, 403, 404, and 503 pause the whole publisher because retrying every queued artifact cannot repair a bad token, wrong route, or disabled server endpoint. A process exit during `publishing` recovers to `retrying` on startup.
 
 HTTP 200 and 201 responses end in `published`. An `artifact_duplicate` response ends in `duplicate` and stores the Index winner. Other HTTP 409 responses end in `conflict`; HTTP 400 and 413 responses end in `rejected`. These states never delete the local payload or torrent.
 
@@ -231,7 +262,9 @@ On termination, Tini forwards the container signal. Mirror returns after the cur
 
 ## Index publication request
 
-Mirror sends one `POST` with `Authorization: Bearer <token>` and exactly two multipart fields. `manifest` is compact JSON under 64 KiB. `torrent` is the generated BitTorrent metainfo under 4 MiB. The assembled payload is not part of this request.
+Mirror checks qBittorrent before it opens an Index request. If qBittorrent is unavailable, reports a conflicting torrent, or loses upload/discovery readiness, Mirror closes the publication gate and records the reason in SQLite and notable events.
+
+After that check, Mirror sends one `POST` with `Authorization: Bearer <token>` and exactly two multipart fields. `manifest` is compact JSON under 64 KiB. `torrent` is the generated BitTorrent metainfo under 4 MiB. The assembled payload is not part of this request.
 
 The wire manifest is rebuilt from the SQLite ledger and parsed torrent instead of forwarding the larger source-evidence manifest verbatim. Mirror parses the same strict single-file BitTorrent v1 subset as Index, recalculates the BTIH and torrent SHA-256, and checks the payload filename, length, magnet URI, and tracker order before opening the HTTP connection. Source manifests written before acquisition evidence existed are sent as `acquisition.transport=lbry`.
 
@@ -253,8 +286,8 @@ The client rejects a response whose receipt doesn't describe the exact submissio
 
 Mirror can consolidate the SQLite ledger and per-release manifests into five operator-facing files:
 
-- `archive-summary.json`: counts, bytes, unique payloads, evidence classes, transports, and integrity totals.
-- `archive-artifacts.csv`: one row per `awaiting_index` job, including local hashes, acquisition evidence, publication attempts, terminal errors, and canonical Index receipt fields.
+- `archive-summary.json`: counts, bytes, unique payloads, evidence classes, acquisition transports, seed states, publication states, and integrity totals.
+- `archive-artifacts.csv`: one row per `awaiting_index` job, including local hashes, acquisition evidence, qBittorrent observations, publication attempts, terminal errors, and canonical Index receipt fields.
 - `archive-failures.csv`: typed acquisition failures and retry state.
 - `archive-exclusions.csv`: releases omitted by configured size or channel policy, including the durable reason.
 - `archive-issues.csv`: missing files, path escapes, manifest contradictions, hash failures, unfinished jobs, and orphaned outbox files.
@@ -265,7 +298,7 @@ Run the fast audit after a scan reaches its sleep interval:
 python -m guncadmirror.audit --data-dir /data
 ```
 
-The fast pass validates the ledger, paths, file sizes, manifests, magnets, and SHA-256 of every torrent. It does not reread every assembled payload. Use `--rehash` for a bit-rot scrub that recomputes SHA-384 and SHA-256 over the complete plaintext corpus:
+The fast pass validates the ledger, paths, file sizes, manifests, magnets, SHA-256 of every torrent, and internal consistency of stored qBittorrent receipts. It doesn't contact qBittorrent or reread every assembled payload. Use `--rehash` for a bit-rot scrub that recomputes SHA-384 and SHA-256 over the complete plaintext corpus:
 
 ```bash
 python -m guncadmirror.audit --data-dir /data --rehash
@@ -290,7 +323,8 @@ The manifest's `acquisition.transport` is `lbry` when descriptor and content blo
 
 ## Known limits
 
-- Mirror does not run a BitTorrent client or seed generated torrents.
+- The Mirror process controls qBittorrent but doesn't implement BitTorrent itself. Production Compose builds the pinned qBittorrent sidecar; the Unraid template requires a separate qBittorrent container with the same archive mounted read-only at `/downloads`.
+- qBittorrent's production Web UI isn't published by Compose. The bounded development stack exposes it on `127.0.0.1:8083` for diagnosis.
 - The patched RPC removes claim resolution from normal acquisition, but lbry-sdk's file manager still depends on wallet startup. A fresh data volume therefore pays the LBRY chain-header sync before downloads begin.
 - When connected to an unpatched stock daemon, Mirror falls back to claim URI resolution only if `stream_get` is absent. It rejects the result if the resolved `sd_hash` differs from the Index value.
 - The Odysee CDN fallback contacts Odysee directly and is useful only while its SDK proxy and player CDN remain online. Set `MIRROR_ODYSEE_FALLBACK=false` for a swarm-only run.

@@ -36,6 +36,10 @@
 * Added crash-safe publication states, durable retry deadlines, canonical winner receipts, and popularity-led SHA-384 scheduling
 * Added publication state and canonical Index links to the web UI, archive browser, and integrity reports without exposing bearer tokens
 * Added configurable Compose environment files and named-volume guards so bounded smoke tests can use local publication credentials without changing the checked-in sample or mounting the full corpus
+* Added a pinned qBittorrent 5.2.3-1 sidecar with persistent client state, read-only archive access, TCP and UDP peer ports, and a localhost-only diagnostic Web UI in the bounded development stack
+* Added authenticated qBittorrent Web API reconciliation that imports generated torrents at their existing payload paths, forces upload mode, and checks BTIH, path, size, completion, and peer discovery
+* Added crash-safe seeding states and made an unexpired green qBittorrent receipt mandatory before Index publication
+* Added qBittorrent state, failures, and discovery observations to notable events, the status page, archive browser, and integrity reports without exposing control credentials
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
 * Added: More tracker announcement hosts and a script to pull a list from an authoritative source

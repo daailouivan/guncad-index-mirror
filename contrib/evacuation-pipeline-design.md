@@ -21,7 +21,7 @@ Use GunCAD Index as the migration catalog and eventual upload pane. Use GunCAD M
 | GunCAD Index | Select releases, retain source metadata and checksums, expose API v2 | Creator identity, upload intake, torrent discovery, query-filtered RSS, public recovery data |
 | GunCAD Mirror | Resolve LBRY stream descriptors, fetch blobs, assemble and verify files, generate torrents | Operate as a legacy migration utility until useful LBRY sources are exhausted |
 | LBRY peers | Supply stream descriptors and encrypted blobs | Declining legacy source pool, with no assumption that the chain remains trustworthy |
-| qBittorrent, Transmission, and similar clients | Optional downstream seeding during migration | Main payload seeding and retrieval system |
+| qBittorrent | Required bootstrap seeder for every torrent Mirror publishes | Main payload seeding and retrieval system, joined later by RSS subscribers and other clients |
 | GESTALT | Design work only | Possible signed metadata, social discovery, and trust layer if the community still needs it |
 
 This does make the Index a discovery and intake dependency at first. It does not make the Index the only holder of payload bytes. The recovery work below is required to keep that distinction real.
@@ -69,13 +69,15 @@ Index API v2
     -> create BitTorrent v1 metainfo and magnet URI
     -> atomically write torrent and manifest
     -> awaiting_index
+    -> add the exact BTIH to qBittorrent at the assembled payload path
+    -> require complete forced-upload state and DHT or tracker discovery
     -> optional authenticated Index publication
     -> published, duplicate, rejected, conflict, or retrying
 ```
 
 The acquisition state remains `awaiting_index` after publication. It means Mirror has a verified local payload, torrent, and source-evidence manifest. A second state machine records what happened at Index without converting a rejected API request into a missing local archive.
 
-Publication is disabled unless `MIRROR_PUBLISH_ENABLED`, `MIRROR_PUBLISH_URL`, and `MIRROR_PUBLISH_TOKEN` are set. This keeps an upgraded archive from writing to Index merely because the new image contains a client.
+Publication is disabled unless `MIRROR_PUBLISH_ENABLED`, `MIRROR_PUBLISH_URL`, and `MIRROR_PUBLISH_TOKEN` are set. It also requires `MIRROR_QBITTORRENT_ENABLED`. This keeps an upgraded archive from writing to Index merely because the new image contains a client, while making an active initial seeder mandatory for every enabled publication.
 
 ## Direct stream acquisition
 
@@ -128,7 +130,19 @@ pending -> acquiring -> verified -> awaiting_index
 excluded by policy -> acquiring after policy changes
 ```
 
-Publication starts only after `awaiting_index`:
+qBittorrent reconciliation starts after `awaiting_index`:
+
+```text
+pending -> injecting -> green -> injecting after receipt expiry
+                    +-> retrying -> injecting
+                    +-> blocked -> injecting after repair or recheck
+```
+
+The supplied Compose stack builds `qbittorrentofficial/qbittorrent-nox:5.2.3-1` with a small configuration entrypoint. qBittorrent has its own persistent config volume and mounts Mirror's archive read-only at `/downloads`. Mirror parses the local torrent before calling the Web API, checks its BTIH, filename, and byte count against SQLite and the assembled payload, and adds it with the payload's parent as the save path. The client is forced into upload mode and reannounced.
+
+A green receipt requires qBittorrent to return the same BTIH, a ledger-verified content and save path, the exact payload byte count, 100% progress, zero remaining bytes, a forced upload state, and either DHT nodes or a working tracker. qBittorrent stores one entry per BTIH. If two Mirror jobs have the same BTIH and SHA-384, either job's validated local path may satisfy both seed receipts; an arbitrary path remains a blocking conflict. The default receipt expires after 300 seconds. Publication SQL requires both `seeding_state=green` and a current receipt, so a stopped client closes the gate without rewriting acquisition or publication history. Network errors retry with backoff; path, size, incomplete-state, and local-artifact conflicts enter `blocked` and appear in notable events. Startup recovers an interrupted `injecting` row to `retrying`.
+
+Publication starts only after that seed receipt:
 
 ```text
 pending -> publishing -> published
@@ -212,7 +226,7 @@ The current fast idempotence check confirms that the payload, torrent, and manif
 }
 ```
 
-Mirror rebuilds a compact wire manifest from this source record, its SQLite ledger, and a fresh parse of the torrent. It sends that JSON plus the `.torrent` file to `/api/v2/torrents/publish/` as two multipart fields. Payload bytes stay on the Mirror node.
+Mirror rebuilds a compact wire manifest from this source record, its SQLite ledger, and a fresh parse of the torrent. It sends that JSON plus the `.torrent` file to `/api/v2/torrents/publish/` as two multipart fields only after qBittorrent passes the seed gate. Payload bytes stay on the Mirror node.
 
 The response schema is `guncad-index-torrent-publication-v1`. Mirror accepts 200 `idempotent`, 201 `created` or `promoted`, and 409 `artifact_duplicate` only after the receipt matches the submitted descriptor, SHA-384, and BTIH. It stores the canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID. A contradictory receipt pauses publication instead of recording success.
 
@@ -221,6 +235,8 @@ The response schema is `guncad-index-torrent-publication-v1`. Mirror accepts 200
 The bounded localhost test on July 20, 2026 started with 74 `awaiting_index` jobs in `guncad-mirror-index-test-20260716`. Mirror attempted all 74 before lbrynet finished starting. GunCAD Index accepted 72 with HTTP 201 & created 72 `TorrentArtifact`, 72 `TorrentMetainfo`, and 72 `TorrentPublicationReceipt` rows. The other two requests received HTTP 400 `unknown_sd_hash`: the local Index no longer had a current LBRY origin for the V1.2 or V1.3 GP9-NEO9 Consolidated Megapack descriptor.
 
 One accepted receipt was checked across both databases. Release `282f3c43908e1e0c514ce03a76d338872c02d076` retained the same descriptor hash, plaintext SHA-384, BTIH `eb33490202a2c177781782bac0eb941e3d90613a`, and winning release ID in Mirror & Index. Downloading the canonical torrent from Index produced SHA-256 `eb0e4b41df388829471a669fddbb46388f6114c5138ba66e674c230066fd8fbe`, byte-for-byte equal to Mirror's outbox torrent. Replaying the same multipart request returned HTTP 200 `idempotent`; the receipt count remained 72. A post-run archive audit found 74 valid artifacts, zero integrity issues, and no orphan manifests or torrents.
+
+The qBittorrent checkpoint reused those 74 staged jobs without acquiring a payload or regenerating a torrent. They represent 73 distinct SHA-384 values and 73 BTIH values. The first pass imported the 73 swarm identities and marked 73 jobs green. The remaining job described the same GP9-NEO9 bytes and BTIH at a second verified release path; qBittorrent correctly retained only one entry for that BTIH. After Mirror learned to recognize the other ledger-verified path, a clean qBittorrent restart reconciled all 74 jobs as green in about five seconds. Mirror then sent the one deliberately reset publication only after reconciliation, and Index returned HTTP 200 `idempotent`. The final fast audit reported 74 valid artifacts, 74 green seed receipts, zero integrity issues, and no orphan manifests or torrents.
 
 ## Index handoff and continuity work
 
@@ -246,6 +262,8 @@ Index now accepts Mirror's compact evidence manifest and torrent metainfo withou
 - direct torrent downloads, query-filtered RSS, and a bootstrap ZIP.
 
 Mirror keeps the assembled file. Index stores the metainfo and the evidence needed to associate it with existing releases. This limits the publication request to a few megabytes even when the payload is tens of gigabytes.
+
+Mirror now owns the first seeder. It won't publish an unseeded torrent and hope another operator appears before the swarm dies. Later seeders can join through Index downloads, the query-filtered RSS feed, or the bootstrap ZIP without running Mirror or lbrynet.
 
 ### Emergency feature flag
 
@@ -315,10 +333,11 @@ That first checkpoint stopped at the local outbox. It predates the Index publica
 
 The remaining work is operational:
 
-1. Publish a bounded test archive into a non-production Index and verify its stored receipt, torrent download, and magnet.
-2. Backfill the archived corpus and investigate every terminal rejection or evidence conflict.
-3. Connect at least one BitTorrent client to a filtered feed and prove retrieval from a second peer.
+1. Apply the seed gate and Index handoff to the archived corpus, then investigate every terminal rejection or evidence conflict.
+2. Retrieve a published torrent from a second peer and measure behavior after the bootstrap operator goes offline.
+3. Connect a separate qBittorrent client to a filtered Index feed and confirm unattended additions.
 4. Decide moderation, takedown, access-control, and legal procedures before accepting bespoke uploads.
 5. Establish a scheduled integrity-scrub policy and measure peer failures on later reconciliation runs.
+6. Publish and independently mirror the recovery snapshots needed to rebuild torrent discovery after an Index outage.
 
-Mirror has already completed one full-corpus acquisition, but that proves byte evacuation rather than long-term swarm health. The Index handoff, external seeding, and recovery snapshots need their own operational checks.
+Mirror has completed one full-corpus acquisition. The bounded qBittorrent and Index checkpoint proves the first-seeder handoff, but not long-term swarm health. Full-corpus seeding, second-peer retrieval, and recovery snapshots still need operational checks.
