@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 DEFAULT_ENDPOINT = "https://guncadindex.com/api/v2/releases/?format=json&limit=100"
 DEFAULT_ODYSEE_PROXY_URL = "https://api.na-backend.odysee.com/api/v1/proxy"
@@ -44,6 +44,8 @@ class Settings:
     blacklisted_handles: tuple[str, ...] = ()
     torrent_piece_length: int = 1024**2
     torrent_trackers: tuple[str, ...] = ()
+    tracker_policy_url: str = ""
+    tracker_policy_timeout: float = 15
     qbittorrent_enabled: bool = False
     qbittorrent_url: str = "http://qbittorrent:8080"
     qbittorrent_api_key: str = ""
@@ -108,6 +110,10 @@ class Settings:
                 env, "MIRROR_TORRENT_PIECE_LENGTH", 1024**2, minimum=16 * 1024
             ),
             torrent_trackers=_list(env.get("MIRROR_TORRENT_TRACKERS", "")),
+            tracker_policy_url=env.get("MIRROR_TRACKER_POLICY_URL", "").strip(),
+            tracker_policy_timeout=_number(
+                env, "MIRROR_TRACKER_POLICY_TIMEOUT", 15, minimum=1
+            ),
             qbittorrent_enabled=_boolean(env, "MIRROR_QBITTORRENT_ENABLED", False),
             qbittorrent_url=env.get(
                 "MIRROR_QBITTORRENT_URL", "http://qbittorrent:8080"
@@ -157,6 +163,27 @@ class Settings:
     def releases_dir(self) -> Path:
         return self.data_dir / "releases"
 
+    @property
+    def effective_tracker_policy_url(self) -> str:
+        if self.tracker_policy_url:
+            return self.tracker_policy_url
+        if not self.publish_url:
+            return ""
+        parsed = urlsplit(self.publish_url)
+        base = urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path.rstrip("/") + "/",
+                "",
+                "",
+            )
+        )
+        return urljoin(
+            base,
+            "../tracker-policy/",
+        )
+
     def validate(self) -> None:
         _validate_http_url(self.endpoint, "MIRROR_API_ENDPOINT")
         _validate_http_url(self.lbry_url, "MIRROR_LBRY_URL")
@@ -167,8 +194,23 @@ class Settings:
             )
         for tracker in self.torrent_trackers:
             parsed = urlsplit(tracker)
-            if parsed.scheme not in {"http", "https", "udp"} or not parsed.netloc:
+            if (
+                len(tracker) > 2048
+                or any(
+                    ord(character) < 32 or ord(character) == 127
+                    for character in tracker
+                )
+                or parsed.scheme not in {"http", "https", "udp"}
+                or not parsed.netloc
+                or parsed.username
+                or parsed.password
+            ):
                 raise ConfigurationError(f"invalid torrent tracker URL: {tracker}")
+        if self.tracker_policy_url:
+            _validate_http_url(
+                self.tracker_policy_url,
+                "MIRROR_TRACKER_POLICY_URL",
+            )
         _validate_http_url(self.qbittorrent_url, "MIRROR_QBITTORRENT_URL")
         if not self.qbittorrent_data_dir.is_absolute():
             raise ConfigurationError(

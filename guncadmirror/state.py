@@ -58,6 +58,14 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at REAL NOT NULL,
     PRIMARY KEY (release_id, sd_hash)
 );
+
+CREATE TABLE IF NOT EXISTS tracker_policy_cache (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    endpoint TEXT NOT NULL,
+    etag TEXT NOT NULL,
+    document BLOB NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 
@@ -134,6 +142,14 @@ class ArchiveEntry:
     publication_state: PublicationState
     canonical_magnet_uri: str | None
     canonical_torrent_url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TrackerPolicyCache:
+    endpoint: str
+    etag: str
+    document: bytes
+    updated_at: float
 
 
 class JobStore:
@@ -860,6 +876,57 @@ class JobStore:
                 [*parameters, limit, offset],
             ).fetchall()
         return [_archive_entry_from_row(row) for row in rows], total
+
+    def load_tracker_policy_cache(
+        self,
+        endpoint: str,
+    ) -> TrackerPolicyCache | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT endpoint, etag, document, updated_at
+                FROM tracker_policy_cache
+                WHERE singleton=1 AND endpoint=?
+                """,
+                (endpoint,),
+            ).fetchone()
+        if row is None:
+            return None
+        document = row["document"]
+        if isinstance(document, str):
+            document = document.encode()
+        return TrackerPolicyCache(
+            endpoint=row["endpoint"],
+            etag=row["etag"],
+            document=bytes(document),
+            updated_at=float(row["updated_at"]),
+        )
+
+    def save_tracker_policy_cache(
+        self,
+        endpoint: str,
+        etag: str,
+        document: bytes,
+    ) -> TrackerPolicyCache:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO tracker_policy_cache (
+                    singleton, endpoint, etag, document, updated_at
+                ) VALUES (1, ?, ?, ?, ?)
+                ON CONFLICT(singleton) DO UPDATE SET
+                    endpoint=excluded.endpoint,
+                    etag=excluded.etag,
+                    document=excluded.document,
+                    updated_at=excluded.updated_at
+                """,
+                (endpoint, etag, document, now),
+            )
+        cached = self.load_tracker_policy_cache(endpoint)
+        if cached is None:  # pragma: no cover - transaction invariant
+            raise RuntimeError("tracker policy cache write did not persist")
+        return cached
 
     @staticmethod
     def _backfill_archive_fields(connection: sqlite3.Connection) -> None:

@@ -462,6 +462,37 @@ class JobStoreTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.store.get("x", "y")
 
+    def test_tracker_policy_cache_is_durable_and_scoped_to_its_endpoint(self) -> None:
+        endpoint = "https://index.example/api/v2/torrents/tracker-policy/"
+        self.assertIsNone(self.store.load_tracker_policy_cache(endpoint))
+
+        cached = self.store.save_tracker_policy_cache(
+            endpoint,
+            '"version-one"',
+            b'{"trackers":[]}',
+        )
+
+        self.assertEqual(cached.endpoint, endpoint)
+        self.assertEqual(cached.etag, '"version-one"')
+        self.assertEqual(cached.document, b'{"trackers":[]}')
+        self.assertEqual(cached.updated_at, self.now)
+        reopened = JobStore(self.store.path, clock=lambda: self.now)
+        self.assertEqual(reopened.load_tracker_policy_cache(endpoint), cached)
+        self.assertIsNone(
+            reopened.load_tracker_policy_cache(
+                "https://other.example/api/v2/torrents/tracker-policy/"
+            )
+        )
+
+        self.now = 200
+        replacement = self.store.save_tracker_policy_cache(
+            "https://other.example/api/v2/torrents/tracker-policy/",
+            '"version-two"',
+            b'{"different":true}',
+        )
+        self.assertEqual(replacement.updated_at, 200)
+        self.assertIsNone(self.store.load_tracker_policy_cache(endpoint))
+
 
 if __name__ == "__main__":
     unittest.main()

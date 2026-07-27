@@ -30,6 +30,9 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.publish_token, "")
         self.assertEqual(settings.publish_concurrency, 2)
         self.assertEqual(settings.publish_timeout, 60)
+        self.assertEqual(settings.tracker_policy_url, "")
+        self.assertEqual(settings.effective_tracker_policy_url, "")
+        self.assertEqual(settings.tracker_policy_timeout, 15)
         self.assertFalse(settings.qbittorrent_enabled)
         self.assertEqual(settings.qbittorrent_url, "http://qbittorrent:8080")
         self.assertEqual(settings.qbittorrent_data_dir, Path("/downloads"))
@@ -62,6 +65,10 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_TORRENT_TRACKERS": (
                     "udp://tracker.test:80,http://tracker2.test/announce"
                 ),
+                "MIRROR_TRACKER_POLICY_URL": (
+                    "https://policy.example/api/v2/torrents/tracker-policy/"
+                ),
+                "MIRROR_TRACKER_POLICY_TIMEOUT": "12.5",
                 "MIRROR_QBITTORRENT_ENABLED": "true",
                 "MIRROR_QBITTORRENT_URL": "https://qbit.example/api",
                 "MIRROR_QBITTORRENT_API_KEY": "qbt_" + "a" * 28,
@@ -100,6 +107,11 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(settings.enable_webui)
         self.assertEqual(settings.blacklisted_handles, ("bad", "worse", "worst"))
         self.assertEqual(len(settings.torrent_trackers), 2)
+        self.assertEqual(
+            settings.effective_tracker_policy_url,
+            "https://policy.example/api/v2/torrents/tracker-policy/",
+        )
+        self.assertEqual(settings.tracker_policy_timeout, 12.5)
         self.assertTrue(settings.qbittorrent_enabled)
         self.assertEqual(settings.qbittorrent_url, "https://qbit.example/api")
         self.assertEqual(settings.qbittorrent_api_key, "qbt_" + "a" * 28)
@@ -118,6 +130,20 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.publish_token, "secret-token")
         self.assertEqual(settings.publish_concurrency, 3)
         self.assertEqual(settings.publish_timeout, 17.5)
+
+    def test_derives_tracker_policy_as_publish_endpoint_sibling(self):
+        settings = Settings.from_env(
+            {
+                "MIRROR_PUBLISH_URL": (
+                    "https://index.example/prefix/api/v2/torrents/publish?ignored=1"
+                )
+            }
+        )
+
+        self.assertEqual(
+            settings.effective_tracker_policy_url,
+            "https://index.example/prefix/api/v2/torrents/tracker-policy/",
+        )
 
     def test_uses_process_environment_when_not_injected(self):
         with patch.dict("os.environ", {"MIRROR_ENABLE_WEBUI": "true"}, clear=True):
@@ -139,6 +165,12 @@ class SettingsTests(unittest.TestCase):
             ({"MIRROR_ODYSEE_PROXY_URL": "not-a-url"}, "absolute HTTP"),
             ({"MIRROR_TORRENT_PIECE_LENGTH": "20000"}, "power of two"),
             ({"MIRROR_TORRENT_TRACKERS": "wat://tracker"}, "tracker URL"),
+            (
+                {"MIRROR_TORRENT_TRACKERS": "https://user:pass@tracker.example"},
+                "tracker URL",
+            ),
+            ({"MIRROR_TRACKER_POLICY_URL": "ftp://policy"}, "absolute HTTP"),
+            ({"MIRROR_TRACKER_POLICY_TIMEOUT": "0"}, "at least"),
             ({"MIRROR_QBITTORRENT_URL": "ftp://bad"}, "absolute HTTP"),
             (
                 {"MIRROR_QBITTORRENT_ENABLED": "true"},
