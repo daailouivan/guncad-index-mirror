@@ -13,6 +13,7 @@ from guncadmirror.qbittorrent import (
     QBitObservation,
     QBitRetryableError,
     QBitTorrent,
+    QBitTracker,
     QBitTransfer,
 )
 from guncadmirror.seeding import SeedingScheduler, prepare_seed
@@ -82,7 +83,12 @@ class SeedingSchedulerTests(unittest.TestCase):
     def _sleep(self, delay: float) -> None:
         self.tick += delay
 
-    def observation(self, **overrides: object) -> QBitObservation:
+    def observation(
+        self,
+        *,
+        trackers: tuple[QBitTracker, ...] = (),
+        **overrides: object,
+    ) -> QBitObservation:
         torrent_values = {
             "info_hash": self.torrent.info_hash,
             "content_path": "/downloads/releases/payload.zip",
@@ -92,12 +98,14 @@ class SeedingSchedulerTests(unittest.TestCase):
             "total_size": len(b"payload"),
             "state": "forcedUP",
             "force_start": True,
+            "category": "guncad-mirror",
+            "tags": ("guncad-mirror",),
         }
         torrent_values.update(overrides)
         return QBitObservation(
             torrent=QBitTorrent(**torrent_values),
             transfer=QBitTransfer("firewalled", 4),
-            working_trackers=0,
+            trackers=trackers,
         )
 
     def test_adds_forces_announces_and_marks_exact_torrent_green(self) -> None:
@@ -146,6 +154,106 @@ class SeedingSchedulerTests(unittest.TestCase):
             sum("SEED GREEN" in event for event in self.events),
             1,
         )
+
+    def test_declaratively_reconciles_only_owned_torrent_trackers(self) -> None:
+        stale = "udp://stale.example:80/announce"
+        operator = "udp://operator.example:80/announce"
+        index = "https://index.example/announce"
+        policy = Mock(
+            desired_trackers=(index, operator),
+            removals_authoritative=True,
+        )
+        self.scheduler.tracker_policy = policy
+        self.client.observe.return_value = self.observation(
+            trackers=(
+                QBitTracker("** [DHT] **", 0, -1),
+                QBitTracker(stale, 2, 0),
+                QBitTracker(operator, 0, 1),
+            )
+        )
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.green, 1)
+        self.assertEqual(result.tracker_updates, 1)
+        self.assertEqual(result.tracker_errors, 0)
+        self.client.remove_trackers.assert_called_once_with(
+            self.torrent.info_hash,
+            (stale,),
+        )
+        self.client.add_trackers.assert_called_once_with(
+            self.torrent.info_hash,
+            (index,),
+        )
+        self.client.reannounce.assert_called_once_with(self.torrent.info_hash)
+
+        self.now = 160
+        self.client.reset_mock()
+        self.client.observe.return_value = self.observation(
+            category="personal",
+            trackers=(QBitTracker(stale, 2, 0),),
+        )
+        result = self.scheduler.run()
+        self.assertEqual(result.green, 1)
+        self.assertEqual(result.tracker_updates, 0)
+        self.client.remove_trackers.assert_not_called()
+        self.client.add_trackers.assert_not_called()
+
+    def test_unknown_remote_policy_adds_operator_hints_without_removing(self) -> None:
+        policy = Mock(
+            desired_trackers=("udp://operator.example:80/announce",),
+            removals_authoritative=False,
+        )
+        self.scheduler.tracker_policy = policy
+        self.client.observe.return_value = self.observation(
+            trackers=(QBitTracker("udp://existing.example:80/announce", 2, 0),)
+        )
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.tracker_updates, 1)
+        self.client.remove_trackers.assert_not_called()
+        self.client.add_trackers.assert_called_once_with(
+            self.torrent.info_hash,
+            ("udp://operator.example:80/announce",),
+        )
+
+    def test_tracker_mutation_failure_never_closes_publication_gate(self) -> None:
+        policy = Mock(
+            desired_trackers=("https://index.example/announce",),
+            removals_authoritative=True,
+        )
+        self.scheduler.tracker_policy = policy
+        self.client.observe.return_value = self.observation()
+        self.client.add_trackers.side_effect = QBitConfigurationError(
+            "http_404",
+            "unsupported tracker endpoint",
+        )
+
+        first = self.scheduler.run()
+
+        self.assertEqual(first.green, 1)
+        self.assertEqual(first.tracker_updates, 0)
+        self.assertEqual(first.tracker_errors, 1)
+        self.assertEqual(len(self.store.publication_candidates()), 1)
+        self.assertEqual(
+            sum("TRACKER RECONCILIATION DEGRADED" in event for event in self.events),
+            1,
+        )
+
+        self.now = 160
+        second = self.scheduler.run()
+        self.assertEqual(second.green, 1)
+        self.assertEqual(
+            sum("TRACKER RECONCILIATION DEGRADED" in event for event in self.events),
+            1,
+        )
+
+        self.now = 220
+        self.client.add_trackers.side_effect = None
+        recovered = self.scheduler.run()
+        self.assertEqual(recovered.tracker_updates, 1)
+        self.assertIn("TRACKER RECONCILIATION RECOVERED", self.events)
 
     def test_identical_btih_can_seed_verified_duplicate_release_paths(self) -> None:
         alias = make_release(

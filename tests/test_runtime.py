@@ -207,12 +207,14 @@ class RuntimeTests(unittest.TestCase):
     def test_stop_attempts_every_cleanup_after_an_error(self) -> None:
         self.runtime.publication = Mock()
         self.runtime.seeding = Mock()
+        self.runtime.tracker_policy = Mock()
         self.stats.stop.side_effect = RuntimeError("thread stuck")
         with self.assertLogs("guncad-mirror", level="ERROR"):
             self.runtime.stop()
         self.pipeline.index_client.close.assert_called_once_with()
         self.lbry.close.assert_called_once_with()
         self.runtime.seeding.close.assert_called_once_with()
+        self.runtime.tracker_policy.close.assert_called_once_with()
         self.runtime.publication.close.assert_called_once_with()
 
     def test_qbittorrent_failure_uses_error_interval(self) -> None:
@@ -250,9 +252,31 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertIsNotNone(built.publication)
         self.assertIsNotNone(built.seeding)
+        self.assertIsNotNone(built.tracker_policy)
         self.assertEqual(built.seeding.client.url, settings.qbittorrent_url)
+        self.assertIs(built.seeding.tracker_policy, built.tracker_policy)
+        self.assertEqual(
+            built.tracker_policy.client.url,
+            "https://index.example/api/v2/torrents/tracker-policy/",
+        )
         self.assertEqual(built.publication.client.url, settings.publish_url)
         self.assertEqual(built.publication.client.timeout, 23)
+
+    def test_tracker_policy_refresh_precedes_seeding_and_never_gates_it(self) -> None:
+        calls: list[str] = []
+        self.runtime.tracker_policy = Mock()
+        self.runtime.tracker_policy.refresh.side_effect = lambda: calls.append("policy")
+        self.runtime.seeding = Mock()
+        self.runtime.seeding.run.side_effect = lambda _stop: (
+            calls.append("seed") or SeedingCycleResult()
+        )
+        self.pipeline.run_cycle.side_effect = lambda _stop: (
+            calls.append("pipeline") or CycleResult()
+        )
+
+        self.runtime.run_cycle()
+
+        self.assertEqual(calls, ["policy", "seed", "pipeline", "seed"])
 
 
 if __name__ == "__main__":

@@ -209,6 +209,10 @@ class TrackerPolicyManager:
         return tuple(desired)
 
     @property
+    def removals_authoritative(self) -> bool:
+        return self.client is None or self.source in {"cache", "remote"}
+
+    @property
     def status(self) -> TrackerPolicyStatus:
         return TrackerPolicyStatus(
             enabled=self.client is not None,
@@ -234,6 +238,14 @@ class TrackerPolicyManager:
         except TrackerPolicyError as error:
             self._record_error(error)
             return self.policy
+        except Exception as error:  # pragma: no cover - defensive HTTP boundary
+            self._record_error(
+                TrackerPolicyError(
+                    "policy_client_error",
+                    f"Index tracker policy client failed: {type(error).__name__}: {error}",
+                )
+            )
+            return self.policy
 
         self.last_success_at = self.clock()
         if response is not None:
@@ -242,7 +254,11 @@ class TrackerPolicyManager:
             self.document = response.document
             self.source = "remote"
             self._cache_saved = False
-        if not self._cache_saved and self.etag is not None and self.document is not None:
+        if (
+            not self._cache_saved
+            and self.etag is not None
+            and self.document is not None
+        ):
             try:
                 cached = self.store.save_tracker_policy_cache(
                     self.client.url,

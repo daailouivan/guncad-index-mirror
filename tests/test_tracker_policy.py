@@ -109,9 +109,7 @@ class TrackerPolicyParserTests(unittest.TestCase):
                     "surprise": True,
                 }
             ).encode(),
-            json.dumps(
-                {"strip_uploader_trackers": 0, "trackers": []}
-            ).encode(),
+            json.dumps({"strip_uploader_trackers": 0, "trackers": []}).encode(),
             policy_bytes([{"url": "https://tracker.example"}]),
             policy_bytes([valid | {"surprise": True}]),
             policy_bytes([valid | {"url": "ftp://tracker.example"}]),
@@ -154,7 +152,9 @@ class TrackerPolicyClientTests(unittest.TestCase):
 
         self.assertEqual(response.document, raw)
         self.assertEqual(response.etag, '"policy-v1"')
-        self.assertEqual(response.policy.enabled, ("udp://tracker.example:80/announce",))
+        self.assertEqual(
+            response.policy.enabled, ("udp://tracker.example:80/announce",)
+        )
         self.session.get.assert_called_once_with(
             self.endpoint,
             headers={
@@ -260,9 +260,11 @@ class TrackerPolicyManagerTests(unittest.TestCase):
             record_event=self.events.append,
             clock=lambda: self.now,
         )
+        self.assertFalse(manager.removals_authoritative)
 
         manager.refresh()
 
+        self.assertTrue(manager.removals_authoritative)
         self.assertEqual(
             manager.desired_trackers,
             (
@@ -319,6 +321,7 @@ class TrackerPolicyManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.status.source, "empty")
         self.assertIsNone(manager.status.etag)
+        self.assertFalse(manager.removals_authoritative)
 
     def test_disabled_policy_still_uses_operator_trackers(self) -> None:
         manager = TrackerPolicyManager(
@@ -332,6 +335,7 @@ class TrackerPolicyManagerTests(unittest.TestCase):
             ("udp://operator.example:80/announce",),
         )
         self.assertFalse(manager.status.enabled)
+        self.assertTrue(manager.removals_authoritative)
         manager.close()
 
 

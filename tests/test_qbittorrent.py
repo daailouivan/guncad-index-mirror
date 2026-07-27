@@ -49,6 +49,8 @@ class QBitClientTests(unittest.TestCase):
             "size": 7,
             "state": "stalledUP",
             "force_start": True,
+            "category": "guncad-mirror",
+            "tags": "guncad-mirror, archived",
         } | overrides
 
     def test_logs_in_once_and_reports_versions(self) -> None:
@@ -107,23 +109,80 @@ class QBitClientTests(unittest.TestCase):
         args, _ = self.session.request.call_args
         self.assertTrue(args[1].endswith("/api/v2/torrents/reannounce"))
 
+        self.client.add_trackers(
+            "a" * 40,
+            (
+                "https://tracker.example/announce",
+                "udp://tracker.example:80/announce",
+            ),
+        )
+        args, request = self.session.request.call_args
+        self.assertTrue(args[1].endswith("/api/v2/torrents/addTrackers"))
+        self.assertEqual(
+            request["data"]["urls"],
+            "https://tracker.example/announce\nudp://tracker.example:80/announce",
+        )
+
+        self.client.remove_trackers(
+            "a" * 40,
+            (
+                "https://tracker.example/announce",
+                "udp://tracker.example:80/announce",
+            ),
+        )
+        args, request = self.session.request.call_args
+        self.assertTrue(args[1].endswith("/api/v2/torrents/removeTrackers"))
+        self.assertEqual(
+            request["data"]["urls"],
+            "https://tracker.example/announce|udp://tracker.example:80/announce",
+        )
+
     def test_observation_requires_complete_upload_state_and_discovery(self) -> None:
         self.response(document=[self.torrent_document()])
         torrent = self.client.torrent("a" * 40)
         self.assertTrue(torrent.upload_capable)
+        self.assertEqual(torrent.category, "guncad-mirror")
+        self.assertEqual(torrent.tags, ("guncad-mirror", "archived"))
 
         self.response(document={"connection_status": "firewalled", "dht_nodes": 1})
         transfer = self.client.transfer()
         self.assertEqual(transfer.connection_status, "firewalled")
 
-        self.response(document=[{"status": 0}, {"status": 2}, {"status": 4}])
-        self.assertEqual(self.client.working_trackers("a" * 40), 1)
+        self.response(
+            document=[
+                {
+                    "url": "** [DHT] **",
+                    "status": 0,
+                    "tier": -1,
+                },
+                {
+                    "url": "https://tracker.example/announce",
+                    "status": 2,
+                    "tier": 0,
+                },
+                {
+                    "url": "udp://tracker.example:80/announce",
+                    "status": 4,
+                    "tier": 1,
+                },
+            ]
+        )
+        trackers = self.client.trackers("a" * 40)
+        self.assertEqual(len(trackers), 3)
+        self.assertFalse(trackers[0].is_network_tracker)
+        self.assertTrue(trackers[1].is_network_tracker)
 
         responses = iter(
             (
                 [self.torrent_document()],
                 {"connection_status": "connected", "dht_nodes": 0},
-                [{"status": 2}],
+                [
+                    {
+                        "url": "https://tracker.example/announce",
+                        "status": 2,
+                        "tier": 0,
+                    }
+                ],
             )
         )
         self.session.request.side_effect = lambda *_args, **_kwargs: Mock(
@@ -132,6 +191,25 @@ class QBitClientTests(unittest.TestCase):
         )
         observation = self.client.observe("a" * 40)
         self.assertTrue(observation.green)
+        self.assertEqual(observation.working_trackers, 1)
+
+    def test_tracker_mutations_are_idempotent_and_missing_torrents_retry(self) -> None:
+        tracker = ("https://tracker.example/announce",)
+        self.response(status=409)
+        self.client.add_trackers("a" * 40, tracker)
+        self.client.remove_trackers("a" * 40, tracker)
+
+        self.response(status=404)
+        with self.assertRaises(QBitRetryableError) as caught:
+            self.client.add_trackers("a" * 40, tracker)
+        self.assertEqual(caught.exception.code, "torrent_missing")
+        with self.assertRaises(QBitRetryableError):
+            self.client.remove_trackers("a" * 40, tracker)
+
+        self.session.request.reset_mock()
+        self.client.add_trackers("a" * 40, ())
+        self.client.remove_trackers("a" * 40, ())
+        self.session.request.assert_not_called()
 
     def test_missing_torrent_and_non_green_states_are_reported(self) -> None:
         self.response(document=[])
@@ -194,7 +272,19 @@ class QBitClientTests(unittest.TestCase):
                 {"document": {"connection_status": "wat", "dht_nodes": 0}},
                 None,
             ),
-            ("working_trackers", {"document": [{"status": "two"}]}, "a" * 40),
+            (
+                "trackers",
+                {
+                    "document": [
+                        {
+                            "url": "https://tracker.example/announce",
+                            "status": "two",
+                            "tier": 0,
+                        }
+                    ]
+                },
+                "a" * 40,
+            ),
         )
         for method, response, argument in cases:
             with self.subTest(method=method, response=response):

@@ -48,6 +48,8 @@ class QBitTorrent:
     total_size: int
     state: str
     force_start: bool
+    category: str
+    tags: tuple[str, ...]
 
     @property
     def upload_capable(self) -> bool:
@@ -60,10 +62,25 @@ class QBitTorrent:
 
 
 @dataclass(frozen=True, slots=True)
+class QBitTracker:
+    url: str
+    status: int
+    tier: int
+
+    @property
+    def is_network_tracker(self) -> bool:
+        return self.tier >= 0
+
+
+@dataclass(frozen=True, slots=True)
 class QBitObservation:
     torrent: QBitTorrent
     transfer: QBitTransfer
-    working_trackers: int
+    trackers: tuple[QBitTracker, ...]
+
+    @property
+    def working_trackers(self) -> int:
+        return sum(tracker.status == 2 for tracker in self.trackers)
 
     @property
     def discovery_ready(self) -> bool:
@@ -145,6 +162,8 @@ class QBitClient:
         total_size = value.get("size")
         state = value.get("state")
         force_start = value.get("force_start")
+        category = value.get("category")
+        raw_tags = value.get("tags")
         if not isinstance(returned_hash, str) or returned_hash.lower() != info_hash:
             raise self._invalid_response("torrent lookup returned the wrong hash")
         if not _bounded_string(content_path) or not _bounded_string(save_path):
@@ -170,6 +189,11 @@ class QBitClient:
             raise self._invalid_response("torrent size is invalid")
         if not _bounded_string(state, maximum=128) or not isinstance(force_start, bool):
             raise self._invalid_response("torrent state is invalid")
+        if not _optional_bounded_string(category, maximum=128):
+            raise self._invalid_response("torrent category is invalid")
+        if not _optional_bounded_string(raw_tags):
+            raise self._invalid_response("torrent tags are invalid")
+        tags = tuple(tag.strip() for tag in raw_tags.split(",") if tag.strip())
         return QBitTorrent(
             info_hash=returned_hash.lower(),
             content_path=content_path,
@@ -179,6 +203,8 @@ class QBitClient:
             total_size=total_size,
             state=state,
             force_start=force_start,
+            category=category,
+            tags=tags,
         )
 
     def add(
@@ -240,7 +266,41 @@ class QBitClient:
         )
         self._require_success(response)
 
-    def working_trackers(self, info_hash: str) -> int:
+    def add_trackers(self, info_hash: str, trackers: tuple[str, ...]) -> None:
+        if not trackers:
+            return
+        response = self._request(
+            "POST",
+            "/api/v2/torrents/addTrackers",
+            data={"hash": info_hash, "urls": "\n".join(trackers)},
+        )
+        if response.status_code == 409:
+            return
+        if response.status_code == 404:
+            raise QBitRetryableError(
+                "torrent_missing",
+                "qBittorrent lost the torrent while adding tracker hints",
+            )
+        self._require_success(response)
+
+    def remove_trackers(self, info_hash: str, trackers: tuple[str, ...]) -> None:
+        if not trackers:
+            return
+        response = self._request(
+            "POST",
+            "/api/v2/torrents/removeTrackers",
+            data={"hash": info_hash, "urls": "|".join(trackers)},
+        )
+        if response.status_code == 409:
+            return
+        if response.status_code == 404:
+            raise QBitRetryableError(
+                "torrent_missing",
+                "qBittorrent lost the torrent while removing tracker hints",
+            )
+        self._require_success(response)
+
+    def trackers(self, info_hash: str) -> tuple[QBitTracker, ...]:
         document = self._json(
             "GET",
             "/api/v2/torrents/trackers",
@@ -248,15 +308,25 @@ class QBitClient:
         )
         if not isinstance(document, list):
             raise self._invalid_response("tracker lookup must return a list")
-        working = 0
+        trackers: list[QBitTracker] = []
         for item in document:
             if not isinstance(item, Mapping):
                 raise self._invalid_response("tracker entry must be an object")
+            url = item.get("url")
             status = item.get("status")
-            if isinstance(status, bool) or not isinstance(status, int):
+            tier = item.get("tier")
+            if not _bounded_string(url):
+                raise self._invalid_response("tracker URL is invalid")
+            if (
+                isinstance(status, bool)
+                or not isinstance(status, int)
+                or not 0 <= status <= 4
+            ):
                 raise self._invalid_response("tracker status is invalid")
-            working += status == 2
-        return working
+            if isinstance(tier, bool) or not isinstance(tier, int) or tier < -1:
+                raise self._invalid_response("tracker tier is invalid")
+            trackers.append(QBitTracker(url=url, status=status, tier=tier))
+        return tuple(trackers)
 
     def observe(self, info_hash: str) -> QBitObservation | None:
         torrent = self.torrent(info_hash)
@@ -265,7 +335,7 @@ class QBitClient:
         return QBitObservation(
             torrent=torrent,
             transfer=self.transfer(),
-            working_trackers=self.working_trackers(info_hash),
+            trackers=self.trackers(info_hash),
         )
 
     def _authenticate(self) -> None:
@@ -361,6 +431,10 @@ class QBitClient:
 
 def _bounded_string(value: Any, *, maximum: int = 4096) -> bool:
     return isinstance(value, str) and bool(value) and len(value) <= maximum
+
+
+def _optional_bounded_string(value: Any, *, maximum: int = 4096) -> bool:
+    return isinstance(value, str) and len(value) <= maximum
 
 
 def _valid_version(value: str) -> bool:

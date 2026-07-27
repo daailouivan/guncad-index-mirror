@@ -20,6 +20,7 @@ from .qbittorrent import (
 from .settings import Settings
 from .state import JobStore, SeedingCandidate
 from .torrent import TorrentError, parse_torrent
+from .tracker_policy import TrackerPolicyManager
 
 UNSAFE_DOWNLOAD_STATES = frozenset(
     {
@@ -45,6 +46,8 @@ class SeedingCycleResult:
     green: int = 0
     retrying: int = 0
     blocked: int = 0
+    tracker_updates: int = 0
+    tracker_errors: int = 0
     paused: bool = False
     error_code: str | None = None
     error: str | None = None
@@ -56,6 +59,8 @@ class SeedingCycleResult:
             green=self.green + other.green,
             retrying=self.retrying + other.retrying,
             blocked=self.blocked + other.blocked,
+            tracker_updates=self.tracker_updates + other.tracker_updates,
+            tracker_errors=self.tracker_errors + other.tracker_errors,
             paused=self.paused or other.paused,
             error_code=other.error_code or self.error_code,
             error=other.error or self.error,
@@ -71,6 +76,13 @@ class SeedPaths:
     payload_size: int
 
 
+@dataclass(frozen=True, slots=True)
+class SeedReadiness:
+    observation: QBitObservation
+    tracker_updates: int = 0
+    tracker_errors: int = 0
+
+
 class SeedingScheduler:
     def __init__(
         self,
@@ -78,6 +90,7 @@ class SeedingScheduler:
         store: JobStore,
         client: QBitClient,
         *,
+        tracker_policy: TrackerPolicyManager | None = None,
         logger: logging.Logger | None = None,
         record_event: Callable[[str], None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
@@ -86,11 +99,13 @@ class SeedingScheduler:
         self.settings = settings
         self.store = store
         self.client = client
+        self.tracker_policy = tracker_policy
         self.logger = logger or logging.getLogger("guncad-mirror.seeding")
         self.record_event = record_event or (lambda _message: None)
         self.monotonic = monotonic
         self.sleep = sleep
         self._run_lock = Lock()
+        self._tracker_reconciliation_degraded = False
 
     def close(self) -> None:
         self.client.close()
@@ -149,7 +164,7 @@ class SeedingScheduler:
                 result = _add_result(result, attempted=1)
                 was_green = candidate.job.seeding_state.value == "green"
                 try:
-                    observation = self._ensure_green(candidate, stop=stop)
+                    readiness = self._ensure_green(candidate, stop=stop)
                 except QBitConfigurationError as error:
                     self._block(candidate, error)
                     self.logger.error("qBittorrent seeding paused: %s", error.message)
@@ -198,6 +213,7 @@ class SeedingScheduler:
                     )
                     continue
 
+                observation = readiness.observation
                 self.store.mark_seed_green(
                     candidate.release.id,
                     candidate.release.sd_hash,
@@ -208,12 +224,24 @@ class SeedingScheduler:
                     working_trackers=observation.working_trackers,
                     recheck_interval=self.settings.qbittorrent_recheck_interval,
                 )
-                result = _add_result(result, green=1)
+                result = _add_result(
+                    result,
+                    green=1,
+                    tracker_updates=readiness.tracker_updates,
+                    tracker_errors=readiness.tracker_errors,
+                )
                 if not was_green:
                     self.record_event(
                         f"SEED GREEN for {self._label(candidate)} "
                         f"({candidate.job.info_hash})"
                     )
+            if (
+                result.attempted
+                and result.tracker_errors == 0
+                and self._tracker_reconciliation_degraded
+            ):
+                self._tracker_reconciliation_degraded = False
+                self.record_event("TRACKER RECONCILIATION RECOVERED")
             return result
 
     def _ensure_green(
@@ -221,13 +249,15 @@ class SeedingScheduler:
         candidate: SeedingCandidate,
         *,
         stop: Event | None,
-    ) -> QBitObservation:
+    ) -> SeedReadiness:
         paths = prepare_seed(self.settings, candidate)
         info_hash = candidate.job.info_hash
         if info_hash is None:  # pragma: no cover - store candidate invariant
             raise QBitArtifactError("missing_btih", "ledger has no torrent info hash")
 
         allowed_locations = self._seed_locations(candidate, paths)
+        tracker_updates = 0
+        tracker_errors = 0
         observation = self.client.observe(info_hash)
         if observation is None:
             self.client.add(
@@ -238,8 +268,15 @@ class SeedingScheduler:
             )
         else:
             _validate_observation(observation, paths, allowed_locations)
+            updated, failed = self._reconcile_trackers(candidate, observation)
+            tracker_updates += updated
+            tracker_errors += failed
             if observation.green:
-                return observation
+                return SeedReadiness(
+                    observation,
+                    tracker_updates=tracker_updates,
+                    tracker_errors=tracker_errors,
+                )
 
         self.client.force_start(info_hash)
         self.client.reannounce(info_hash)
@@ -250,8 +287,15 @@ class SeedingScheduler:
             observation = self.client.observe(info_hash)
             if observation is not None:
                 _validate_observation(observation, paths, allowed_locations)
+                updated, failed = self._reconcile_trackers(candidate, observation)
+                tracker_updates += updated
+                tracker_errors += failed
                 if observation.green:
-                    return observation
+                    return SeedReadiness(
+                        observation,
+                        tracker_updates=tracker_updates,
+                        tracker_errors=tracker_errors,
+                    )
                 last_detail = _not_green_detail(observation)
             now = self.monotonic()
             if now >= deadline:
@@ -264,6 +308,69 @@ class SeedingScheduler:
                 min(self.settings.qbittorrent_poll_interval, deadline - now),
                 sleep=self.sleep,
             )
+
+    def _reconcile_trackers(
+        self,
+        candidate: SeedingCandidate,
+        observation: QBitObservation,
+    ) -> tuple[int, int]:
+        torrent = observation.torrent
+        if (
+            torrent.category != self.settings.qbittorrent_category
+            or self.settings.qbittorrent_tag not in torrent.tags
+        ):
+            return 0, 0
+
+        actual = tuple(
+            dict.fromkeys(
+                tracker.url
+                for tracker in observation.trackers
+                if tracker.is_network_tracker
+            )
+        )
+        if self.tracker_policy is None:
+            desired = self.settings.torrent_trackers
+            removals_authoritative = True
+        else:
+            desired = self.tracker_policy.desired_trackers
+            removals_authoritative = self.tracker_policy.removals_authoritative
+        desired_set = set(desired)
+        actual_set = set(actual)
+        to_remove = (
+            tuple(tracker for tracker in actual if tracker not in desired_set)
+            if removals_authoritative
+            else ()
+        )
+        to_add = tuple(tracker for tracker in desired if tracker not in actual_set)
+        if not to_remove and not to_add:
+            return 0, 0
+
+        try:
+            if to_remove:
+                self.client.remove_trackers(torrent.info_hash, to_remove)
+            if to_add:
+                self.client.add_trackers(torrent.info_hash, to_add)
+            self.client.reannounce(torrent.info_hash)
+        except QBitError as error:
+            self.logger.warning(
+                "Tracker reconciliation will retry for %s (%s): %s",
+                candidate.release.name,
+                error.code,
+                error.message,
+            )
+            if not self._tracker_reconciliation_degraded:
+                self.record_event(
+                    f"TRACKER RECONCILIATION DEGRADED ({error.code}): {error.message}"
+                )
+            self._tracker_reconciliation_degraded = True
+            return 0, 1
+        self.logger.info(
+            "Reconciled qBittorrent trackers for %s: +%d -%d",
+            candidate.release.name,
+            len(to_add),
+            len(to_remove),
+        )
+        return 1, 0
 
     def _seed_locations(
         self,
@@ -410,6 +517,8 @@ def _add_result(
     green: int = 0,
     retrying: int = 0,
     blocked: int = 0,
+    tracker_updates: int = 0,
+    tracker_errors: int = 0,
     paused: bool = False,
     error_code: str | None = None,
     error: str | None = None,
@@ -420,6 +529,8 @@ def _add_result(
         green=result.green + green,
         retrying=result.retrying + retrying,
         blocked=result.blocked + blocked,
+        tracker_updates=result.tracker_updates + tracker_updates,
+        tracker_errors=result.tracker_errors + tracker_errors,
         paused=result.paused or paused,
         error_code=error_code or result.error_code,
         error=error or result.error,

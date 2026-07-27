@@ -17,6 +17,7 @@ from .seeding import SeedingCycleResult, SeedingScheduler
 from .settings import Settings
 from .state import JobStore
 from .stats import StatsCollector
+from .tracker_policy import TrackerPolicyClient, TrackerPolicyManager
 from .webui import start as start_webui
 
 
@@ -27,6 +28,7 @@ class Runtime:
     pipeline: MirrorPipeline
     stats: StatsCollector
     odysee: OdyseeAcquirer | None = None
+    tracker_policy: TrackerPolicyManager | None = None
     seeding: SeedingScheduler | None = None
     publication: PublicationScheduler | None = None
     lbry_ready: bool = False
@@ -48,6 +50,8 @@ class Runtime:
         logging.getLogger("guncad-mirror").info("LBRY daemon is ready")
 
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
+        if self.tracker_policy is not None:
+            self.tracker_policy.refresh()
         seeding = self._run_seeding(stop)
         publication = (
             self._run_publication(stop)
@@ -153,6 +157,8 @@ class Runtime:
             cleanups.append(("Odysee HTTP session", self.odysee.close))
         if self.seeding is not None:
             cleanups.append(("qBittorrent session", self.seeding.close))
+        if self.tracker_policy is not None:
+            cleanups.append(("Index tracker policy session", self.tracker_policy.close))
         if self.publication is not None:
             cleanups.append(("Index publication session", self.publication.close))
         for description, close in cleanups:
@@ -219,6 +225,23 @@ def build_runtime(settings: Settings) -> Runtime:
         progress=stats,
         record_event=stats.log,
     )
+    tracker_policy = (
+        TrackerPolicyManager(
+            store,
+            (
+                TrackerPolicyClient(
+                    settings.effective_tracker_policy_url,
+                    timeout=settings.tracker_policy_timeout,
+                )
+                if settings.effective_tracker_policy_url
+                else None
+            ),
+            operator_trackers=settings.torrent_trackers,
+            record_event=stats.log,
+        )
+        if settings.qbittorrent_enabled
+        else None
+    )
     seeding = (
         SeedingScheduler(
             settings,
@@ -230,6 +253,7 @@ def build_runtime(settings: Settings) -> Runtime:
                 username=settings.qbittorrent_username,
                 password=settings.qbittorrent_password,
             ),
+            tracker_policy=tracker_policy,
             record_event=stats.log,
         )
         if settings.qbittorrent_enabled
@@ -255,6 +279,7 @@ def build_runtime(settings: Settings) -> Runtime:
         pipeline=pipeline,
         stats=stats,
         odysee=odysee,
+        tracker_policy=tracker_policy,
         seeding=seeding,
         publication=publication,
     )
