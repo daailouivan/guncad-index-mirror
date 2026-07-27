@@ -203,7 +203,8 @@ class SeedingSchedulerTests(unittest.TestCase):
                 call.remove_trackers(self.torrent.info_hash, (stale,))
             ),
         )
-        self.assertEqual(self.client.reannounce.call_count, 2)
+        self.client.force_start.assert_not_called()
+        self.client.reannounce.assert_called_once_with(self.torrent.info_hash)
 
         self.now = 160
         self.client.reset_mock()

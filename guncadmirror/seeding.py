@@ -259,6 +259,7 @@ class SeedingScheduler:
         tracker_updates = 0
         tracker_errors = 0
         observation = self.client.observe(info_hash)
+        activation_required = observation is None
         if observation is None:
             self.client.add(
                 paths.torrent_path,
@@ -277,9 +278,11 @@ class SeedingScheduler:
                     tracker_updates=tracker_updates,
                     tracker_errors=tracker_errors,
                 )
+            activation_required = not observation.green
 
-        self.client.force_start(info_hash)
-        self.client.reannounce(info_hash)
+        if activation_required:
+            self.client.force_start(info_hash)
+            self.client.reannounce(info_hash)
         deadline = self.monotonic() + self.settings.qbittorrent_ready_timeout
         last_detail = "torrent has not appeared in qBittorrent"
         while True:
