@@ -277,6 +277,9 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.run_cycle()
 
         self.assertEqual(calls, ["policy", "seed", "pipeline", "seed"])
+        self.stats.update_tracker_policy.assert_called_once_with(
+            self.runtime.tracker_policy.status
+        )
 
 
 if __name__ == "__main__":

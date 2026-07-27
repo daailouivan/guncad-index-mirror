@@ -77,6 +77,17 @@
                     Index publication stays closed for those artifacts. Check notable events for the BTIH, path, or local-file conflict.
                 </div>
             {% endif %}
+            {% if tracker_policy.error %}
+                <div class="banner banner-error" data-testid="tracker-policy-error">
+                    <strong>Index tracker policy refresh failed.</strong>
+                    {{ tracker_policy.error }}
+                    {% if tracker_policy.removals_authoritative %}
+                        Mirror is keeping the last valid policy from {{ tracker_policy.source }}.
+                    {% else %}
+                        Mirror will add configured operator trackers but won't remove existing qBittorrent tracker hints until it receives a valid policy.
+                    {% endif %}
+                </div>
+            {% endif %}
             {% if mirror_publish_enabled %}
                 <div class="banner banner-note">
                     <strong>Index publication is enabled.</strong>
@@ -174,6 +185,33 @@
                     Green means qBittorrent has the exact BTIH at the assembled file's mounted path, reports 100% complete in forced upload mode, & can reach DHT or a working tracker. Mirror rechecks green torrents every {{ mirror_qbittorrent_recheck_interval | humanize_seconds }}.
                 </p>
             </section>
+            <section class="panel" data-testid="tracker-policy-status">
+                <h2>qBittorrent tracker policy</h2>
+                <div class="job-grid">
+                    <div><span>{{ tracker_policy.source }}</span> policy source</div>
+                    <div><span>{{ tracker_policy.desired_trackers | length }}</span> active tracker hints</div>
+                    <div><span>{{ tracker_policy.enabled_index_trackers }}</span> enabled by Index</div>
+                    <div><span>{{ tracker_policy.blacklisted_trackers }}</span> blacklisted by Index</div>
+                </div>
+                {% if tracker_policy.endpoint %}
+                    <p class="fine-print breakable">
+                        Policy endpoint: <code>{{ tracker_policy.endpoint }}</code>
+                    </p>
+                {% endif %}
+                {% if tracker_policy.desired_trackers %}
+                    <ul>
+                        {% for tracker in tracker_policy.desired_trackers %}<li class="breakable"><code>{{ tracker }}</code></li>{% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="fine-print">No runtime tracker hints are active. qBittorrent uses DHT, PeX, & local peer discovery.</p>
+                {% endif %}
+                <p class="fine-print">
+                    Outbox and Index torrent files stay trackerless. Mirror changes tracker hints only on qBittorrent entries carrying category <code>{{ mirror_qbittorrent_category }}</code> and tag <code>{{ mirror_qbittorrent_tag }}</code>.
+                    {% if not tracker_policy.removals_authoritative %}
+                        Existing hints are protected because this node has never received a valid policy from the configured endpoint.
+                    {% endif %}
+                </p>
+            </section>
             <section class="panel">
                 <h2>Index publication</h2>
                 <div class="job-grid">
@@ -263,6 +301,16 @@
                                     <th scope="row">Seed activation timeout</th>
                                     <td>{{ mirror_qbittorrent_ready_timeout | humanize_seconds }}</td>
                                     <td>Maximum wait for qBittorrent to report upload mode & peer discovery.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Tracker policy endpoint</th>
+                                    <td class="breakable">{{ mirror_tracker_policy_url or 'Disabled' }}</td>
+                                    <td>Supplies enabled, disabled, & blacklisted qBittorrent tracker hints. A failed refresh retains endpoint-matched cached policy.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Tracker policy timeout</th>
+                                    <td>{{ mirror_tracker_policy_timeout | humanize_seconds }}</td>
+                                    <td>Read timeout for one conditional policy request.</td>
                                 </tr>
                             {% endif %}
                             <tr>
@@ -357,17 +405,17 @@
                                 <td>Fixed v1 torrent piece size.</td>
                             </tr>
                             <tr>
-                                <th scope="row">Torrent trackers</th>
+                                <th scope="row">Operator tracker hints</th>
                                 <td>
                                     {% if mirror_torrent_trackers %}
                                         <ul>
                                             {% for tracker in mirror_torrent_trackers %}<li class="breakable">{{ tracker }}</li>{% endfor %}
                                         </ul>
                                     {% else %}
-                                        None; DHT-only metainfo
+                                        None
                                     {% endif %}
                                 </td>
-                                <td>Optional announce URLs embedded in new torrent files.</td>
+                                <td>Persistent local additions to Mirror-owned qBittorrent entries. Index blacklisting wins; torrent metainfo stays trackerless.</td>
                             </tr>
                         </tbody>
                     </table>

@@ -16,6 +16,7 @@ from .models import Release
 from .progress import ActivityUpdate
 from .settings import Settings
 from .state import JobStore
+from .tracker_policy import TrackerPolicyStatus
 
 
 class StatsCollector:
@@ -53,6 +54,8 @@ class StatsCollector:
             "mirror_download_timeout": settings.download_timeout,
             "mirror_torrent_piece_length": settings.torrent_piece_length,
             "mirror_torrent_trackers": settings.torrent_trackers,
+            "mirror_tracker_policy_url": settings.effective_tracker_policy_url,
+            "mirror_tracker_policy_timeout": settings.tracker_policy_timeout,
             "mirror_qbittorrent_enabled": settings.qbittorrent_enabled,
             "mirror_qbittorrent_url": settings.qbittorrent_url,
             "mirror_qbittorrent_data_dir": str(settings.qbittorrent_data_dir),
@@ -77,6 +80,32 @@ class StatsCollector:
             "known_jobs": 0,
             "activity": None,
             "activities": [],
+            "tracker_policy": {
+                "enabled": bool(
+                    settings.qbittorrent_enabled
+                    and settings.effective_tracker_policy_url
+                ),
+                "endpoint": settings.effective_tracker_policy_url,
+                "source": (
+                    "uninitialized"
+                    if settings.qbittorrent_enabled
+                    and settings.effective_tracker_policy_url
+                    else "disabled"
+                ),
+                "removals_authoritative": not bool(
+                    settings.qbittorrent_enabled
+                    and settings.effective_tracker_policy_url
+                ),
+                "desired_trackers": settings.torrent_trackers,
+                "enabled_index_trackers": 0,
+                "blacklisted_trackers": 0,
+                "etag": None,
+                "cached_at": None,
+                "last_checked_at": None,
+                "last_success_at": None,
+                "error_code": None,
+                "error": None,
+            },
         }
         self._activities: dict[tuple[str, str], dict[str, Any]] = {}
         self._activity_rates: dict[
@@ -90,6 +119,24 @@ class StatsCollector:
     def set_state(self, state: str) -> None:
         with self._lock:
             self._snapshot["mirror_state"] = state
+
+    def update_tracker_policy(self, status: TrackerPolicyStatus) -> None:
+        with self._lock:
+            self._snapshot["tracker_policy"] = {
+                "enabled": status.enabled,
+                "endpoint": status.endpoint,
+                "source": status.source,
+                "removals_authoritative": status.removals_authoritative,
+                "desired_trackers": status.desired_trackers,
+                "enabled_index_trackers": status.enabled_index_trackers,
+                "blacklisted_trackers": status.blacklisted_trackers,
+                "etag": status.etag,
+                "cached_at": status.cached_at,
+                "last_checked_at": status.last_checked_at,
+                "last_success_at": status.last_success_at,
+                "error_code": status.error_code,
+                "error": status.error,
+            }
 
     def update_activity(self, update: ActivityUpdate) -> None:
         transport = update.transport.value if update.transport is not None else None

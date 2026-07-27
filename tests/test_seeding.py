@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from threading import Event
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from guncadmirror.models import SeedingState
 from guncadmirror.qbittorrent import (
@@ -87,6 +87,7 @@ class SeedingSchedulerTests(unittest.TestCase):
         self,
         *,
         trackers: tuple[QBitTracker, ...] = (),
+        dht_nodes: int = 4,
         **overrides: object,
     ) -> QBitObservation:
         torrent_values = {
@@ -104,7 +105,7 @@ class SeedingSchedulerTests(unittest.TestCase):
         torrent_values.update(overrides)
         return QBitObservation(
             torrent=QBitTorrent(**torrent_values),
-            transfer=QBitTransfer("firewalled", 4),
+            transfer=QBitTransfer("firewalled", dht_nodes),
             trackers=trackers,
         )
 
@@ -164,12 +165,21 @@ class SeedingSchedulerTests(unittest.TestCase):
             removals_authoritative=True,
         )
         self.scheduler.tracker_policy = policy
-        self.client.observe.return_value = self.observation(
-            trackers=(
-                QBitTracker("** [DHT] **", 0, -1),
-                QBitTracker(stale, 2, 0),
-                QBitTracker(operator, 0, 1),
-            )
+        self.client.observe.side_effect = (
+            self.observation(
+                trackers=(
+                    QBitTracker("** [DHT] **", 0, -1),
+                    QBitTracker(stale, 2, 0),
+                    QBitTracker(operator, 0, 1),
+                )
+            ),
+            self.observation(
+                trackers=(
+                    QBitTracker("** [DHT] **", 0, -1),
+                    QBitTracker(index, 0, 0),
+                    QBitTracker(operator, 0, 1),
+                )
+            ),
         )
 
         result = self.scheduler.run()
@@ -185,10 +195,19 @@ class SeedingSchedulerTests(unittest.TestCase):
             self.torrent.info_hash,
             (index,),
         )
-        self.client.reannounce.assert_called_once_with(self.torrent.info_hash)
+        self.assertLess(
+            self.client.method_calls.index(
+                call.add_trackers(self.torrent.info_hash, (index,))
+            ),
+            self.client.method_calls.index(
+                call.remove_trackers(self.torrent.info_hash, (stale,))
+            ),
+        )
+        self.assertEqual(self.client.reannounce.call_count, 2)
 
         self.now = 160
         self.client.reset_mock()
+        self.client.observe.side_effect = None
         self.client.observe.return_value = self.observation(
             category="personal",
             trackers=(QBitTracker(stale, 2, 0),),
@@ -205,8 +224,16 @@ class SeedingSchedulerTests(unittest.TestCase):
             removals_authoritative=False,
         )
         self.scheduler.tracker_policy = policy
-        self.client.observe.return_value = self.observation(
-            trackers=(QBitTracker("udp://existing.example:80/announce", 2, 0),)
+        self.client.observe.side_effect = (
+            self.observation(
+                trackers=(QBitTracker("udp://existing.example:80/announce", 2, 0),)
+            ),
+            self.observation(
+                trackers=(
+                    QBitTracker("udp://existing.example:80/announce", 2, 0),
+                    QBitTracker("udp://operator.example:80/announce", 0, 1),
+                )
+            ),
         )
 
         result = self.scheduler.run()
@@ -217,6 +244,32 @@ class SeedingSchedulerTests(unittest.TestCase):
             self.torrent.info_hash,
             ("udp://operator.example:80/announce",),
         )
+
+    def test_successful_tracker_removal_requires_fresh_discovery_evidence(
+        self,
+    ) -> None:
+        stale = "udp://stale.example:80/announce"
+        self.scheduler.tracker_policy = Mock(
+            desired_trackers=(),
+            removals_authoritative=True,
+        )
+        before = self.observation(
+            trackers=(QBitTracker(stale, 2, 0),),
+            dht_nodes=0,
+        )
+        after = self.observation(dht_nodes=0)
+        self.client.observe.side_effect = (before, after, after, after)
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.green, 0)
+        self.assertEqual(result.retrying, 1)
+        self.client.remove_trackers.assert_called_once_with(
+            self.torrent.info_hash,
+            (stale,),
+        )
+        job = self.store.get(self.release.id, self.release.sd_hash)
+        self.assertEqual(job.seeding_error_code, "not_green")
 
     def test_tracker_mutation_failure_never_closes_publication_gate(self) -> None:
         policy = Mock(
@@ -251,6 +304,12 @@ class SeedingSchedulerTests(unittest.TestCase):
 
         self.now = 220
         self.client.add_trackers.side_effect = None
+        self.client.observe.side_effect = (
+            self.observation(),
+            self.observation(
+                trackers=(QBitTracker("https://index.example/announce", 0, 0),)
+            ),
+        )
         recovered = self.scheduler.run()
         self.assertEqual(recovered.tracker_updates, 1)
         self.assertIn("TRACKER RECONCILIATION RECOVERED", self.events)

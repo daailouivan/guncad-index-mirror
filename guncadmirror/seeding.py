@@ -271,7 +271,7 @@ class SeedingScheduler:
             updated, failed = self._reconcile_trackers(candidate, observation)
             tracker_updates += updated
             tracker_errors += failed
-            if observation.green:
+            if observation.green and not updated:
                 return SeedReadiness(
                     observation,
                     tracker_updates=tracker_updates,
@@ -290,7 +290,7 @@ class SeedingScheduler:
                 updated, failed = self._reconcile_trackers(candidate, observation)
                 tracker_updates += updated
                 tracker_errors += failed
-                if observation.green:
+                if observation.green and not updated:
                     return SeedReadiness(
                         observation,
                         tracker_updates=tracker_updates,
@@ -346,10 +346,10 @@ class SeedingScheduler:
             return 0, 0
 
         try:
-            if to_remove:
-                self.client.remove_trackers(torrent.info_hash, to_remove)
             if to_add:
                 self.client.add_trackers(torrent.info_hash, to_add)
+            if to_remove:
+                self.client.remove_trackers(torrent.info_hash, to_remove)
             self.client.reannounce(torrent.info_hash)
         except QBitError as error:
             self.logger.warning(

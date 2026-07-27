@@ -67,6 +67,10 @@ class WebUiTests(unittest.TestCase):
             "mirror_download_timeout": 600,
             "mirror_torrent_piece_length": 1024**2,
             "mirror_torrent_trackers": (),
+            "mirror_tracker_policy_url": (
+                "https://index.example/api/v2/torrents/tracker-policy/"
+            ),
+            "mirror_tracker_policy_timeout": 15,
             "mirror_data_dir": "/data",
             "mirror_releases_dir": "/data/releases",
             "mirror_outbox_dir": "/data/outbox",
@@ -77,6 +81,21 @@ class WebUiTests(unittest.TestCase):
             "known_jobs": 3,
             "activity": None,
             "activities": [],
+            "tracker_policy": {
+                "enabled": True,
+                "endpoint": "https://index.example/api/v2/torrents/tracker-policy/",
+                "source": "remote",
+                "removals_authoritative": True,
+                "desired_trackers": ("udp://tracker.example:80/announce",),
+                "enabled_index_trackers": 1,
+                "blacklisted_trackers": 0,
+                "etag": '"v1"',
+                "cached_at": 1,
+                "last_checked_at": 2,
+                "last_success_at": 2,
+                "error_code": None,
+                "error": None,
+            },
             "psutil_cpu": 1,
             "psutil_mem": 2,
             "psutil_disk": disk,
@@ -157,8 +176,21 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Index publication", response.data)
         self.assertIn(b"2</span> pending", response.data)
         self.assertIn(b"Browse verified files", response.data)
+        self.assertIn(b'data-testid="tracker-policy-status"', response.data)
+        self.assertNotIn(b'data-testid="tracker-policy-error"', response.data)
         self.assertNotIn(b"LBRY-only mode", response.data)
         self.assertNotIn(b"Assemble Files", response.data)
+
+        self.collector.snapshot.return_value["tracker_policy"].update(
+            {
+                "source": "empty",
+                "removals_authoritative": False,
+                "error_code": "network_error",
+                "error": "offline",
+            }
+        )
+        degraded = app.test_client().get("/")
+        self.assertIn(b'data-testid="tracker-policy-error"', degraded.data)
 
         with app.app_context():
             humanize_bytes = app.jinja_env.filters["humanize_bytes"]

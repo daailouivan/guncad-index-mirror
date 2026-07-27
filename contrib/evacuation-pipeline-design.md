@@ -116,9 +116,9 @@ Mirror does not consider lbrynet's `finished` string sufficient proof. A complet
 
 Mirror always records the computed size, SHA-384, and SHA-256 before creating a single-file BitTorrent v1 torrent. Bencoding dictionaries are sorted bytewise. Piece hashes use SHA-1 because BitTorrent v1 requires it; the plaintext and torrent files retain SHA-384 and SHA-256 checksums outside that legacy field. For a legacy claim without an Index checksum, content-addressed descriptor and blob validation still protects the acquisition path, but the computed plaintext SHA-384 has no independent Index value to compare against.
 
-Determinism is scoped to the same plaintext bytes, filename, piece length, and tracker list. Operators can choose different piece lengths or filenames and produce different valid BTIH values for the same plaintext. Index must therefore key the handoff by release ID and plaintext checksum, not assume one globally canonical torrent.
+Determinism is scoped to the same plaintext bytes, filename, and piece length. Operators can choose different piece lengths or filenames and produce different valid BTIH values for the same plaintext. Index must therefore key the handoff by release ID and plaintext checksum, not assume one globally canonical torrent.
 
-The default one-MiB piece length makes the observed 25,918,984-byte smoke payload a 25-piece torrent. Tracker URLs are optional and do not enter the `info` dictionary, but they do change the complete `.torrent` file checksum. With no trackers configured, the metainfo is intended for BitTorrent DHT.
+The default one-MiB piece length makes the observed 25,918,984-byte smoke payload a 25-piece torrent. Mirror-generated metainfo is always trackerless, so two nodes using the same payload name, bytes, & piece length produce the same complete torrent file as well as the same BTIH. Runtime trackers belong to qBittorrent and do not change the archived artifact.
 
 ## Durable state and failure behavior
 
@@ -141,6 +141,10 @@ pending -> injecting -> green -> injecting after receipt expiry
 The supplied Compose stack builds `qbittorrentofficial/qbittorrent-nox:5.2.3-1` with a small configuration entrypoint. qBittorrent has its own persistent config volume and mounts Mirror's archive read-only at `/downloads`. Mirror parses the local torrent before calling the Web API, checks its BTIH, filename, and byte count against SQLite and the assembled payload, and adds it with the payload's parent as the save path. The client is forced into upload mode and reannounced.
 
 A green receipt requires qBittorrent to return the same BTIH, a ledger-verified content and save path, the exact payload byte count, 100% progress, zero remaining bytes, a forced upload state, and either DHT nodes or a working tracker. qBittorrent stores one entry per BTIH. If two Mirror jobs have the same BTIH and SHA-384, either job's validated local path may satisfy both seed receipts; an arbitrary path remains a blocking conflict. The default receipt expires after 300 seconds. Publication SQL requires both `seeding_state=green` and a current receipt, so a stopped client closes the gate without rewriting acquisition or publication history. Network errors retry with backoff; path, size, incomplete-state, and local-artifact conflicts enter `blocked` and appear in notable events. Startup recovers an interrupted `injecting` row to `retrying`.
+
+Tracker reconciliation reuses the tracker response already required by that green check. Mirror fetches `/api/v2/torrents/tracker-policy/` with an ETag and stores the last valid document in SQLite under the exact endpoint URL. The desired qBittorrent set is `(Index enabled + operator configured) - Index blacklisted`. Disabled Index rows are absent from the desired set but do not override an operator URL; blacklisted rows do.
+
+Mirror treats the configured qBittorrent category & tag as an ownership boundary. On entries carrying both values, it adds missing URLs, removes network trackers outside the desired set, leaves DHT, PeX, & local-discovery pseudo-trackers alone, and reannounces. A successful mutation requires a fresh discovery observation before the green receipt is renewed. A policy fetch failure retains the endpoint-matched cache. With no valid remote document or cache, Mirror adds operator hints but does not remove existing trackers. A failed tracker mutation is retried with the next seed receipt and does not close publication when the torrent remains green through another discovery path.
 
 Publication starts only after that seed receipt:
 
@@ -226,7 +230,7 @@ The current fast idempotence check confirms that the payload, torrent, and manif
 }
 ```
 
-Mirror rebuilds a compact wire manifest from this source record, its SQLite ledger, and a fresh parse of the torrent. It sends that JSON plus the `.torrent` file to `/api/v2/torrents/publish/` as two multipart fields only after qBittorrent passes the seed gate. Payload bytes stay on the Mirror node.
+Mirror rebuilds a compact wire manifest from this source record, its SQLite ledger, and a fresh parse of the torrent. Before sending, it removes top-level `announce` and `announce-list` from a legacy artifact while copying the original encoded `info` dictionary byte-for-byte. It verifies the unchanged BTIH, recalculates the trackerless torrent SHA-256, and sends that JSON plus the trackerless `.torrent` file to `/api/v2/torrents/publish/` only after qBittorrent passes the seed gate. Payload bytes stay on the Mirror node.
 
 The response schema is `guncad-index-torrent-publication-v1`. Mirror accepts 200 `idempotent`, 201 `created` or `promoted`, and 409 `artifact_duplicate` only after the receipt matches the submitted descriptor, SHA-384, and BTIH. It stores the canonical SHA-384, BTIH, torrent URL, magnet URI, and winning release ID. A contradictory receipt pauses publication instead of recording success.
 
@@ -259,9 +263,10 @@ Index now accepts Mirror's compact evidence manifest and torrent metainfo withou
 - permanent `(sd_hash, SHA-384, BTIH)` receipts;
 - SHA-384 artifact deduplication and popularity-led canonical election;
 - checksum and size backfill for descriptor-authenticated legacy origins;
-- direct torrent downloads, query-filtered RSS, and a bootstrap ZIP.
+- direct torrent downloads, query-filtered RSS, and a bootstrap ZIP;
+- a public, ETag-backed tracker policy with enabled, disabled, and blacklisted states.
 
-Mirror keeps the assembled file. Index stores the metainfo and the evidence needed to associate it with existing releases. This limits the publication request to a few megabytes even when the payload is tens of gigabytes.
+Mirror keeps the assembled file. Index stores trackerless metainfo and the evidence needed to associate it with existing releases. Download views can add current tracker hints outside the `info` dictionary without changing BTIH or rewriting the stored artifact. This limits the publication request to a few megabytes even when the payload is tens of gigabytes.
 
 Mirror now owns the first seeder. It won't publish an unseeded torrent and hope another operator appears before the swarm dies. Later seeders can join through Index downloads, the query-filtered RSS feed, or the bootstrap ZIP without running Mirror or lbrynet.
 

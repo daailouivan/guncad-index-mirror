@@ -77,6 +77,7 @@ class TrackerPolicyStatus:
     enabled: bool
     endpoint: str
     source: str
+    removals_authoritative: bool
     desired_trackers: tuple[str, ...]
     enabled_index_trackers: int
     blacklisted_trackers: int
@@ -218,6 +219,7 @@ class TrackerPolicyManager:
             enabled=self.client is not None,
             endpoint=self.client.url if self.client is not None else "",
             source=self.source,
+            removals_authoritative=self.removals_authoritative,
             desired_trackers=self.desired_trackers,
             enabled_index_trackers=len(self.policy.enabled),
             blacklisted_trackers=len(self.policy.blacklisted),

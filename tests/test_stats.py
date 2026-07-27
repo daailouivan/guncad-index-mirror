@@ -11,6 +11,7 @@ from guncadmirror.progress import ActivityPhase, ActivityUpdate
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
 from guncadmirror.stats import StatsCollector, directory_size
+from guncadmirror.tracker_policy import TrackerPolicyStatus
 
 from .helpers import make_release
 
@@ -64,6 +65,9 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["mirror_qbittorrent_data_dir"], "/downloads")
         self.assertEqual(snapshot["mirror_qbittorrent_ready_timeout"], 120)
         self.assertEqual(snapshot["mirror_qbittorrent_recheck_interval"], 300)
+        self.assertEqual(snapshot["mirror_tracker_policy_url"], "")
+        self.assertEqual(snapshot["mirror_tracker_policy_timeout"], 15)
+        self.assertEqual(snapshot["tracker_policy"]["source"], "disabled")
         self.assertFalse(snapshot["mirror_publish_enabled"])
         self.assertEqual(snapshot["mirror_publish_url"], "")
         self.assertEqual(snapshot["mirror_publish_concurrency"], 2)
@@ -77,6 +81,32 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertIn("hello", snapshot["extralog"][0])
         cpu.assert_called_once_with(interval=None)
         disk.assert_called_once_with(self.root)
+
+        collector.update_tracker_policy(
+            TrackerPolicyStatus(
+                enabled=True,
+                endpoint="https://index.example/tracker-policy/",
+                source="cache",
+                removals_authoritative=True,
+                desired_trackers=("udp://tracker.example:80/announce",),
+                enabled_index_trackers=1,
+                blacklisted_trackers=2,
+                etag='"v1"',
+                cached_at=1,
+                last_checked_at=2,
+                last_success_at=2,
+                error_code="network_error",
+                error="offline",
+            )
+        )
+        policy = collector.snapshot()["tracker_policy"]
+        self.assertEqual(policy["source"], "cache")
+        self.assertTrue(policy["removals_authoritative"])
+        self.assertEqual(
+            policy["desired_trackers"],
+            ("udp://tracker.example:80/announce",),
+        )
+        self.assertEqual(policy["error_code"], "network_error")
 
     @patch("guncadmirror.stats.psutil.disk_usage", return_value=Mock())
     @patch("guncadmirror.stats.psutil.net_io_counters", return_value=Mock())

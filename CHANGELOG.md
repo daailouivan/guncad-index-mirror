@@ -40,6 +40,9 @@
 * Added authenticated qBittorrent Web API reconciliation that imports generated torrents at their existing payload paths, forces upload mode, and checks BTIH, path, size, completion, and peer discovery
 * Added crash-safe seeding states and made an unexpired green qBittorrent receipt mandatory before Index publication
 * Added qBittorrent state, failures, and discovery observations to notable events, the status page, archive browser, and integrity reports without exposing control credentials
+* Made generated and Index-submitted torrent metainfo trackerless; tracker-bearing legacy outboxes are sanitized without changing their encoded `info` dictionary or BTIH
+* Added ETag validation and an endpoint-scoped last-known-good SQLite cache for the public Index tracker policy
+* Added Index and operator tracker reconciliation for Mirror-owned qBittorrent entries without making policy or tracker-mutation failures close an otherwise green publication gate
 
 * Fixed: Added blank mountpoint for /data, which should hopefully make OSX containers work right
 * Added: More tracker announcement hosts and a script to pull a list from an authoritative source

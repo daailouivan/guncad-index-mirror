@@ -52,6 +52,7 @@ class Runtime:
     def run_cycle(self, stop: Event | None = None) -> CycleResult:
         if self.tracker_policy is not None:
             self.tracker_policy.refresh()
+            self.stats.update_tracker_policy(self.tracker_policy.status)
         seeding = self._run_seeding(stop)
         publication = (
             self._run_publication(stop)
@@ -86,7 +87,9 @@ class Runtime:
             self.stats.log(
                 "qBittorrent seeding pass: "
                 f"{result.attempted} attempted, {result.green} green, "
-                f"{result.retrying} retrying, {result.blocked} blocked",
+                f"{result.retrying} retrying, {result.blocked} blocked, "
+                f"{result.tracker_updates} tracker updates, "
+                f"{result.tracker_errors} tracker errors",
                 stdout=True,
             )
         return result
@@ -242,6 +245,8 @@ def build_runtime(settings: Settings) -> Runtime:
         if settings.qbittorrent_enabled
         else None
     )
+    if tracker_policy is not None:
+        stats.update_tracker_policy(tracker_policy.status)
     seeding = (
         SeedingScheduler(
             settings,
