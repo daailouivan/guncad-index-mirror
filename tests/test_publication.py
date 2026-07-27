@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+from guncadmirror import torrent as torrent_module
 from guncadmirror.index_publisher import (
     CanonicalArtifact,
     PublicationPaused,
@@ -26,7 +27,7 @@ from guncadmirror.publication import (
 from guncadmirror.publisher import OutboxPublisher
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
-from guncadmirror.torrent import create_torrent
+from guncadmirror.torrent import bencode, create_torrent, parse_torrent
 from guncadmirror.verification import hash_file
 
 from .helpers import release_payload
@@ -172,6 +173,54 @@ class PublicationSchedulerTests(unittest.TestCase):
         self.assertEqual(document["torrent"]["file_name"], "payload.zip")
         self.assertEqual(document["torrent"]["btih"], submission.btih)
         self.assertEqual(submission.torrent, candidate.job.torrent_path.read_bytes())
+        self.assertEqual(document["torrent"]["trackers"], [])
+
+    def test_preparation_strips_legacy_trackers_without_changing_btih(self) -> None:
+        release = self.complete(
+            b"legacy trackers",
+            release_id="a" * 40,
+            sd_hash="b" * 96,
+        )
+        candidate = self.store.publication_candidates()[0]
+        torrent_path = candidate.job.torrent_path
+        self.assertIsNotNone(torrent_path)
+        tracker = "udp://tracker.example:80/announce"
+        original = torrent_path.read_bytes()
+        decoder = torrent_module._BencodeDecoder(original)
+        metainfo = decoder.decode()
+        metainfo[b"announce"] = tracker.encode()
+        metainfo[b"announce-list"] = [[tracker.encode()]]
+        legacy = bencode(metainfo)
+        torrent_path.write_bytes(legacy)
+        legacy_parsed = parse_torrent(legacy)
+        self.store._update(  # noqa: SLF001 - exercise an upgrade-era durable row
+            release,
+            magnet_uri=legacy_parsed.magnet_uri,
+        )
+        manifest_path = (
+            self.settings.outbox_dir / release.id / release.sd_hash / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text())
+        manifest["torrent"]["magnet_uri"] = legacy_parsed.magnet_uri
+        manifest["torrent"]["trackers"] = [tracker]
+        manifest["torrent"]["sha256"] = legacy_parsed.torrent_sha256
+        manifest_path.write_text(json.dumps(manifest))
+
+        submission = prepare_submission(
+            self.settings,
+            self.store.publication_candidates()[0],
+        )
+        submitted = parse_torrent(submission.torrent)
+        document = json.loads(submission.manifest)
+
+        self.assertEqual(submitted.info_hash, legacy_parsed.info_hash)
+        self.assertEqual(submitted.trackers, ())
+        self.assertEqual(document["torrent"]["trackers"], [])
+        self.assertEqual(document["torrent"]["magnet_uri"], submitted.magnet_uri)
+        self.assertEqual(
+            document["torrent"]["sha256"],
+            submitted.torrent_sha256,
+        )
 
     def test_preparation_accepts_legacy_manifest_as_direct_lbry(self) -> None:
         release = self.complete(

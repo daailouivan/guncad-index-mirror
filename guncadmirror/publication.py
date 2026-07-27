@@ -27,7 +27,7 @@ from .models import AcquisitionTransport, PublicationState
 from .paths import ensure_within
 from .settings import Settings
 from .state import JobStore, PublicationCandidate
-from .torrent import TorrentError, parse_torrent
+from .torrent import TorrentError, parse_torrent, strip_torrent_trackers
 
 
 class PublicationPreparationError(RuntimeError):
@@ -344,17 +344,21 @@ def prepare_submission(
     if torrent_path.stat().st_size > MAX_TORRENT_BYTES:
         raise PublicationPreparationError("torrent exceeds the Index size limit")
     try:
-        raw_torrent = torrent_path.read_bytes()
+        staged_torrent = torrent_path.read_bytes()
+        staged = parse_torrent(staged_torrent)
+        raw_torrent = strip_torrent_trackers(staged_torrent)
         parsed = parse_torrent(raw_torrent)
     except (OSError, TorrentError) as error:
         raise PublicationPreparationError(
             f"torrent cannot be parsed: {error}"
         ) from error
     if (
-        parsed.file_name != payload_path.name
-        or parsed.file_length != payload_path.stat().st_size
-        or parsed.info_hash != job.info_hash
-        or parsed.magnet_uri != job.magnet_uri
+        staged.file_name != payload_path.name
+        or staged.file_length != payload_path.stat().st_size
+        or staged.info_hash != job.info_hash
+        or staged.magnet_uri != job.magnet_uri
+        or parsed.info_hash != staged.info_hash
+        or parsed.trackers
     ):
         raise PublicationPreparationError("torrent contradicts the durable ledger")
 

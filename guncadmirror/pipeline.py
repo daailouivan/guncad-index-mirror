@@ -34,7 +34,7 @@ from .progress import (
 from .publisher import Publisher
 from .settings import Settings
 from .state import Job, JobStore
-from .torrent import create_torrent
+from .torrent import TorrentError, create_torrent, parse_torrent
 from .verification import VerificationError, verify_file
 
 
@@ -533,7 +533,6 @@ class MirrorPipeline:
             acquired.file_path,
             torrent_path,
             piece_length=self.settings.torrent_piece_length,
-            trackers=self.settings.torrent_trackers,
             stop=stop,
             progress=self._byte_progress(
                 release,
@@ -670,6 +669,7 @@ class MirrorPipeline:
             ):
                 return False
             document = json.loads(manifest.read_text(encoding="utf-8"))
+            parsed_torrent = parse_torrent(safe_torrent.read_bytes())
             if not isinstance(document, dict):
                 return False
             release_document = document.get("release")
@@ -709,12 +709,22 @@ class MirrorPipeline:
                 and torrent_document.get("piece_count")
                 == _piece_count(actual_size, self.settings.torrent_piece_length)
                 and torrent_document.get("magnet_uri") == magnet_uri
-                and torrent_document.get("trackers")
-                == list(self.settings.torrent_trackers)
+                and torrent_document.get("trackers") == list(parsed_torrent.trackers)
                 and torrent_document.get("sha256") == _sha256_file(safe_torrent)
+                and parsed_torrent.info_hash == info_hash
+                and parsed_torrent.magnet_uri == magnet_uri
+                and parsed_torrent.file_name == safe_file.name
+                and parsed_torrent.file_length == actual_size
                 and _valid_acquisition_document(acquisition_document)
             )
-        except (OSError, RuntimeError, UnicodeError, ValueError, TypeError):
+        except (
+            OSError,
+            RuntimeError,
+            TorrentError,
+            UnicodeError,
+            ValueError,
+            TypeError,
+        ):
             return False
 
     @staticmethod

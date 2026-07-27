@@ -198,6 +198,36 @@ def parse_torrent(raw: bytes) -> ParsedTorrent:
     )
 
 
+def strip_torrent_trackers(raw: bytes) -> bytes:
+    """Remove tracker hints without changing the exact encoded info dictionary."""
+
+    decoder = _BencodeDecoder(raw)
+    metainfo = decoder.decode()
+    if (
+        not isinstance(metainfo, dict)
+        or not isinstance(metainfo.get(b"info"), dict)
+        or decoder.info_span is None
+    ):
+        raise TorrentError("metainfo has no info dictionary")
+    if b"announce" not in metainfo and b"announce-list" not in metainfo:
+        return raw
+
+    info_start, info_end = decoder.info_span
+    sanitized = {
+        key: value
+        for key, value in metainfo.items()
+        if key not in {b"announce", b"announce-list"}
+    }
+    encoded: list[bytes] = [b"d"]
+    for key in sorted(sanitized):
+        encoded.append(bencode(key))
+        encoded.append(
+            raw[info_start:info_end] if key == b"info" else bencode(sanitized[key])  # type: ignore[arg-type]
+        )
+    encoded.append(b"e")
+    return b"".join(encoded)
+
+
 def _parsed_positive_integer(mapping: dict[bytes, object], key: bytes) -> int:
     value = mapping.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -298,7 +328,6 @@ def create_torrent(
     output_path: Path,
     *,
     piece_length: int = 1024**2,
-    trackers: tuple[str, ...] = (),
     stop: Event | None = None,
     progress: Callable[[int], None] | None = None,
 ) -> TorrentArtifact:
@@ -321,9 +350,6 @@ def create_torrent(
         b"pieces": pieces,
     }
     metainfo: dict[bytes, Bencodable] = {b"created by": CREATED_BY, b"info": info}
-    if trackers:
-        metainfo[b"announce"] = trackers[0]
-        metainfo[b"announce-list"] = [[tracker] for tracker in trackers]
 
     info_hash = hashlib.sha1(bencode(info), usedforsecurity=False).hexdigest()
     torrent_bytes = bencode(metainfo)
@@ -331,7 +357,6 @@ def create_torrent(
     _atomic_write(output_path, torrent_bytes)
 
     query = [f"xt=urn:btih:{info_hash}", f"dn={quote(file_path.name, safe='')}"]
-    query.extend(f"tr={quote(tracker, safe='')}" for tracker in trackers)
     return TorrentArtifact(
         file_path=file_path,
         torrent_path=output_path,
@@ -340,7 +365,7 @@ def create_torrent(
         info_hash=info_hash,
         torrent_sha256=torrent_sha256,
         magnet_uri="magnet:?" + "&".join(query),
-        trackers=trackers,
+        trackers=(),
     )
 
 

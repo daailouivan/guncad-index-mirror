@@ -10,7 +10,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from guncadmirror import torrent as torrent_module
 from guncadmirror.cancellation import AcquisitionCancelled
-from guncadmirror.torrent import TorrentError, bencode, create_torrent, parse_torrent
+from guncadmirror.torrent import (
+    TorrentError,
+    bencode,
+    create_torrent,
+    parse_torrent,
+    strip_torrent_trackers,
+)
 
 
 def torrent_bytes(
@@ -62,23 +68,16 @@ class TorrentTests(unittest.TestCase):
             payload = root / "payload file.bin"
             payload.write_bytes(b"a" * 16384 + b"tail")
             destination = root / "out" / "payload.torrent"
-            trackers = (
-                "udp://tracker.test:80/announce",
-                "https://tracker2.test/announce",
-            )
             progress: list[int] = []
 
             artifact = create_torrent(
                 payload,
                 destination,
                 piece_length=16384,
-                trackers=trackers,
                 progress=progress.append,
             )
             first_bytes = destination.read_bytes()
-            second = create_torrent(
-                payload, destination, piece_length=16384, trackers=trackers
-            )
+            second = create_torrent(payload, destination, piece_length=16384)
 
             piece_hashes = (
                 hashlib.sha1(b"a" * 16384, usedforsecurity=False).digest()
@@ -103,7 +102,7 @@ class TorrentTests(unittest.TestCase):
             query = parse_qs(urlsplit(artifact.magnet_uri).query)
             self.assertEqual(query["xt"], [f"urn:btih:{artifact.info_hash}"])
             self.assertEqual(query["dn"], ["payload file.bin"])
-            self.assertEqual(query["tr"], list(trackers))
+            self.assertNotIn("tr", query)
             self.assertEqual(progress, [0, 16384, 16388])
 
             parsed = parse_torrent(first_bytes)
@@ -113,8 +112,41 @@ class TorrentTests(unittest.TestCase):
             self.assertEqual(parsed.file_length, payload.stat().st_size)
             self.assertEqual(parsed.piece_length, artifact.piece_length)
             self.assertEqual(parsed.piece_count, artifact.piece_count)
-            self.assertEqual(parsed.trackers, artifact.trackers)
+            self.assertEqual(parsed.trackers, ())
             self.assertEqual(parsed.magnet_uri, artifact.magnet_uri)
+
+    def test_strips_trackers_without_changing_info_or_other_top_level_data(self):
+        raw = torrent_bytes(
+            announce="https://tracker.example/announce",
+            announce_list=[
+                ["https://tracker.example/announce"],
+                ["udp://tracker.example:80/announce"],
+            ],
+        )
+        root = torrent_module._BencodeDecoder(raw)
+        root.decode()
+        self.assertIsNotNone(root.info_span)
+        info_start, info_end = root.info_span
+
+        stripped = strip_torrent_trackers(raw)
+        stripped_root = torrent_module._BencodeDecoder(stripped)
+        document = stripped_root.decode()
+        self.assertIsNotNone(stripped_root.info_span)
+        stripped_start, stripped_end = stripped_root.info_span
+
+        self.assertNotIn(b"announce", document)
+        self.assertNotIn(b"announce-list", document)
+        self.assertEqual(
+            raw[info_start:info_end],
+            stripped[stripped_start:stripped_end],
+        )
+        self.assertEqual(
+            parse_torrent(raw).info_hash, parse_torrent(stripped).info_hash
+        )
+        self.assertEqual(strip_torrent_trackers(stripped), stripped)
+
+        with self.assertRaisesRegex(TorrentError, "info dictionary"):
+            strip_torrent_trackers(bencode({b"announce": b"https://tracker.example"}))
 
     def test_strict_parser_supports_trackerless_and_deduplicates_trackers(self):
         raw = torrent_bytes(

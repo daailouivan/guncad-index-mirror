@@ -11,6 +11,7 @@ from threading import Event, Lock
 from time import monotonic, sleep
 from unittest.mock import Mock, patch
 
+from guncadmirror import torrent as torrent_module
 from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.lbry import LbryProtocolError, LbryStreamUnavailable
 from guncadmirror.models import JobState, PublicationBundle
@@ -20,6 +21,7 @@ from guncadmirror.pipeline import CycleResult, MirrorPipeline
 from guncadmirror.publisher import OutboxPublisher
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
+from guncadmirror.torrent import bencode, parse_torrent
 
 from .helpers import make_release
 
@@ -93,6 +95,7 @@ class MirrorPipelineTests(unittest.TestCase):
         )
         manifest = json.loads(manifest_path.read_text())
         self.assertEqual(manifest["torrent"]["btih"], job.info_hash)
+        self.assertEqual(manifest["torrent"]["trackers"], [])
 
         metadata_path = (
             release_directory(
@@ -125,6 +128,42 @@ class MirrorPipelineTests(unittest.TestCase):
             ],
         )
         progress.clear_activity.assert_called_once_with(release)
+
+    def test_legacy_tracker_bearing_outbox_remains_reusable(self) -> None:
+        content = b"payload"
+        release = make_release(content)
+        payload = self.root / "payload.zip"
+        payload.write_bytes(content)
+        acquirer = Mock()
+        acquirer.acquire.return_value = payload
+        pipeline = self._pipeline([release], acquirer)
+        self.assertEqual(pipeline.process(release), "ready")
+
+        job = self.store.get(release.id, release.sd_hash)
+        torrent_path = job.torrent_path
+        self.assertIsNotNone(torrent_path)
+        decoder = torrent_module._BencodeDecoder(torrent_path.read_bytes())
+        metainfo = decoder.decode()
+        tracker = "udp://legacy-tracker.example:80/announce"
+        metainfo[b"announce"] = tracker.encode()
+        metainfo[b"announce-list"] = [[tracker.encode()]]
+        torrent_path.write_bytes(bencode(metainfo))
+        parsed = parse_torrent(torrent_path.read_bytes())
+        self.store._update(  # noqa: SLF001 - construct an upgrade-era ledger row
+            release,
+            magnet_uri=parsed.magnet_uri,
+        )
+        manifest_path = (
+            self.settings.outbox_dir / release.id / release.sd_hash / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text())
+        manifest["torrent"]["magnet_uri"] = parsed.magnet_uri
+        manifest["torrent"]["trackers"] = [tracker]
+        manifest["torrent"]["sha256"] = parsed.torrent_sha256
+        manifest_path.write_text(json.dumps(manifest))
+
+        self.assertEqual(pipeline.process(release), "skipped")
+        self.assertEqual(acquirer.acquire.call_count, 1)
 
     def test_missing_or_structurally_invalid_artifact_is_rebuilt(self) -> None:
         content = b"payload"
