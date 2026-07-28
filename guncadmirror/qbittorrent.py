@@ -362,31 +362,38 @@ class QBitClient:
         self._authenticated = True
 
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
-        if not self._authenticated:
-            self._authenticate()
         headers = {"Origin": self.origin, "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         headers.update(kwargs.pop("headers", {}))
-        try:
-            response = self.session.request(
-                method,
-                self._url(path),
-                headers=headers,
-                timeout=(5, self.timeout),
-                **kwargs,
-            )
-        except requests.RequestException as error:
-            raise QBitRetryableError(
-                "network_error",
-                f"qBittorrent request failed: {error}",
-            ) from error
-        if response.status_code in {401, 403}:
-            raise QBitConfigurationError(
-                "authentication_failed",
-                f"qBittorrent rejected the configured authentication (HTTP {response.status_code})",
-            )
-        return response
+        for attempt in range(2):
+            if not self._authenticated:
+                self._authenticate()
+            try:
+                response = self.session.request(
+                    method,
+                    self._url(path),
+                    headers=headers,
+                    timeout=(5, self.timeout),
+                    **kwargs,
+                )
+            except requests.RequestException as error:
+                raise QBitRetryableError(
+                    "network_error",
+                    f"qBittorrent request failed: {error}",
+                ) from error
+            if response.status_code not in {401, 403}:
+                return response
+            self._authenticated = False
+            if not self.api_key:
+                self.session.cookies.clear()
+            if self.api_key or attempt == 1:
+                raise QBitConfigurationError(
+                    "authentication_failed",
+                    "qBittorrent rejected the configured authentication "
+                    f"(HTTP {response.status_code})",
+                )
+        raise AssertionError("unreachable authentication retry state")
 
     def _json(self, method: str, path: str, **kwargs: Any) -> Any:
         response = self._request(method, path, **kwargs)

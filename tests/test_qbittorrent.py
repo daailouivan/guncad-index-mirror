@@ -82,6 +82,59 @@ class QBitClientTests(unittest.TestCase):
             "Bearer qbt_" + "x" * 28,
         )
 
+    def test_stale_password_session_reauthenticates_and_replays_once(self) -> None:
+        self.client._authenticated = True
+        self.session.request.side_effect = (
+            Mock(status_code=403),
+            Mock(
+                status_code=200,
+                json=lambda: {
+                    "connection_status": "connected",
+                    "dht_nodes": 42,
+                },
+            ),
+        )
+
+        self.assertEqual(self.client.transfer().dht_nodes, 42)
+
+        self.assertEqual(self.session.request.call_count, 2)
+        self.assertEqual(self.session.post.call_count, 1)
+        self.session.cookies.clear.assert_called_once_with()
+        first, second = self.session.request.call_args_list
+        self.assertEqual(first, second)
+
+    def test_reauthentication_is_bounded_and_api_keys_are_not_retried(
+        self,
+    ) -> None:
+        self.client._authenticated = True
+        self.session.request.side_effect = (
+            Mock(status_code=401),
+            Mock(status_code=403),
+        )
+
+        with self.assertRaises(QBitConfigurationError) as caught:
+            self.client.transfer()
+
+        self.assertEqual(caught.exception.code, "authentication_failed")
+        self.assertEqual(self.session.request.call_count, 2)
+        self.assertEqual(self.session.post.call_count, 1)
+        self.assertEqual(self.session.cookies.clear.call_count, 2)
+        self.assertFalse(self.client._authenticated)
+
+        self.session.reset_mock()
+        self.session.request.side_effect = None
+        self.client = QBitClient(
+            "https://qbit.example",
+            timeout=3,
+            api_key="qbt_" + "x" * 28,
+            session=self.session,
+        )
+        self.session.request.return_value = Mock(status_code=403)
+        with self.assertRaises(QBitConfigurationError):
+            self.client.transfer()
+        self.session.request.assert_called_once()
+        self.session.post.assert_not_called()
+
     def test_adds_completed_torrent_in_seed_mode_and_controls_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             torrent = Path(temporary) / "artifact.torrent"
