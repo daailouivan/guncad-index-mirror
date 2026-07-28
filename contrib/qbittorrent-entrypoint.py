@@ -13,6 +13,25 @@ CONFIG_PATH = Path("/config/qBittorrent/config/qBittorrent.conf")
 PASSWORD_ITERATIONS = 100_000
 
 
+def configured_torrenting_port() -> int:
+    raw_port = os.environ.get("QBT_TORRENTING_PORT", "6881")
+    port_file = os.environ.get("QBT_TORRENTING_PORT_FILE", "").strip()
+    if port_file:
+        try:
+            forwarded_port = Path(port_file).read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            forwarded_port = ""
+        if forwarded_port:
+            raw_port = forwarded_port
+    try:
+        port = int(raw_port)
+    except ValueError as error:
+        raise SystemExit("qBittorrent ports must be integers") from error
+    if not 1 <= port <= 65535:
+        raise SystemExit("qBittorrent ports must be between 1 and 65535")
+    return port
+
+
 def required_environment(name: str) -> str:
     value = os.environ.get(name, "")
     if not value:
@@ -53,13 +72,14 @@ def configure() -> None:
     host_header_validation = environment_boolean(
         "QBITTORRENT_HOST_HEADER_VALIDATION", True
     )
+    localhost_auth = environment_boolean("QBITTORRENT_LOCALHOST_AUTH", True)
     try:
         webui_port = int(os.environ.get("QBT_WEBUI_PORT", "8080"))
-        torrenting_port = int(os.environ.get("QBT_TORRENTING_PORT", "6881"))
     except ValueError as error:
-        raise SystemExit("qBittorrent ports must be integers") from error
-    if not 1 <= webui_port <= 65535 or not 1 <= torrenting_port <= 65535:
+        raise SystemExit("qBittorrent Web UI port must be an integer") from error
+    if not 1 <= webui_port <= 65535:
         raise SystemExit("qBittorrent ports must be between 1 and 65535")
+    torrenting_port = configured_torrenting_port()
 
     config = configparser.RawConfigParser(interpolation=None, strict=False)
     config.optionxform = str
@@ -85,7 +105,7 @@ def configure() -> None:
             r"WebUI\CSRFProtection": "true",
             r"WebUI\ClickjackingProtection": "true",
             r"WebUI\HostHeaderValidation": str(host_header_validation).lower(),
-            r"WebUI\LocalHostAuth": "true",
+            r"WebUI\LocalHostAuth": str(localhost_auth).lower(),
             r"WebUI\Password_PBKDF2": password_hash(password),
             r"WebUI\Port": str(webui_port),
             r"WebUI\SecureCookie": "false",

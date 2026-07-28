@@ -64,8 +64,10 @@ class QBitTorrentEntrypointTests(unittest.TestCase):
         self.assertEqual(
             config["BitTorrent"][r"Session\QueueingSystemEnabled"], "false"
         )
+        self.assertEqual(config["BitTorrent"][r"Session\Port"], "6881")
         self.assertEqual(config["Preferences"][r"WebUI\Username"], "mirror")
         self.assertEqual(config["Preferences"][r"WebUI\HostHeaderValidation"], "false")
+        self.assertEqual(config["Preferences"][r"WebUI\LocalHostAuth"], "true")
         self.assertEqual(config["Preferences"][r"WebUI\CSRFProtection"], "true")
         expected_digest = hashlib.pbkdf2_hmac(
             "sha512", b"secret", b"s" * 16, self.module.PASSWORD_ITERATIONS
@@ -81,7 +83,52 @@ class QBitTorrentEntrypointTests(unittest.TestCase):
         self.assertNotIn("secret", path.read_text())
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_uses_gluetun_forwarded_port_and_localhost_auth_setting(self) -> None:
+        port_file = Path(self.temporary.name) / "forwarded_port"
+        port_file.write_text("49152\n")
+        environment = {
+            "QBITTORRENT_USERNAME": "mirror",
+            "QBITTORRENT_PASSWORD": "secret",
+            "QBITTORRENT_LOCALHOST_AUTH": "false",
+            "QBT_TORRENTING_PORT": "6881",
+            "QBT_TORRENTING_PORT_FILE": str(port_file),
+        }
+
+        with patch.dict(os.environ, environment, clear=True):
+            self.module.configure()
+
+        config = configparser.RawConfigParser(interpolation=None)
+        config.optionxform = str
+        config.read(self.module.CONFIG_PATH)
+        self.assertEqual(config["BitTorrent"][r"Session\Port"], "49152")
+        self.assertEqual(config["Preferences"][r"WebUI\LocalHostAuth"], "false")
+
+    def test_missing_or_empty_gluetun_port_file_uses_configured_port(self) -> None:
+        port_file = Path(self.temporary.name) / "forwarded_port"
+        environment = {
+            "QBITTORRENT_USERNAME": "mirror",
+            "QBITTORRENT_PASSWORD": "secret",
+            "QBT_TORRENTING_PORT": "6882",
+            "QBT_TORRENTING_PORT_FILE": str(port_file),
+        }
+
+        for create_empty in (False, True):
+            with self.subTest(create_empty=create_empty):
+                if create_empty:
+                    port_file.write_text("\n")
+                elif port_file.exists():
+                    port_file.unlink()
+                with patch.dict(os.environ, environment, clear=True):
+                    self.module.configure()
+
+                config = configparser.RawConfigParser(interpolation=None)
+                config.optionxform = str
+                config.read(self.module.CONFIG_PATH)
+                self.assertEqual(config["BitTorrent"][r"Session\Port"], "6882")
+
     def test_rejects_missing_credentials_invalid_boolean_and_ports(self) -> None:
+        invalid_port_file = Path(self.temporary.name) / "forwarded_port"
+        invalid_port_file.write_text("not-a-port")
         cases = (
             ({}, "QBITTORRENT_USERNAME must be set"),
             (
@@ -89,6 +136,14 @@ class QBitTorrentEntrypointTests(unittest.TestCase):
                     "QBITTORRENT_USERNAME": "mirror",
                     "QBITTORRENT_PASSWORD": "secret",
                     "QBITTORRENT_HOST_HEADER_VALIDATION": "perhaps",
+                },
+                "must be a boolean",
+            ),
+            (
+                {
+                    "QBITTORRENT_USERNAME": "mirror",
+                    "QBITTORRENT_PASSWORD": "secret",
+                    "QBITTORRENT_LOCALHOST_AUTH": "perhaps",
                 },
                 "must be a boolean",
             ),
@@ -105,6 +160,14 @@ class QBitTorrentEntrypointTests(unittest.TestCase):
                     "QBITTORRENT_USERNAME": "mirror",
                     "QBITTORRENT_PASSWORD": "secret",
                     "QBT_WEBUI_PORT": "eight-thousand",
+                },
+                "Web UI port must be an integer",
+            ),
+            (
+                {
+                    "QBITTORRENT_USERNAME": "mirror",
+                    "QBITTORRENT_PASSWORD": "secret",
+                    "QBT_TORRENTING_PORT_FILE": str(invalid_port_file),
                 },
                 "ports must be integers",
             ),

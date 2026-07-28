@@ -1,0 +1,107 @@
+---
+services:
+  guncad-mirror:
+    image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
+    restart: unless-stopped
+    stop_grace_period: 2m
+    env_file: "${MIRROR_ENV_FILE:-guncad-mirror.env}"
+    environment:
+      MIRROR_QBITTORRENT_ENABLED: "true"
+      MIRROR_QBITTORRENT_URL: "http://gluetun:8080"
+      MIRROR_QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      MIRROR_QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:?set a qBittorrent
+        control password}"
+      MIRROR_QBITTORRENT_DATA_DIR: "/downloads"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      qbittorrent:
+        condition: service_healthy
+    volumes:
+      - guncad-mirror:/data:z
+    ports:
+      - 5567:5567/tcp
+      - 4444:4444/tcp
+      - 4444:4444/udp
+      - 8081:5000/tcp
+    healthcheck:
+      test: |
+        curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
+      start_period: 300s
+      interval: 5s
+      timeout: 15s
+      retries: 12
+  gluetun:
+    image: "${MIRROR_GLUETUN_IMAGE:-docker.io/qmcgaw/gluetun:v3.41.1}"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: "private internet access"
+      VPN_TYPE: "openvpn"
+      OPENVPN_USER: "${PIA_USERNAME:?set PIA_USERNAME in the Compose environment}"
+      OPENVPN_PASSWORD: "${PIA_PASSWORD:?set PIA_PASSWORD in the Compose environment}"
+      OPENVPN_PROTOCOL: "udp"
+      SERVER_REGIONS: "${MIRROR_PIA_SERVER_REGIONS:-CA Toronto}"
+      PORT_FORWARD_ONLY: "on"
+      VPN_PORT_FORWARDING: "on"
+      VPN_PORT_FORWARDING_STATUS_FILE: "/gluetun/forwarded_port"
+      VPN_PORT_FORWARDING_UP_COMMAND: >-
+        /bin/sh /usr/local/bin/guncad-qbittorrent-port up {{PORT}} {{VPN_INTERFACE}}
+      VPN_PORT_FORWARDING_DOWN_COMMAND: >-
+        /bin/sh /usr/local/bin/guncad-qbittorrent-port down
+      FIREWALL_INPUT_PORTS: "8080"
+      BLOCK_MALICIOUS: "off"
+      LOG_LEVEL: "${MIRROR_GLUETUN_LOG_LEVEL:-warn}"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - guncad-mirror-gluetun:/gluetun:z
+      - ./contrib/gluetun-qbittorrent-port.sh:/usr/local/bin/guncad-qbittorrent-port:ro,Z
+    ports:
+      - "127.0.0.1:${MIRROR_QBITTORRENT_WEBUI_PORT:-8083}:8080/tcp"
+  qbittorrent:
+    build:
+      context: .
+      dockerfile: Dockerfile.qbittorrent
+    image: "${MIRROR_QBITTORRENT_IMAGE:-guncad-mirror-qbittorrent:5.2.3-1}"
+    restart: unless-stopped
+    read_only: true
+    stop_grace_period: 30m
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_started
+    environment:
+      PUID: "${MIRROR_UID:-1000}"
+      PGID: "${MIRROR_GID:-1000}"
+      QBT_LEGAL_NOTICE: confirm
+      QBT_TORRENTING_PORT: "6881"
+      QBT_TORRENTING_PORT_FILE: "/gluetun/forwarded_port"
+      QBT_WEBUI_PORT: "8080"
+      QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
+      QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:?set a qBittorrent control
+        password}"
+      QBITTORRENT_HOST_HEADER_VALIDATION: "false"
+      QBITTORRENT_LOCALHOST_AUTH: "false"
+      TZ: "${TZ:-UTC}"
+    tmpfs:
+      - /tmp
+    volumes:
+      - guncad-mirror-qbittorrent:/config:Z
+      - guncad-mirror:/downloads:ro,z
+      - guncad-mirror-gluetun:/gluetun:ro,z
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 12
+volumes:
+  guncad-mirror:
+    name: "${MIRROR_DATA_VOLUME:-guncad-mirror}"
+  guncad-mirror-gluetun:
+    name: "${MIRROR_GLUETUN_VOLUME:-guncad-mirror-gluetun}"
+  guncad-mirror-qbittorrent:
+    name: "${MIRROR_QBITTORRENT_VOLUME:-guncad-mirror-qbittorrent}"

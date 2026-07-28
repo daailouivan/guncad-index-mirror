@@ -59,6 +59,45 @@ MIRROR_PUBLISH_TOKEN="<high-entropy bearer>"
 
 Publication also requires `MIRROR_QBITTORRENT_ENABLED=true`. The supplied Compose file sets that value and mounts Mirror's `/data` volume read-only at `/downloads` inside qBittorrent. Mirror's process receives Web API credentials; it never writes them to SQLite, the status page, or audit output.
 
+### Routing qBittorrent through PIA
+
+`docker-compose.gluetun.yml` puts qBittorrent inside a [Gluetun v3.41.1](https://github.com/qdm12/gluetun/releases/tag/v3.41.1) network namespace. Mirror, lbrynet, Odysee fallback requests, & Index publication keep their normal host connection. A VPN failure therefore stops BitTorrent traffic without taking the LBRY archive or Index scanner offline.
+
+The VPN stack uses PIA OpenVPN because [Gluetun's PIA provider](https://github.com/qdm12/gluetun-wiki/blob/main/setup/providers/private-internet-access.md) doesn't have native WireGuard support. Copy the ignored credential template and enter the service credentials accepted by PIA's manual OpenVPN endpoints:
+
+```bash
+cp .pia.env.example .pia.env
+chmod 600 .pia.env
+```
+
+Docker Compose merges both environment files:
+
+```bash
+docker compose \
+    --env-file guncad-mirror.env \
+    --env-file .pia.env \
+    -f docker-compose.gluetun.yml \
+    up -d
+```
+
+`podman-compose` accepts only its last `--env-file` on some releases. Load both files into the calling shell instead:
+
+```bash
+set -a
+. ./guncad-mirror.env
+. ./.pia.env
+set +a
+podman compose -f docker-compose.gluetun.yml up -d
+```
+
+The default region is `CA Toronto`, selected from PIA's port-forwarding servers. Override it with `MIRROR_PIA_SERVER_REGIONS`; Gluetun's `PORT_FORWARD_ONLY=on` rejects a region without PIA port forwarding. The forwarded TCP & UDP port comes from PIA, not the host router. Don't forward host port 6881 or 6882 for this stack.
+
+Gluetun writes its assigned port into the persistent `guncad-mirror-gluetun` volume and calls `contrib/gluetun-qbittorrent-port.sh` through its [port-forwarding hooks](https://github.com/qdm12/gluetun-wiki/blob/main/setup/advanced/vpn-port-forwarding.md) whenever the lease comes up or goes down. The qBittorrent entrypoint reads the same file after an independent client restart, so it doesn't revert to port 6881 while Gluetun still owns another lease.
+
+The qBittorrent Web UI binds only to `127.0.0.1:${MIRROR_QBITTORRENT_WEBUI_PORT:-8083}` on the host. Gluetun permits port 8080 on the private Compose interface for Mirror control, but not on the VPN interface. Localhost authentication bypass applies only inside the shared Gluetun/qBittorrent namespace; browser and Mirror requests still require the configured qBittorrent credentials.
+
+Gluetun runs at warning log level by default. Its informational startup summary prints the PIA username while masking the password. Set `MIRROR_GLUETUN_LOG_LEVEL=info` only when that username is acceptable in container logs.
+
 ## Tracker policy and torrent identity
 
 Mirror keeps tracker configuration out of durable torrent identity. Every newly generated outbox torrent is trackerless, and every multipart upload to Index is trackerless. Two operators with the same payload name, bytes, & piece length therefore produce the same BitTorrent v1 `info` dictionary and BTIH without coordinating a tracker list.
