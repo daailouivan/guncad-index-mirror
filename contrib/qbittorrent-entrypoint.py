@@ -80,6 +80,10 @@ def configure() -> None:
     if not 1 <= webui_port <= 65535:
         raise SystemExit("qBittorrent ports must be between 1 and 65535")
     torrenting_port = configured_torrenting_port()
+    # The upstream entrypoint turns QBT_TORRENTING_PORT into a command-line
+    # argument after this wrapper exits. Keep that argument aligned with the
+    # persisted Gluetun lease instead of letting it override the config file.
+    os.environ["QBT_TORRENTING_PORT"] = str(torrenting_port)
 
     config = configparser.RawConfigParser(interpolation=None, strict=False)
     config.optionxform = str

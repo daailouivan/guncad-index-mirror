@@ -94,7 +94,11 @@ The default region is `CA Toronto`, selected from PIA's port-forwarding servers.
 
 Gluetun writes its assigned port into the persistent `guncad-mirror-gluetun` volume and calls `contrib/gluetun-qbittorrent-port.sh` through its [port-forwarding hooks](https://github.com/qdm12/gluetun-wiki/blob/main/setup/advanced/vpn-port-forwarding.md) whenever the lease comes up or goes down. The qBittorrent entrypoint reads the same file after an independent client restart, so it doesn't revert to port 6881 while Gluetun still owns another lease.
 
+Gluetun's internal VPN recovery keeps the shared network namespace alive. qBittorrent loses egress while OpenVPN is down and resumes on the same forwarded port after Gluetun reconnects. Stopping or recreating the Gluetun container destroys that namespace; restart or recreate `gluetun` and `qbittorrent` as a pair. The firewall remains in the abandoned namespace until qBittorrent stops, so this failure mode blocks traffic instead of sending it through the host connection.
+
 The qBittorrent Web UI binds only to `127.0.0.1:${MIRROR_QBITTORRENT_WEBUI_PORT:-8083}` on the host. Gluetun permits port 8080 on the private Compose interface for Mirror control, but not on the VPN interface. Localhost authentication bypass applies only inside the shared Gluetun/qBittorrent namespace; browser and Mirror requests still require the configured qBittorrent credentials.
+
+Rootless Podman bind-mounts `/dev/net/tun` with its host SELinux label. The Gluetun service disables SELinux label separation for that container so Fedora permits access to the TUN device; it doesn't change the host-wide `container_use_devices` boolean. Gluetun still receives only `CAP_NET_ADMIN`, `/dev/net/tun`, its state volume, & the read-only port-sync script.
 
 Gluetun runs at warning log level by default. Its informational startup summary prints the PIA username while masking the password. Set `MIRROR_GLUETUN_LOG_LEVEL=info` only when that username is acceptable in container logs.
 

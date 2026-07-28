@@ -96,6 +96,7 @@ class QBitTorrentEntrypointTests(unittest.TestCase):
 
         with patch.dict(os.environ, environment, clear=True):
             self.module.configure()
+            self.assertEqual(os.environ["QBT_TORRENTING_PORT"], "49152")
 
         config = configparser.RawConfigParser(interpolation=None)
         config.optionxform = str

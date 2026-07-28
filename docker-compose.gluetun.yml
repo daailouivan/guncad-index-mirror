@@ -38,6 +38,8 @@ services:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - label=disable
     environment:
       VPN_SERVICE_PROVIDER: "private internet access"
       VPN_TYPE: "openvpn"
