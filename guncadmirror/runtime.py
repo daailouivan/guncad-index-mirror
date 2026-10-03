@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from threading import Event
 
 from .cancellation import AcquisitionCancelled
+from .github import GitHubAcquirer
 from .index_client import IndexClient
 from .index_publisher import IndexPublisherClient
 from .lbry import LbryAcquirer, LbryClient
 from .odysee import OdyseeAcquirer
 from .pipeline import CycleResult, MirrorPipeline
+from .printables import PrintablesAcquirer
 from .publication import PublicationCycleResult, PublicationScheduler
 from .publisher import OutboxPublisher
 from .qbittorrent import QBitClient
@@ -155,6 +157,8 @@ class Runtime:
             ("statistics collector", self.stats.stop),
             ("Index HTTP session", self.pipeline.index_client.close),
             ("LBRY HTTP session", self.lbry.close),
+            ("Printables HTTP session", self.pipeline.printables_acquirer.close),
+            ("GitHub HTTP session", self.pipeline.github_acquirer.close),
         ]
         if self.odysee is not None:
             cleanups.append(("Odysee HTTP session", self.odysee.close))
@@ -218,6 +222,17 @@ def build_runtime(settings: Settings) -> Runtime:
         else None
     )
     publisher = OutboxPublisher(settings.outbox_dir)
+    printables = PrintablesAcquirer(
+        attempts=settings.retry_attempts,
+        backoff=settings.retry_backoff,
+        progress=stats,
+    )
+    github = GitHubAcquirer(
+        token=settings.github_token or None,
+        attempts=settings.retry_attempts,
+        backoff=settings.retry_backoff,
+        progress=stats,
+    )
     pipeline = MirrorPipeline(
         settings,
         index_client,
@@ -225,6 +240,8 @@ def build_runtime(settings: Settings) -> Runtime:
         store,
         publisher,
         fallback_acquirer=odysee,
+        printables_acquirer=printables,
+        github_acquirer=github,
         progress=stats,
         record_event=stats.log,
     )

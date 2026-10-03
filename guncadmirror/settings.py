@@ -63,6 +63,7 @@ class Settings:
     publish_token: str = ""
     publish_concurrency: int = 2
     publish_timeout: float = 60
+    github_token: str = ""
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -147,6 +148,7 @@ class Settings:
                 env, "MIRROR_PUBLISH_CONCURRENCY", 2, minimum=1
             ),
             publish_timeout=_number(env, "MIRROR_PUBLISH_TIMEOUT", 60, minimum=1),
+            github_token=env.get("MIRROR_GITHUB_TOKEN", env.get("GITHUB_TOKEN", "")).strip(),
         )
         settings.validate()
         return settings

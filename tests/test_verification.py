@@ -43,6 +43,23 @@ class VerificationTests(unittest.TestCase):
             uncorroborated = replace(release, size=None, sha384=None)
             self.assertEqual(verify_file(uncorroborated, path).size, len(content))
 
+    def test_verification_allows_size_variance_for_non_lbry_platforms(self) -> None:
+        content = b"packaged-archive-content"
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "payload.bin"
+            path.write_bytes(content)
+            release = replace(make_release(content), platform="printables", size=999999)
+            verified = verify_file(release, path)
+            self.assertEqual(verified.size, len(content))
+
+    def test_verification_rejects_empty_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "empty.bin"
+            path.write_bytes(b"")
+            release = make_release(b"something")
+            with self.assertRaisesRegex(VerificationError, "empty"):
+                verify_file(release, path)
+
     def test_rejects_nonpositive_chunk_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive"):
             hash_file(Path("unused"), chunk_size=0)

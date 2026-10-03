@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -11,6 +12,14 @@ from urllib.parse import unquote, urlsplit
 
 SHA384_RE = re.compile(r"^[0-9a-f]{96}$")
 CLAIM_ID_RE = re.compile(r"^[0-9a-f]{40}$")
+RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+SUPPORTED_PLATFORMS = frozenset({
+    "lbry",
+    "printables",
+    "github",
+    "http",
+    "torrent",
+})
 
 
 class ReleaseValidationError(ValueError):
@@ -51,6 +60,10 @@ class SeedingState(StrEnum):
 class AcquisitionTransport(StrEnum):
     LBRY = "lbry"
     ODYSEE_CDN = "odysee-cdn"
+    PRINTABLES = "printables"
+    GITHUB = "github"
+    HTTP = "http"
+    TORRENT = "torrent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,14 +78,16 @@ class Release:
     id: str
     name: str
     url: str | None
-    url_lbry: str
+    url_lbry: str | None
     channel_handle: str
     sd_hash: str
     sha384: str | None
     size: int | None
     popularity: float
     lbry_only: bool
-    raw: Mapping[str, Any] = field(repr=False, compare=False)
+    platform: str = "lbry"
+    external_id: str | None = None
+    raw: Mapping[str, Any] = field(repr=False, compare=False, default_factory=dict)
 
     @classmethod
     def from_api(cls, value: Mapping[str, Any]) -> Release:
@@ -82,37 +97,67 @@ class Release:
         origin = value.get("origin")
         if not isinstance(origin, Mapping):
             raise ReleaseValidationError("release origin must be a JSON object")
-        platform = _required_string(origin, "platform")
-        if platform != "lbry":
+        platform = _required_string(origin, "platform").lower()
+        if platform not in SUPPORTED_PLATFORMS:
             raise UnsupportedOriginError(f"unsupported release origin: {platform}")
 
         release_id = _required_string(value, "id")
-        if not CLAIM_ID_RE.fullmatch(release_id):
-            raise ReleaseValidationError("release id must be a 40-character claim id")
+        if platform == "lbry":
+            if not CLAIM_ID_RE.fullmatch(release_id):
+                raise ReleaseValidationError(
+                    "release id must be a 40-character claim id"
+                )
+            if _required_string(origin, "external_id") != release_id:
+                raise ReleaseValidationError("origin external_id must match release id")
+            external_id = release_id
+        else:
+            if not RELEASE_ID_RE.fullmatch(release_id):
+                raise ReleaseValidationError(
+                    f"release id is invalid for platform {platform}: {release_id!r}"
+                )
+            external_id = str(origin.get("external_id") or release_id)
 
         channel = value.get("channel")
         if not isinstance(channel, Mapping):
             raise ReleaseValidationError("release channel must be a JSON object")
 
-        if _required_string(origin, "external_id") != release_id:
-            raise ReleaseValidationError("origin external_id must match release id")
-
         extra = origin.get("extra")
-        if not isinstance(extra, Mapping):
-            raise ReleaseValidationError("release origin extra must be a JSON object")
-
-        sd_hash = _required_string(extra, "sd_hash")
-        if not SHA384_RE.fullmatch(sd_hash):
-            raise ReleaseValidationError("sd_hash must be a lowercase SHA-384 digest")
+        if platform == "lbry":
+            if not isinstance(extra, Mapping):
+                raise ReleaseValidationError(
+                    "release origin extra must be a JSON object"
+                )
+            sd_hash = _required_string(extra, "sd_hash")
+            if not SHA384_RE.fullmatch(sd_hash):
+                raise ReleaseValidationError(
+                    "sd_hash must be a lowercase SHA-384 digest"
+                )
+            raw_lbry_only = extra.get("lbry_only", False)
+            if not isinstance(raw_lbry_only, bool):
+                raise ReleaseValidationError(
+                    "origin extra lbry_only must be a boolean"
+                )
+            lbry_only = raw_lbry_only
+        else:
+            sd_hash_val = extra.get("sd_hash") if isinstance(extra, Mapping) else None
+            if isinstance(sd_hash_val, str) and SHA384_RE.fullmatch(sd_hash_val):
+                sd_hash = sd_hash_val
+            else:
+                sd_hash = hashlib.sha384(
+                    f"{platform}:{release_id}".encode()
+                ).hexdigest()
+            lbry_only = False
 
         raw_sha384 = origin.get("checksum")
         sha384 = None if raw_sha384 is None or raw_sha384 == "" else raw_sha384
-        if sha384 is not None and (
-            not isinstance(sha384, str) or not SHA384_RE.fullmatch(sha384)
-        ):
-            raise ReleaseValidationError(
-                "origin checksum must be a lowercase SHA-384 digest"
-            )
+        if sha384 is not None:
+            if not isinstance(sha384, str) or not SHA384_RE.fullmatch(sha384):
+                if platform == "lbry":
+                    raise ReleaseValidationError(
+                        "origin checksum must be a lowercase SHA-384 digest"
+                    )
+                else:
+                    sha384 = None
 
         raw_size = origin.get("size")
         if raw_size is None:
@@ -138,15 +183,15 @@ class Release:
             )
         popularity = float(raw_popularity)
 
-        raw_lbry_only = extra.get("lbry_only", False)
-        if not isinstance(raw_lbry_only, bool):
-            raise ReleaseValidationError("origin extra lbry_only must be a boolean")
-
         links = origin.get("links")
         if not isinstance(links, list):
             raise ReleaseValidationError("release origin links must be a list")
         url = _optional_link_for_schemes(links, ("https", "http"))
-        url_lbry = unquote(_link_for_schemes(links, ("lbry",), "LBRY"))
+        if platform == "lbry":
+            url_lbry: str | None = unquote(_link_for_schemes(links, ("lbry",), "LBRY"))
+        else:
+            raw_lbry = _optional_link_for_schemes(links, ("lbry",))
+            url_lbry = unquote(raw_lbry) if raw_lbry else None
 
         return cls(
             id=release_id,
@@ -158,7 +203,9 @@ class Release:
             sha384=sha384,
             size=size,
             popularity=popularity,
-            lbry_only=raw_lbry_only,
+            lbry_only=lbry_only,
+            platform=platform,
+            external_id=external_id,
             raw=dict(value),
         )
 

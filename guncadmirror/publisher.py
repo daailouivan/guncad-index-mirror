@@ -49,6 +49,7 @@ class OutboxPublisher:
                 "channel_handle": release.channel_handle,
                 "url": release.url,
                 "url_lbry": release.url_lbry,
+                "platform": release.platform,
             },
             "lbry": {
                 "sd_hash": release.sd_hash,

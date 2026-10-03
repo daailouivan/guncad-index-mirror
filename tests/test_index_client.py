@@ -18,8 +18,8 @@ class IndexClientTests(unittest.TestCase):
         first = release_payload(name="First")
         second = release_payload(release_id="c" * 40, sd_hash="d" * 96, name="Second")
         unsupported = release_payload()
-        unsupported["id"] = "printables-1"
-        unsupported["origin"] = {"platform": "printables"}
+        unsupported["id"] = "unsupported-1"
+        unsupported["origin"] = {"platform": "unsupported_platform"}
         session = QueueSession(
             FakeResponse(
                 {
@@ -37,7 +37,7 @@ class IndexClientTests(unittest.TestCase):
             releases = list(client.releases())
 
         self.assertEqual([release.name for release in releases], ["First", "Second"])
-        self.assertTrue(any("origin: printables" in line for line in logs.output))
+        self.assertTrue(any("origin: unsupported_platform" in line for line in logs.output))
         self.assertTrue(any("malformed Index release" in line for line in logs.output))
         self.assertEqual(
             [call[1] for call in session.calls],

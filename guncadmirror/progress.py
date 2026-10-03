@@ -10,6 +10,9 @@ from .models import AcquisitionTransport, Release
 class ActivityPhase(StrEnum):
     LBRY = "Acquiring from LBRY"
     ODYSEE = "Acquiring from Odysee CDN"
+    PRINTABLES = "Acquiring from Printables"
+    GITHUB = "Acquiring from GitHub"
+    HTTP = "Acquiring via HTTP"
     VERIFY = "Verifying plaintext"
     TORRENT = "Hashing BitTorrent pieces"
     OUTBOX = "Writing local outbox"

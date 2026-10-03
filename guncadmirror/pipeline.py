@@ -14,6 +14,7 @@ from threading import Event, Lock
 from typing import Any
 
 from .cancellation import AcquisitionCancelled
+from .github import GitHubAcquirer
 from .index_client import IndexClient
 from .lbry import LbryAcquirer, LbryError, LbryProtocolError
 from .models import (
@@ -25,6 +26,7 @@ from .models import (
 )
 from .odysee import OdyseeAcquirer
 from .paths import ensure_within, release_directory
+from .printables import PrintablesAcquirer
 from .progress import (
     ActivityPhase,
     ActivityUpdate,
@@ -133,6 +135,8 @@ class MirrorPipeline:
         publisher: Publisher,
         *,
         fallback_acquirer: OdyseeAcquirer | None = None,
+        printables_acquirer: PrintablesAcquirer | None = None,
+        github_acquirer: GitHubAcquirer | None = None,
         disk_free: Callable[[Path], int] | None = None,
         logger: logging.Logger | None = None,
         progress: ProgressReporter | None = None,
@@ -144,6 +148,8 @@ class MirrorPipeline:
         self.store = store
         self.publisher = publisher
         self.fallback_acquirer = fallback_acquirer
+        self.printables_acquirer = printables_acquirer or PrintablesAcquirer(progress=progress)
+        self.github_acquirer = github_acquirer or GitHubAcquirer(progress=progress)
         self.disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self.logger = logger or logging.getLogger("guncad-mirror.pipeline")
         self.progress = progress or NullProgressReporter()
@@ -165,6 +171,14 @@ class MirrorPipeline:
             "odysee": ThreadPoolExecutor(
                 max_workers=self.settings.odysee_concurrency,
                 thread_name_prefix="mirror-odysee",
+            ),
+            "printables": ThreadPoolExecutor(
+                max_workers=self.settings.odysee_concurrency,
+                thread_name_prefix="mirror-printables",
+            ),
+            "github": ThreadPoolExecutor(
+                max_workers=self.settings.odysee_concurrency,
+                thread_name_prefix="mirror-github",
             ),
             "finalize": ThreadPoolExecutor(
                 max_workers=self.settings.finalize_concurrency,
@@ -248,12 +262,22 @@ class MirrorPipeline:
                         if prepared == "stopped":
                             exhausted = True
                         continue
-                    future = executors["lbry"].submit(
-                        self._acquire_lbry,
+                    if prepared.release.platform == "printables":
+                        stage = "printables"
+                        operation = self._acquire_printables
+                    elif prepared.release.platform == "github":
+                        stage = "github"
+                        operation = self._acquire_github
+                    else:
+                        stage = "lbry"
+                        operation = self._acquire_lbry
+
+                    future = executors[stage].submit(
+                        operation,
                         prepared,
                         stop=stop,
                     )
-                    futures[future] = ("lbry", prepared)
+                    futures[future] = (stage, prepared)
 
                 if not futures:
                     continue
@@ -312,9 +336,14 @@ class MirrorPipeline:
         if isinstance(prepared, _DeferredJob):
             return "skipped"
         try:
-            acquired = self._acquire_lbry(prepared, stop=stop)
-            if isinstance(acquired, _FallbackJob):
-                acquired = self._acquire_odysee(acquired, stop=stop)
+            if release.platform == "printables":
+                acquired = self._acquire_printables(prepared, stop=stop)
+            elif release.platform == "github":
+                acquired = self._acquire_github(prepared, stop=stop)
+            else:
+                acquired = self._acquire_lbry(prepared, stop=stop)
+                if isinstance(acquired, _FallbackJob):
+                    acquired = self._acquire_odysee(acquired, stop=stop)
             bundle = self._finalize(acquired, stop=stop)
         except AcquisitionCancelled:
             return self._finish_stopped(prepared)
@@ -483,6 +512,46 @@ class MirrorPipeline:
                     f"{type(fallback_job.lbry_error).__name__}: "
                     f"{fallback_job.lbry_error}"
                 ),
+            ),
+        )
+
+    def _acquire_printables(
+        self,
+        prepared: _PreparedJob,
+        *,
+        stop: Event | None = None,
+    ) -> _AcquiredJob:
+        acquisition = self.printables_acquirer.acquire(
+            prepared.release,
+            prepared.directory,
+            stop=stop,
+        )
+        return _AcquiredJob(
+            prepared,
+            acquisition.path,
+            AcquisitionEvidence(
+                AcquisitionTransport.PRINTABLES,
+                source_url=acquisition.source_url,
+            ),
+        )
+
+    def _acquire_github(
+        self,
+        prepared: _PreparedJob,
+        *,
+        stop: Event | None = None,
+    ) -> _AcquiredJob:
+        acquisition = self.github_acquirer.acquire(
+            prepared.release,
+            prepared.directory,
+            stop=stop,
+        )
+        return _AcquiredJob(
+            prepared,
+            acquisition.path,
+            AcquisitionEvidence(
+                AcquisitionTransport.GITHUB,
+                source_url=acquisition.source_url,
             ),
         )
 

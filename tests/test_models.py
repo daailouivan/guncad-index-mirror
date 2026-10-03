@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import unittest
 
@@ -29,24 +30,80 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(release.lbry_only)
         self.assertEqual(json.loads(release.to_json()), payload)
 
-    def test_rejects_non_lbry_origin_before_applying_lbry_schema(self) -> None:
+    def test_rejects_unsupported_origin_before_applying_schema(self) -> None:
         payload = release_payload()
-        payload["id"] = "printables-1301807"
-        payload["origin"] = {
-            "platform": "printables",
-            "external_id": "1301807",
-            "links": [
-                {
-                    "name": "Printables",
-                    "url": "https://printables.com/model/1301807",
-                }
-            ],
-        }
+        payload["origin"]["platform"] = "unsupported_platform"
 
         with self.assertRaisesRegex(
-            UnsupportedOriginError, "unsupported release origin: printables"
+            UnsupportedOriginError, "unsupported release origin: unsupported_platform"
         ):
             Release.from_api(payload)
+
+    def test_accepts_printables_release_with_synthetic_sd_hash(self) -> None:
+        payload = {
+            "id": "printables-1863745",
+            "name": "AmmoBox 22LR",
+            "channel": {"handle": "MarcinMJessa_5279187"},
+            "origin": {
+                "platform": "printables",
+                "external_id": "1863745",
+                "checksum": "7787145",
+                "size": 757847,
+                "popularity": 1.25,
+                "links": [
+                    {
+                        "name": "Printables",
+                        "url": "https://printables.com/model/1863745-ammobox-22lr",
+                    }
+                ],
+            },
+        }
+
+        release = Release.from_api(payload)
+
+        self.assertEqual(release.id, "printables-1863745")
+        self.assertEqual(release.platform, "printables")
+        self.assertEqual(release.external_id, "1863745")
+        self.assertEqual(release.channel_handle, "MarcinMJessa_5279187")
+        self.assertEqual(release.url, "https://printables.com/model/1863745-ammobox-22lr")
+        self.assertIsNone(release.url_lbry)
+        self.assertIsNone(release.sha384)
+        self.assertEqual(release.size, 757847)
+        self.assertFalse(release.lbry_only)
+        # Verify synthetic sd_hash is a valid 96-char lowercase SHA-384
+        self.assertEqual(len(release.sd_hash), 96)
+        expected_sd_hash = hashlib.sha384(b"printables:printables-1863745").hexdigest()
+        self.assertEqual(release.sd_hash, expected_sd_hash)
+
+    def test_accepts_github_release_with_synthetic_sd_hash(self) -> None:
+        payload = {
+            "id": "github-org:repo-v1.0",
+            "name": "Repo Release 1.0",
+            "channel": {"handle": "org"},
+            "origin": {
+                "platform": "github",
+                "external_id": "org/repo",
+                "size": 1024,
+                "popularity": 2.0,
+                "links": [
+                    {
+                        "name": "GitHub",
+                        "url": "https://github.com/org/repo/releases/tag/v1.0",
+                    }
+                ],
+            },
+        }
+
+        release = Release.from_api(payload)
+
+        self.assertEqual(release.id, "github-org:repo-v1.0")
+        self.assertEqual(release.platform, "github")
+        self.assertEqual(release.channel_handle, "org")
+        self.assertIsNone(release.url_lbry)
+        self.assertEqual(
+            release.sd_hash,
+            hashlib.sha384(b"github:github-org:repo-v1.0").hexdigest(),
+        )
 
     def test_accepts_lbry_only_release_without_an_odysee_link(self) -> None:
         payload = release_payload()
