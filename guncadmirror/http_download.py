@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event
@@ -13,13 +13,6 @@ import requests
 from .cancellation import check_cancelled, wait_or_cancel
 from .index_client import USER_AGENT
 from .sessions import ThreadLocalSessionPool
-
-
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
 
 
 class DownloadError(RuntimeError):
@@ -34,12 +27,12 @@ def download_url_to_file(
     url: str,
     destination: Path,
     *,
+    headers: Mapping[str, str] | None = None,
     session: requests.Session | ThreadLocalSessionPool | None = None,
     chunk_size: int = 1024 * 1024,
     attempts: int = 5,
     backoff: float = 2.0,
     read_timeout: float = 60.0,
-    user_agent: str = BROWSER_USER_AGENT,
     stop: Event | None = None,
     progress: Callable[[int, int | None], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -52,6 +45,9 @@ def download_url_to_file(
 
     active_session = session or requests.Session()
     last_error: Exception | None = None
+    req_headers = {"User-Agent": USER_AGENT}
+    if headers:
+        req_headers.update(headers)
 
     for attempt in range(1, attempts + 1):
         check_cancelled(stop)
@@ -59,7 +55,7 @@ def download_url_to_file(
             with active_session.get(
                 url,
                 stream=True,
-                headers={"User-Agent": user_agent},
+                headers=req_headers,
                 timeout=(10, read_timeout),
             ) as response:
                 response.raise_for_status()

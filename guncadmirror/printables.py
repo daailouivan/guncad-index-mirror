@@ -14,7 +14,8 @@ from typing import Any
 import requests
 
 from .cancellation import check_cancelled, wait_or_cancel
-from .http_download import BROWSER_USER_AGENT, download_url_to_file
+from .http_download import download_url_to_file
+from .index_client import USER_AGENT
 from .models import Release
 from .paths import safe_component
 from .progress import ActivityPhase, ActivityUpdate, NullProgressReporter, ProgressReporter
@@ -24,6 +25,23 @@ PRINTABLES_GRAPHQL_ENDPOINT = "https://api.printables.com/graphql/"
 MODEL_URL_RE = re.compile(
     r"https?://(?:www\.)?printables\.com/model/(?P<id>\d+)(?:-(?P<slug>[^/?]+))?"
 )
+PRINTABLES_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+PRINTABLES_API_HEADERS = {
+    "User-Agent": PRINTABLES_USER_AGENT,
+    "Origin": "https://www.printables.com",
+    "Referer": "https://www.printables.com/",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+PRINTABLES_DOWNLOAD_HEADERS = {
+    "User-Agent": PRINTABLES_USER_AGENT,
+    "Referer": "https://www.printables.com/",
+    "Accept": "*/*",
+}
 
 
 class PrintablesError(RuntimeError):
@@ -98,6 +116,7 @@ class PrintablesAcquirer:
             download_url_to_file(
                 link,
                 destination,
+                headers=PRINTABLES_DOWNLOAD_HEADERS,
                 session=self.session,
                 attempts=self.attempts,
                 backoff=self.backoff,
@@ -125,6 +144,7 @@ class PrintablesAcquirer:
                 download_url_to_file(
                     link,
                     file_dest,
+                    headers=PRINTABLES_DOWNLOAD_HEADERS,
                     session=self.session,
                     attempts=self.attempts,
                     backoff=self.backoff,
@@ -134,6 +154,8 @@ class PrintablesAcquirer:
                     logger=self.logger,
                 )
                 downloaded_entries.append((file_dest_name, file_dest))
+                if idx < len(files) - 1:
+                    wait_or_cancel(stop, 0.5, sleep=self.sleep)
 
             zip_name = f"{safe_component(release.name, fallback=f'printables-{model_id}')}.zip"
             zip_destination = output_directory / zip_name
@@ -179,7 +201,7 @@ class PrintablesAcquirer:
                     self.api_url,
                     json=payload,
                     headers={
-                        "User-Agent": BROWSER_USER_AGENT,
+                        **PRINTABLES_API_HEADERS,
                         "Content-Type": "application/json",
                     },
                     timeout=(10, self.read_timeout),
@@ -258,17 +280,19 @@ class PrintablesAcquirer:
         *,
         stop: Event | None = None,
     ) -> str:
-        query = """mutation GetDownloadLink($id: ID!, $printId: ID!, $fileType: DownloadFileTypeEnum!, $source: DownloadSourceEnum!) {
-          getDownloadLink(id: $id, printId: $printId, fileType: $fileType, source: $source) {
+        query = """mutation GetDownloadLink($id: ID!, $modelId: ID!, $fileType: DownloadFileTypeEnum!, $source: DownloadSourceEnum!) {
+          getDownloadLink(id: $id, printId: $modelId, fileType: $fileType, source: $source) {
             ok
             output {
               link
+              count
+              ttl
             }
           }
         }"""
         variables = {
             "id": file_id,
-            "printId": model_id,
+            "modelId": model_id,
             "fileType": file_type,
             "source": "model_detail",
         }
