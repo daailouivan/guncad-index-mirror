@@ -15,6 +15,13 @@ from .index_client import USER_AGENT
 from .sessions import ThreadLocalSessionPool
 
 
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
 class DownloadError(RuntimeError):
     """An HTTP download failed."""
 
@@ -32,6 +39,7 @@ def download_url_to_file(
     attempts: int = 5,
     backoff: float = 2.0,
     read_timeout: float = 60.0,
+    user_agent: str = BROWSER_USER_AGENT,
     stop: Event | None = None,
     progress: Callable[[int, int | None], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -51,7 +59,7 @@ def download_url_to_file(
             with active_session.get(
                 url,
                 stream=True,
-                headers={"User-Agent": USER_AGENT},
+                headers={"User-Agent": user_agent},
                 timeout=(10, read_timeout),
             ) as response:
                 response.raise_for_status()

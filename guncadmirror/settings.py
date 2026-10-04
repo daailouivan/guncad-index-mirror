@@ -28,6 +28,8 @@ class Settings:
     odysee_proxy_url: str = DEFAULT_ODYSEE_PROXY_URL
     lbry_concurrency: int = 4
     odysee_concurrency: int = 2
+    printables_concurrency: int = 2
+    github_concurrency: int = 2
     finalize_concurrency: int = 2
     api_max_pages: int = 1000
     max_releases_per_run: int | None = None
@@ -79,6 +81,10 @@ class Settings:
             ).strip(),
             lbry_concurrency=_integer(env, "MIRROR_LBRY_CONCURRENCY", 4, minimum=1),
             odysee_concurrency=_integer(env, "MIRROR_ODYSEE_CONCURRENCY", 2, minimum=1),
+            printables_concurrency=_integer(
+                env, "MIRROR_PRINTABLES_CONCURRENCY", 2, minimum=1
+            ),
+            github_concurrency=_integer(env, "MIRROR_GITHUB_CONCURRENCY", 2, minimum=1),
             finalize_concurrency=_integer(
                 env, "MIRROR_FINALIZE_CONCURRENCY", 2, minimum=1
             ),

@@ -14,8 +14,7 @@ from typing import Any
 import requests
 
 from .cancellation import check_cancelled, wait_or_cancel
-from .http_download import download_url_to_file
-from .index_client import USER_AGENT
+from .http_download import BROWSER_USER_AGENT, download_url_to_file
 from .models import Release
 from .paths import safe_component
 from .progress import ActivityPhase, ActivityUpdate, NullProgressReporter, ProgressReporter
@@ -180,7 +179,7 @@ class PrintablesAcquirer:
                     self.api_url,
                     json=payload,
                     headers={
-                        "User-Agent": USER_AGENT,
+                        "User-Agent": BROWSER_USER_AGENT,
                         "Content-Type": "application/json",
                     },
                     timeout=(10, self.read_timeout),
@@ -259,19 +258,17 @@ class PrintablesAcquirer:
         *,
         stop: Event | None = None,
     ) -> str:
-        query = """mutation GetDownloadLink($id: ID!, $modelId: ID!, $fileType: DownloadFileTypeEnum!, $source: DownloadSourceEnum!) {
-          getDownloadLink(id: $id, printId: $modelId, fileType: $fileType, source: $source) {
+        query = """mutation GetDownloadLink($id: ID!, $printId: ID!, $fileType: DownloadFileTypeEnum!, $source: DownloadSourceEnum!) {
+          getDownloadLink(id: $id, printId: $printId, fileType: $fileType, source: $source) {
             ok
             output {
               link
-              count
-              ttl
             }
           }
         }"""
         variables = {
             "id": file_id,
-            "modelId": model_id,
+            "printId": model_id,
             "fileType": file_type,
             "source": "model_detail",
         }

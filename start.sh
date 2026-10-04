@@ -30,10 +30,10 @@ if [ "$(id -u)" -eq "0" ]; then
 		/data \
 		/data/lbry \
 		/data/log \
-		/data/outbox \
 		/data/releases \
 		/home/"$targetuser" \
 		/var/lib/logrotate
+	chown -R "$targetuser:$targetuser" /data/outbox
 	chown -f "$targetuser:$targetuser" /data/mirror-state.sqlite3* 2>/dev/null || true
 	ls -alh /data
 	echo "Pivoting to $targetuser"

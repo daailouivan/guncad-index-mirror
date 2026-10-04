@@ -173,11 +173,11 @@ class MirrorPipeline:
                 thread_name_prefix="mirror-odysee",
             ),
             "printables": ThreadPoolExecutor(
-                max_workers=self.settings.odysee_concurrency,
+                max_workers=self.settings.printables_concurrency,
                 thread_name_prefix="mirror-printables",
             ),
             "github": ThreadPoolExecutor(
-                max_workers=self.settings.odysee_concurrency,
+                max_workers=self.settings.github_concurrency,
                 thread_name_prefix="mirror-github",
             ),
             "finalize": ThreadPoolExecutor(
