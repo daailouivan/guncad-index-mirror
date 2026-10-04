@@ -45,6 +45,13 @@ class WebUiTests(unittest.TestCase):
             "mirror_lbry_url": "http://127.0.0.1:5279",
             "mirror_lbry_concurrency": 4,
             "mirror_odysee_concurrency": 2,
+            "mirror_printables_concurrency": 2,
+            "mirror_github_concurrency": 2,
+            "mirror_http_concurrency": 2,
+            "mirror_torrent_concurrency": 2,
+            "mirror_torrent_intake_category": "guncad-intake",
+            "mirror_torrent_intake_tag": "guncad-intake",
+            "mirror_torrent_download_timeout": 3600,
             "mirror_finalize_concurrency": 2,
             "mirror_qbittorrent_enabled": True,
             "mirror_qbittorrent_url": "http://qbittorrent:8080",
@@ -78,6 +85,55 @@ class WebUiTests(unittest.TestCase):
             "job_counts": {"awaiting_index": 2, "excluded": 1},
             "seeding_counts": {"pending": 1, "green": 1},
             "publication_counts": {"pending": 2},
+            "platform_breakdown": {
+                "lbry": {
+                    "platform": "lbry",
+                    "display_name": "LBRY / Odysee",
+                    "total": 2,
+                    "pending": 0,
+                    "acquiring": 0,
+                    "verified": 0,
+                    "awaiting_index": 2,
+                    "seeding_green": 1,
+                    "published": 2,
+                    "failed": 0,
+                    "excluded": 0,
+                    "staged_bytes": 2048,
+                    "total_bytes": 2048,
+                },
+                "printables": {
+                    "platform": "printables",
+                    "display_name": "Printables",
+                    "total": 1,
+                    "pending": 0,
+                    "acquiring": 0,
+                    "verified": 0,
+                    "awaiting_index": 0,
+                    "seeding_green": 0,
+                    "published": 0,
+                    "failed": 0,
+                    "excluded": 1,
+                    "staged_bytes": 0,
+                    "total_bytes": 500,
+                },
+            },
+            "platform_totals": {
+                "platform": "all",
+                "display_name": "All Sources",
+                "total": 3,
+                "pending": 0,
+                "acquiring": 0,
+                "verified": 0,
+                "awaiting_index": 2,
+                "seeding_green": 1,
+                "published": 2,
+                "failed": 0,
+                "excluded": 1,
+                "staged_bytes": 2048,
+                "total_bytes": 2548,
+            },
+            "source_file_counts": {"lbry": 2, "printables": 1},
+            "source_staged_counts": {"lbry": 2, "printables": 0},
             "known_jobs": 3,
             "activity": None,
             "activities": [],
@@ -111,6 +167,7 @@ class WebUiTests(unittest.TestCase):
         name: str = "Release Name",
         channel: str = "@channel:c",
         slug: str = "release:r",
+        platform: str = "lbry",
         payload_path: Path | None = None,
         torrent_path: Path | None = None,
     ) -> tuple[Release, bytes, bytes]:
@@ -124,6 +181,9 @@ class WebUiTests(unittest.TestCase):
             name=name,
         )
         raw["origin"]["slug"] = slug
+        raw["origin"]["platform"] = platform
+        if platform != "lbry":
+            raw["origin"]["external_id"] = release_id
         release = Release.from_api(raw)
         payload_path = payload_path or (
             self.settings.releases_dir / channel / f"{name}.zip"
@@ -180,6 +240,15 @@ class WebUiTests(unittest.TestCase):
         self.assertNotIn(b'data-testid="tracker-policy-error"', response.data)
         self.assertNotIn(b"LBRY-only mode", response.data)
         self.assertNotIn(b"Assemble Files", response.data)
+        self.assertIn(b'data-testid="sources-breakdown"', response.data)
+        self.assertIn(b"Ingestion sources", response.data)
+        self.assertIn(b"LBRY / Odysee", response.data)
+        self.assertIn(b"Printables", response.data)
+        self.assertIn(b"Printables acquisition workers", response.data)
+        self.assertIn(b"GitHub acquisition workers", response.data)
+        self.assertIn(b"Direct HTTP acquisition workers", response.data)
+        self.assertIn(b"BitTorrent intake workers", response.data)
+        self.assertIn(b"Filter archive", response.data)
 
         self.collector.snapshot.return_value["tracker_policy"].update(
             {
@@ -197,8 +266,10 @@ class WebUiTests(unittest.TestCase):
             humanize_seconds = app.jinja_env.filters["humanize_seconds"]
             self.assertEqual(humanize_bytes(1024), "1.0 KiB")
             self.assertEqual(humanize_bytes(1024**9), "1024.0 YiB")
+            self.assertEqual(humanize_bytes(None), "0.0 B")
             self.assertEqual(humanize_seconds(60), "1.0 minutes")
             self.assertEqual(humanize_seconds(60 * 60 * 24 * 7 * 52), "1.0 years")
+            self.assertEqual(humanize_seconds(None), "0.0 seconds")
 
     def test_active_release_progress_and_lbry_blob_states_render(self) -> None:
         activity = {
@@ -330,6 +401,50 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Index publication: duplicate", response.data)
         self.assertIn(b"Index torrent", response.data)
         self.assertIn(b"Canonical magnet", response.data)
+
+    def test_archive_multi_source_filtering_and_downloads(self) -> None:
+        lbry_rel, _, _ = self._complete_release(
+            name="LBRY Part",
+            channel="@DefCad:1",
+            platform="lbry",
+        )
+        print_rel, print_payload, print_torrent = self._complete_release(
+            release_id="printables-12345",
+            name="Printables Frame",
+            channel="@Ivan:2",
+            platform="printables",
+        )
+        gh_rel, _, _ = self._complete_release(
+            release_id="github-org-repo-v1",
+            name="GitHub Receiver",
+            channel="@AWCY:3",
+            platform="github",
+        )
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Filtering by platform=printables
+        response = client.get("/archive?platform=printables")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Printables Frame", response.data)
+        self.assertNotIn(b"LBRY Part", response.data)
+        self.assertNotIn(b"GitHub Receiver", response.data)
+        self.assertIn(
+            b'<option value="printables" selected>Printables</option>', response.data
+        )
+
+        # Non-LBRY artifact downloads (Printables)
+        payload = client.get(f"/archive/{print_rel.id}/{print_rel.sd_hash}/payload")
+        self.assertEqual(payload.status_code, 200)
+        self.assertEqual(payload.data, print_payload)
+        self.assertIn("attachment", payload.headers["Content-Disposition"])
+        payload.close()
+
+        torrent = client.get(f"/archive/{print_rel.id}/{print_rel.sd_hash}/torrent")
+        self.assertEqual(torrent.status_code, 200)
+        self.assertEqual(torrent.data, print_torrent)
+        self.assertEqual(torrent.mimetype, "application/x-bittorrent")
+        torrent.close()
 
     def test_enabled_publication_and_terminal_counts_render_without_a_token(
         self,

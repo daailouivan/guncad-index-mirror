@@ -7,8 +7,16 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
+from typing import Any
 
-from .models import JobState, PublicationState, Release, SeedingState, TorrentArtifact
+from .models import (
+    SUPPORTED_PLATFORMS,
+    JobState,
+    PublicationState,
+    Release,
+    SeedingState,
+    TorrentArtifact,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -18,6 +26,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     release_name TEXT NOT NULL DEFAULT '',
     channel_handle TEXT NOT NULL DEFAULT '',
     release_slug TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT 'lbry',
+    payload_size INTEGER,
     state TEXT NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
@@ -110,6 +120,8 @@ class Job:
     publication_error_code: str | None
     publication_error: str | None
     publication_updated_at: float | None
+    platform: str = "lbry"
+    payload_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +154,17 @@ class ArchiveEntry:
     publication_state: PublicationState
     canonical_magnet_uri: str | None
     canonical_torrent_url: str | None
+    platform: str = "lbry"
+
+
+PLATFORMS_DISPLAY_ORDER = ("lbry", "printables", "github", "http", "torrent")
+PLATFORM_DISPLAY_NAMES = {
+    "lbry": "LBRY / Odysee",
+    "printables": "Printables",
+    "github": "GitHub",
+    "http": "Direct HTTP",
+    "torrent": "BitTorrent Swarm",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +198,8 @@ class JobStore:
                 "release_name": "TEXT NOT NULL DEFAULT ''",
                 "channel_handle": "TEXT NOT NULL DEFAULT ''",
                 "release_slug": "TEXT NOT NULL DEFAULT ''",
+                "platform": "TEXT NOT NULL DEFAULT ''",
+                "payload_size": "INTEGER",
             }
             for column, definition in archive_columns.items():
                 if column not in columns:
@@ -222,6 +247,7 @@ class JobStore:
                         f"ALTER TABLE jobs ADD COLUMN {column} {definition}"
                     )
             self._backfill_archive_fields(connection)
+            self._backfill_platform_and_size(connection)
             connection.execute(
                 """
                 CREATE INDEX IF NOT EXISTS jobs_archive_listing
@@ -259,6 +285,17 @@ class JobStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS jobs_platform_state
+                ON jobs (
+                    platform,
+                    state,
+                    seeding_state,
+                    publication_state
+                )
+                """
+            )
 
     def _connect(self) -> sqlite3.Connection:
         if self.nolock:
@@ -284,13 +321,16 @@ class JobStore:
                 """
                 INSERT INTO jobs (
                     release_id, sd_hash, release_json, release_name,
-                    channel_handle, release_slug, state, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    channel_handle, release_slug, platform, payload_size,
+                    state, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(release_id, sd_hash) DO UPDATE SET
                     release_json=excluded.release_json,
                     release_name=excluded.release_name,
                     channel_handle=excluded.channel_handle,
                     release_slug=excluded.release_slug,
+                    platform=excluded.platform,
+                    payload_size=COALESCE(excluded.payload_size, jobs.payload_size),
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -300,6 +340,8 @@ class JobStore:
                     release.name,
                     release.channel_handle,
                     release_slug,
+                    release.platform,
+                    release.size,
                     JobState.PENDING,
                     now,
                 ),
@@ -344,10 +386,15 @@ class JobStore:
     def mark_verified(
         self, release: Release, *, file_path: Path, sha384: str, sha256: str
     ) -> Job:
+        try:
+            file_size: int | None = file_path.stat().st_size
+        except OSError:
+            file_size = release.size
         self._update(
             release,
             state=JobState.VERIFIED,
             file_path=str(file_path),
+            payload_size=file_size,
             sha384=sha384,
             sha256=sha256,
             last_error=None,
@@ -392,10 +439,15 @@ class JobStore:
     ) -> None:
         now = self.clock()
         release_slug = _release_slug(release)
+        try:
+            file_size: int | None = file_path.stat().st_size
+        except OSError:
+            file_size = release.size
         query = """
             INSERT INTO jobs (
                 release_id, sd_hash, release_json, release_name,
-                channel_handle, release_slug, state,
+                channel_handle, release_slug, platform, payload_size,
+                state,
                 file_path, sha384, sha256,
                 torrent_path, info_hash, magnet_uri,
                 seeding_state, seeding_attempts, seeding_next_attempt_at, seeding_updated_at,
@@ -403,7 +455,8 @@ class JobStore:
                 updated_at
             ) VALUES (
                 ?, ?, ?, ?,
-                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?,
                 ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
@@ -415,6 +468,8 @@ class JobStore:
                 release_name=excluded.release_name,
                 channel_handle=excluded.channel_handle,
                 release_slug=excluded.release_slug,
+                platform=excluded.platform,
+                payload_size=COALESCE(excluded.payload_size, jobs.payload_size),
                 state=excluded.state,
                 file_path=excluded.file_path,
                 sha384=excluded.sha384,
@@ -432,6 +487,8 @@ class JobStore:
             release.name,
             release.channel_handle,
             release_slug,
+            release.platform,
+            file_size,
             JobState.AWAITING_INDEX,
             str(file_path),
             sha384,
@@ -525,6 +582,83 @@ class JobStore:
         ):
             rows = cursor.fetchall()
         return {row["seeding_state"]: row["count"] for row in rows}
+
+    def platform_breakdown(self) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {
+            plat: {
+                "platform": plat,
+                "display_name": PLATFORM_DISPLAY_NAMES.get(plat, plat.capitalize()),
+                "total": 0,
+                "pending": 0,
+                "acquiring": 0,
+                "verified": 0,
+                "awaiting_index": 0,
+                "seeding_green": 0,
+                "published": 0,
+                "failed": 0,
+                "excluded": 0,
+                "staged_bytes": 0,
+                "total_bytes": 0,
+            }
+            for plat in PLATFORMS_DISPLAY_ORDER
+        }
+        with (
+            closing(self._connect()) as connection,
+            closing(
+                connection.execute(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(platform, ''), 'lbry') AS plat,
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
+                        SUM(CASE WHEN state = 'acquiring' THEN 1 ELSE 0 END) AS acquiring,
+                        SUM(CASE WHEN state = 'verified' THEN 1 ELSE 0 END) AS verified,
+                        SUM(CASE WHEN state = 'awaiting_index' THEN 1 ELSE 0 END) AS awaiting_index,
+                        SUM(CASE WHEN state = 'awaiting_index' AND seeding_state = 'green' THEN 1 ELSE 0 END) AS seeding_green,
+                        SUM(CASE WHEN state = 'awaiting_index' AND publication_state IN ('published', 'duplicate') THEN 1 ELSE 0 END) AS published,
+                        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN state = 'excluded' THEN 1 ELSE 0 END) AS excluded,
+                        SUM(CASE WHEN state = 'awaiting_index' THEN COALESCE(payload_size, 0) ELSE 0 END) AS staged_bytes,
+                        SUM(COALESCE(payload_size, 0)) AS total_bytes
+                    FROM jobs
+                    GROUP BY COALESCE(NULLIF(platform, ''), 'lbry')
+                    """
+                )
+            ) as cursor,
+        ):
+            for row in cursor.fetchall():
+                plat = row["plat"]
+                if plat not in result:
+                    result[plat] = {
+                        "platform": plat,
+                        "display_name": PLATFORM_DISPLAY_NAMES.get(
+                            plat, plat.capitalize()
+                        ),
+                        "total": 0,
+                        "pending": 0,
+                        "acquiring": 0,
+                        "verified": 0,
+                        "awaiting_index": 0,
+                        "seeding_green": 0,
+                        "published": 0,
+                        "failed": 0,
+                        "excluded": 0,
+                        "staged_bytes": 0,
+                        "total_bytes": 0,
+                    }
+                item = result[plat]
+                item["total"] = row["total"]
+                item["pending"] = row["pending"]
+                item["acquiring"] = row["acquiring"]
+                item["verified"] = row["verified"]
+                item["awaiting_index"] = row["awaiting_index"]
+                item["seeding_green"] = row["seeding_green"]
+                item["published"] = row["published"]
+                item["failed"] = row["failed"]
+                item["excluded"] = row["excluded"]
+                item["staged_bytes"] = row["staged_bytes"] or 0
+                item["total_bytes"] = row["total_bytes"] or 0
+        return result
 
     def recover_interrupted_seeding(self) -> int:
         now = self.clock()
@@ -907,6 +1041,7 @@ class JobStore:
         self,
         query: str = "",
         *,
+        platform: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ArchiveEntry], int]:
@@ -917,6 +1052,9 @@ class JobStore:
 
         clauses = ["state=?"]
         parameters: list[object] = [JobState.AWAITING_INDEX]
+        if platform:
+            clauses.append("platform=?")
+            parameters.append(platform.lower())
         for term in query.split():
             pattern = _like_pattern(term)
             clauses.append(
@@ -924,11 +1062,12 @@ class JobStore:
                 (
                     release_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR
                     channel_handle LIKE ? ESCAPE '\\' COLLATE NOCASE OR
-                    release_slug LIKE ? ESCAPE '\\' COLLATE NOCASE
+                    release_slug LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    platform LIKE ? ESCAPE '\\' COLLATE NOCASE
                 )
                 """
             )
-            parameters.extend((pattern, pattern, pattern))
+            parameters.extend((pattern, pattern, pattern, pattern))
         where = " AND ".join(clauses)
 
         with closing(self._connect()) as connection:
@@ -944,6 +1083,8 @@ class JobStore:
                     channel_handle,
                     release_slug,
                     release_json,
+                    platform,
+                    payload_size,
                     file_path,
                     magnet_uri,
                     seeding_state,
@@ -1044,6 +1185,30 @@ class JobStore:
             updates,
         )
 
+    @staticmethod
+    def _backfill_platform_and_size(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            """
+            SELECT release_id, sd_hash, release_json
+            FROM jobs
+            WHERE platform=''
+            """
+        ).fetchall()
+        updates = []
+        for row in rows:
+            platform = _platform_from_json(row["release_json"])
+            size = _release_size_from_json(row["release_json"])
+            updates.append((platform, size, row["release_id"], row["sd_hash"]))
+        if updates:
+            connection.executemany(
+                """
+                UPDATE jobs SET
+                    platform=?, payload_size=?
+                WHERE release_id=? AND sd_hash=?
+                """,
+                updates,
+            )
+
     def _update(self, release: Release, **fields: object) -> None:
         if not fields:
             return
@@ -1138,6 +1303,10 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         publication_error_code=row["publication_error_code"],
         publication_error=row["publication_error"],
         publication_updated_at=row["publication_updated_at"],
+        platform=(
+            row["platform"] if "platform" in row.keys() and row["platform"] else "lbry"
+        ),
+        payload_size=row["payload_size"] if "payload_size" in row.keys() else None,
     )
 
 
@@ -1183,6 +1352,16 @@ def _like_pattern(value: str) -> str:
 def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
     raw_path = row["file_path"]
     path = Path(raw_path) if raw_path else None
+    size = (
+        row["payload_size"]
+        if "payload_size" in row.keys() and row["payload_size"] is not None
+        else _release_size_from_json(row["release_json"])
+    )
+    platform = (
+        row["platform"]
+        if "platform" in row.keys() and row["platform"]
+        else _platform_from_json(row["release_json"])
+    )
     return ArchiveEntry(
         release_id=row["release_id"],
         sd_hash=row["sd_hash"],
@@ -1190,7 +1369,7 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         channel_handle=row["channel_handle"],
         slug=row["release_slug"],
         file_name=path.name if path is not None else "payload",
-        size=_release_size_from_json(row["release_json"]),
+        size=size,
         magnet_uri=row["magnet_uri"],
         seeding_state=SeedingState(row["seeding_state"]),
         seeding_observed_state=row["seeding_observed_state"],
@@ -1200,6 +1379,7 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         publication_state=PublicationState(row["publication_state"]),
         canonical_magnet_uri=row["canonical_magnet_uri"],
         canonical_torrent_url=row["canonical_torrent_url"],
+        platform=platform,
     )
 
 
@@ -1215,3 +1395,18 @@ def _release_size_from_json(release_json: str) -> int | None:
     if isinstance(raw_size, int) and not isinstance(raw_size, bool) and raw_size >= 0:
         return raw_size
     return None
+
+
+def _platform_from_json(release_json: str) -> str:
+    try:
+        value = json.loads(release_json)
+    except (json.JSONDecodeError, TypeError):
+        return "lbry"
+    if not isinstance(value, Mapping):
+        return "lbry"
+    origin = value.get("origin")
+    if isinstance(origin, Mapping):
+        plat = origin.get("platform")
+        if isinstance(plat, str) and plat.strip().lower() in SUPPORTED_PLATFORMS:
+            return plat.strip().lower()
+    return "lbry"

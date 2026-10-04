@@ -44,6 +44,13 @@ class StatsCollector:
             "mirror_lbry_url": settings.lbry_url,
             "mirror_lbry_concurrency": settings.lbry_concurrency,
             "mirror_odysee_concurrency": settings.odysee_concurrency,
+            "mirror_printables_concurrency": settings.printables_concurrency,
+            "mirror_github_concurrency": settings.github_concurrency,
+            "mirror_http_concurrency": settings.http_concurrency,
+            "mirror_torrent_concurrency": settings.torrent_concurrency,
+            "mirror_torrent_intake_category": settings.torrent_intake_category,
+            "mirror_torrent_intake_tag": settings.torrent_intake_tag,
+            "mirror_torrent_download_timeout": settings.torrent_download_timeout,
             "mirror_finalize_concurrency": settings.finalize_concurrency,
             "mirror_enable_webui": settings.enable_webui,
             "mirror_blacklisted_handles": settings.blacklisted_handles,
@@ -77,6 +84,10 @@ class StatsCollector:
             "job_counts": {},
             "seeding_counts": {},
             "publication_counts": {},
+            "platform_breakdown": {},
+            "platform_totals": {},
+            "source_file_counts": {},
+            "source_staged_counts": {},
             "known_jobs": 0,
             "activity": None,
             "activities": [],
@@ -203,6 +214,22 @@ class StatsCollector:
         counts = self.store.counts()
         seeding_counts = self.store.seeding_counts()
         publication_counts = self.store.publication_counts()
+        breakdown = self.store.platform_breakdown()
+        totals = {
+            "platform": "all",
+            "display_name": "All Sources",
+            "total": sum(s["total"] for s in breakdown.values()),
+            "pending": sum(s["pending"] for s in breakdown.values()),
+            "acquiring": sum(s["acquiring"] for s in breakdown.values()),
+            "verified": sum(s["verified"] for s in breakdown.values()),
+            "awaiting_index": sum(s["awaiting_index"] for s in breakdown.values()),
+            "seeding_green": sum(s["seeding_green"] for s in breakdown.values()),
+            "published": sum(s["published"] for s in breakdown.values()),
+            "failed": sum(s["failed"] for s in breakdown.values()),
+            "excluded": sum(s["excluded"] for s in breakdown.values()),
+            "staged_bytes": sum(s["staged_bytes"] for s in breakdown.values()),
+            "total_bytes": sum(s["total_bytes"] for s in breakdown.values()),
+        }
         values = {
             "psutil_cpu": psutil.cpu_percent(interval=None),
             "psutil_mem": psutil.virtual_memory().percent,
@@ -211,6 +238,12 @@ class StatsCollector:
             "job_counts": counts,
             "seeding_counts": seeding_counts,
             "publication_counts": publication_counts,
+            "platform_breakdown": breakdown,
+            "platform_totals": totals,
+            "source_file_counts": {plat: s["total"] for plat, s in breakdown.items()},
+            "source_staged_counts": {
+                plat: s["awaiting_index"] for plat, s in breakdown.items()
+            },
             "known_jobs": sum(counts.values()),
         }
         with self._lock:

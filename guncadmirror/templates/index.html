@@ -102,7 +102,7 @@
             <section class="panel archive-callout">
                 <div>
                     <h2>Browsable archive</h2>
-                    <p class="fine-print">Search completed releases by name, channel, or LBRY slug.</p>
+                    <p class="fine-print">Search completed releases across all upstream sources by name, channel, or slug.</p>
                 </div>
                 <a class="button" href="{{ url_for('archive_browser') }}">Browse verified files</a>
             </section>
@@ -114,10 +114,20 @@
                     <div class="activity-grid">
                         {% for activity in active_jobs %}
                             <article class="activity-card">
-                                <h2>{{ activity.release_name }}</h2>
+                                <h2>
+                                    {% if activity.transport %}
+                                        <span class="source-badge source-badge-{{ activity.transport }}">{{ activity.transport }}</span>
+                                    {% endif %}
+                                    {{ activity.release_name }}
+                                </h2>
                                 <p class="activity-phase">{{ activity.phase }}</p>
                                 <p class="fine-print breakable">
-                                    {{ activity.channel_handle }} · claim {{ activity.release_id }} · descriptor {{ activity.sd_hash[:12] }}
+                                    {{ activity.channel_handle }}
+                                    {% if activity.transport == 'lbry' or activity.transport == 'odysee-cdn' %}
+                                        · claim {{ activity.release_id }} · descriptor {{ activity.sd_hash[:12] }}
+                                    {% else %}
+                                        · id {{ activity.release_id }} · digest {{ activity.sd_hash[:12] }}
+                                    {% endif %}
                                 </p>
                                 {% if activity.completed_bytes is not none and activity.total_bytes %}
                                     <progress value="{{ activity.completed_bytes }}"
@@ -171,6 +181,75 @@
                     <span class="metric-value">{{ psutil_disk.free | humanize_bytes }}</span>
                     <span class="metric-label">Data volume free</span>
                 </div>
+            </section>
+            <section class="panel" data-testid="sources-breakdown">
+                <h2>Ingestion sources &amp; file counts</h2>
+                {% set sources = platform_breakdown or {} %}
+                <div class="job-grid source-summary-grid">
+                    {% for source in sources.values() %}
+                        <div class="source-summary-card">
+                            <span>{{ source.awaiting_index }} <small>/ {{ source.total }}</small></span>
+                            <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
+                            <strong>{{ source.display_name }}</strong>
+                            <div class="fine-print">staged / indexed</div>
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Source platform</th>
+                                <th scope="col">Total indexed</th>
+                                <th scope="col">Staged / Verified</th>
+                                <th scope="col">qB seeding</th>
+                                <th scope="col">Index published</th>
+                                <th scope="col">In-flight</th>
+                                <th scope="col">Failed</th>
+                                <th scope="col">Payload volume</th>
+                                <th scope="col">Archive</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for source in sources.values() %}
+                                <tr>
+                                    <th scope="row">
+                                        <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
+                                        <strong>{{ source.display_name }}</strong>
+                                    </th>
+                                    <td>{{ source.total }}</td>
+                                    <td>{{ source.awaiting_index }}</td>
+                                    <td>{{ source.seeding_green }}</td>
+                                    <td>{{ source.published }}</td>
+                                    <td>{{ source.acquiring + source.pending }}</td>
+                                    <td>{{ source.failed }}</td>
+                                    <td>{{ source.staged_bytes | humanize_bytes }}</td>
+                                    <td>
+                                        <a href="{{ url_for('archive_browser', platform=source.platform) }}">Filter archive</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% if platform_totals %}
+                            <tfoot>
+                                <tr>
+                                    <th scope="row"><strong>All sources</strong></th>
+                                    <td><strong>{{ platform_totals.total }}</strong></td>
+                                    <td><strong>{{ platform_totals.awaiting_index }}</strong></td>
+                                    <td><strong>{{ platform_totals.seeding_green }}</strong></td>
+                                    <td><strong>{{ platform_totals.published }}</strong></td>
+                                    <td><strong>{{ platform_totals.acquiring + platform_totals.pending }}</strong></td>
+                                    <td><strong>{{ platform_totals.failed }}</strong></td>
+                                    <td><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
+                                    <td><a href="{{ url_for('archive_browser') }}">Browse all</a></td>
+                                </tr>
+                            </tfoot>
+                        {% endif %}
+                    </table>
+                </div>
+                <p class="fine-print">
+                    File counts reflect upstream catalog releases discovered from each ingestion source versus locally assembled, verified payloads with generated torrents. Staged volume reflects completed plaintext payload bytes on disk.
+                </p>
             </section>
             <section class="panel">
                 <h2>qBittorrent seeding</h2>
@@ -349,6 +428,36 @@
                                 <th scope="row">Odysee fallback workers</th>
                                 <td>{{ mirror_odysee_concurrency }}</td>
                                 <td>Maximum simultaneous independently verified CDN recoveries.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Printables acquisition workers</th>
+                                <td>{{ mirror_printables_concurrency }}</td>
+                                <td>Maximum simultaneous Printables asset downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">GitHub acquisition workers</th>
+                                <td>{{ mirror_github_concurrency }}</td>
+                                <td>Maximum simultaneous GitHub release asset downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Direct HTTP acquisition workers</th>
+                                <td>{{ mirror_http_concurrency }}</td>
+                                <td>Maximum simultaneous direct HTTP/HTTPS payload downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake workers</th>
+                                <td>{{ mirror_torrent_concurrency }}</td>
+                                <td>Maximum simultaneous external magnet/torrent swarm intakes.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake category</th>
+                                <td><code>{{ mirror_torrent_intake_category }}</code></td>
+                                <td>qBittorrent category used for external downloads in progress.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake download timeout</th>
+                                <td>{{ mirror_torrent_download_timeout | humanize_seconds }}</td>
+                                <td>Maximum duration to complete external torrent download before timing out.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Finalization workers</th>

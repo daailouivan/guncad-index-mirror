@@ -59,6 +59,13 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["mirror_lbry_url"], "http://127.0.0.1:5279")
         self.assertEqual(snapshot["mirror_lbry_concurrency"], 4)
         self.assertEqual(snapshot["mirror_odysee_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_printables_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_github_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_http_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_torrent_concurrency"], 2)
+        self.assertEqual(snapshot["mirror_torrent_intake_category"], "guncad-intake")
+        self.assertEqual(snapshot["mirror_torrent_intake_tag"], "guncad-intake")
+        self.assertEqual(snapshot["mirror_torrent_download_timeout"], 3600)
         self.assertEqual(snapshot["mirror_finalize_concurrency"], 2)
         self.assertFalse(snapshot["mirror_qbittorrent_enabled"])
         self.assertEqual(snapshot["mirror_qbittorrent_url"], "http://qbittorrent:8080")
@@ -74,6 +81,11 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["mirror_publish_timeout"], 60)
         self.assertEqual(snapshot["publication_counts"], {})
         self.assertEqual(snapshot["seeding_counts"], {})
+        self.assertIn("lbry", snapshot["platform_breakdown"])
+        self.assertIn("printables", snapshot["platform_breakdown"])
+        self.assertEqual(snapshot["platform_totals"]["total"], 0)
+        self.assertEqual(snapshot["source_file_counts"]["lbry"], 0)
+        self.assertEqual(snapshot["source_staged_counts"]["lbry"], 0)
         self.assertEqual(snapshot["mirror_blacklisted_handles"], ())
         self.assertEqual(snapshot["mirror_cycle_error_interval"], 60)
         self.assertEqual(snapshot["mirror_releases_dir"], str(self.root / "releases"))
@@ -242,6 +254,17 @@ class StatsCollectorTests(unittest.TestCase):
             "guncadmirror.stats.Path.stat", autospec=True, side_effect=flaky_stat
         ):
             self.assertGreaterEqual(directory_size(self.root), 3)
+
+    def test_collects_platform_breakdown_and_source_file_counts(self) -> None:
+        collector = StatsCollector(self.settings, self.store)
+        release = make_release()
+        self.store.register(release)
+        collector.collect()
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot["source_file_counts"]["lbry"], 1)
+        self.assertEqual(snapshot["source_staged_counts"]["lbry"], 0)
+        self.assertEqual(snapshot["platform_breakdown"]["lbry"]["total"], 1)
+        self.assertEqual(snapshot["platform_totals"]["total"], 1)
 
 
 if __name__ == "__main__":

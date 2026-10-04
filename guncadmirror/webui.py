@@ -7,7 +7,7 @@ from threading import Thread
 from flask import Flask, Response, abort, render_template, request, send_file
 from waitress import serve
 
-from .models import CLAIM_ID_RE, SHA384_RE, JobState
+from .models import RELEASE_ID_RE, SHA384_RE, JobState
 from .paths import ensure_within
 from .stats import StatsCollector
 
@@ -26,12 +26,14 @@ def create_app(collector: StatsCollector) -> Flask:
     @app.route("/archive")
     def archive_browser() -> str:
         query = request.args.get("q", "").strip()
+        platform_filter = request.args.get("platform", "").strip().lower() or None
         if len(query) > MAX_ARCHIVE_QUERY_LENGTH:
             abort(400, "archive query is too long")
         page = request.args.get("page", default=1, type=int) or 1
         page = max(page, 1)
         entries, total = collector.store.search_archive(
             query,
+            platform=platform_filter,
             limit=ARCHIVE_PAGE_SIZE,
             offset=(page - 1) * ARCHIVE_PAGE_SIZE,
         )
@@ -40,6 +42,7 @@ def create_app(collector: StatsCollector) -> Flask:
             page = page_count
             entries, total = collector.store.search_archive(
                 query,
+                platform=platform_filter,
                 limit=ARCHIVE_PAGE_SIZE,
                 offset=(page - 1) * ARCHIVE_PAGE_SIZE,
             )
@@ -48,6 +51,7 @@ def create_app(collector: StatsCollector) -> Flask:
             {
                 "archive_entries": entries,
                 "archive_query": query,
+                "archive_platform": platform_filter or "",
                 "archive_total": total,
                 "archive_page": page,
                 "archive_page_count": page_count,
@@ -77,15 +81,27 @@ def create_app(collector: StatsCollector) -> Flask:
         )
 
     @app.template_filter()
-    def humanize_bytes(num: float) -> str:
+    def humanize_bytes(num: float | None) -> str:
+        if num is None:
+            return "0.0 B"
+        try:
+            val = float(num)
+        except (ValueError, TypeError):
+            return "0.0 B"
         for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
-            if abs(num) < 1024.0:
-                return f"{num:3.1f} {unit}B"
-            num /= 1024.0
-        return f"{num:.1f} YiB"
+            if abs(val) < 1024.0:
+                return f"{val:3.1f} {unit}B"
+            val /= 1024.0
+        return f"{val:.1f} YiB"
 
     @app.template_filter()
-    def humanize_seconds(num: float) -> str:
+    def humanize_seconds(num: float | None) -> str:
+        if num is None:
+            return "0.0 seconds"
+        try:
+            val = float(num)
+        except (ValueError, TypeError):
+            return "0.0 seconds"
         for unit, factor in [
             ("seconds", 60),
             ("minutes", 60),
@@ -93,10 +109,10 @@ def create_app(collector: StatsCollector) -> Flask:
             ("days", 7),
             ("weeks", 52),
         ]:
-            if abs(num) < factor:
-                return f"{num:3.1f} {unit}"
-            num /= factor
-        return f"{num:.1f} years"
+            if abs(val) < factor:
+                return f"{val:3.1f} {unit}"
+            val /= factor
+        return f"{val:.1f} years"
 
     return app
 
@@ -110,7 +126,7 @@ def _send_artifact(
     root: Path,
     mimetype: str | None = None,
 ) -> Response:
-    if not CLAIM_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+    if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
         abort(404)
     try:
         job = collector.store.get(release_id, sd_hash)

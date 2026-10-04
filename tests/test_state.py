@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from guncadmirror.models import (
     SeedingState,
     TorrentArtifact,
 )
-from guncadmirror.state import JobStore
+from guncadmirror.state import SCHEMA, JobStore
 
 from .helpers import make_release, release_payload
 
@@ -492,6 +493,162 @@ class JobStoreTests(unittest.TestCase):
         )
         self.assertEqual(replacement.updated_at, 200)
         self.assertIsNone(self.store.load_tracker_policy_cache(endpoint))
+
+    def test_platform_breakdown_tracks_counts_and_bytes_per_source(self) -> None:
+        initial = self.store.platform_breakdown()
+        for plat in ("lbry", "printables", "github", "http", "torrent"):
+            self.assertIn(plat, initial)
+            self.assertEqual(initial[plat]["total"], 0)
+            self.assertEqual(initial[plat]["staged_bytes"], 0)
+
+        # Register LBRY and complete it
+        self.store.register(self.release)
+        self._complete(self.release, content=b"12345")
+
+        # Register Printables
+        printables_raw = {
+            "id": "printables-999",
+            "name": "Printable Model",
+            "path": "/@maker/printables-999",
+            "channel": {"handle": "@maker"},
+            "origin": {
+                "platform": "printables",
+                "slug": "printable-model",
+                "external_id": "999",
+                "size": 5000,
+                "popularity": 2.5,
+                "links": [],
+                "extra": {},
+            },
+        }
+        printables_rel = Release.from_api(printables_raw)
+        self.store.register(printables_rel)
+        self.store.mark_excluded(printables_rel, "too large")
+
+        # Register GitHub
+        github_raw = {
+            "id": "github-org-repo",
+            "name": "CAD Repo",
+            "path": "/@dev/github-org-repo",
+            "channel": {"handle": "@dev"},
+            "origin": {
+                "platform": "github",
+                "slug": "cad-repo",
+                "external_id": "org/repo",
+                "size": 8000,
+                "popularity": 5.0,
+                "links": [],
+                "extra": {},
+            },
+        }
+        github_rel = Release.from_api(github_raw)
+        self.store.register(github_rel)
+        self.store.start_attempt(github_rel)
+        self.store.mark_failed(
+            github_rel, RuntimeError("git clone fail"), retry_backoff=1
+        )
+
+        breakdown = self.store.platform_breakdown()
+        lbry_stats = breakdown["lbry"]
+        self.assertEqual(lbry_stats["total"], 1)
+        self.assertEqual(lbry_stats["awaiting_index"], 1)
+        self.assertEqual(lbry_stats["seeding_green"], 1)
+        self.assertEqual(lbry_stats["staged_bytes"], 5)
+
+        printables_stats = breakdown["printables"]
+        self.assertEqual(printables_stats["total"], 1)
+        self.assertEqual(printables_stats["excluded"], 1)
+        self.assertEqual(printables_stats["total_bytes"], 5000)
+
+        github_stats = breakdown["github"]
+        self.assertEqual(github_stats["total"], 1)
+        self.assertEqual(github_stats["failed"], 1)
+        self.assertEqual(github_stats["total_bytes"], 8000)
+
+    def test_search_archive_filters_by_platform_and_populates_archive_entry_platform(
+        self,
+    ) -> None:
+        self._complete(self.release, content=b"lbry-payload")
+
+        printables_rel = Release.from_api(
+            {
+                "id": "printables-12345",
+                "name": "Printables Bracket",
+                "path": "/@maker/printables-12345",
+                "channel": {"handle": "@bracketmaker"},
+                "origin": {
+                    "platform": "printables",
+                    "slug": "bracket-v1",
+                    "external_id": "12345",
+                    "size": 2048,
+                    "popularity": 1.0,
+                    "links": [],
+                    "extra": {},
+                },
+            }
+        )
+        self._complete(printables_rel, content=b"printables-payload")
+
+        # Query all
+        all_entries, total = self.store.search_archive()
+        self.assertEqual(total, 2)
+
+        # Filter by platform
+        printables_entries, p_total = self.store.search_archive(platform="printables")
+        self.assertEqual(p_total, 1)
+        self.assertEqual(printables_entries[0].platform, "printables")
+        self.assertEqual(printables_entries[0].name, "Printables Bracket")
+        self.assertEqual(printables_entries[0].size, len(b"printables-payload"))
+
+        lbry_entries, l_total = self.store.search_archive(platform="lbry")
+        self.assertEqual(l_total, 1)
+        self.assertEqual(lbry_entries[0].platform, "lbry")
+
+        # Query matches platform name
+        matched, m_total = self.store.search_archive(query="printables")
+        self.assertEqual(m_total, 1)
+        self.assertEqual(matched[0].platform, "printables")
+
+    def test_legacy_database_backfills_platform_and_size(self) -> None:
+        legacy_path = Path(self.temporary.name) / "legacy.sqlite3"
+        legacy_schema = SCHEMA.replace(
+            "platform TEXT NOT NULL DEFAULT 'lbry',\n", ""
+        ).replace("payload_size INTEGER,\n", "")
+        with closing(sqlite3.connect(legacy_path)) as conn, conn:
+            conn.executescript(legacy_schema)
+            raw = {
+                "id": "printables-888",
+                "name": "Legacy Part",
+                "channel": {"handle": "@legacy"},
+                "origin": {
+                    "platform": "printables",
+                    "slug": "legacy-part",
+                    "size": 4321,
+                },
+            }
+            conn.execute(
+                """
+                INSERT INTO jobs (
+                    release_id, sd_hash, release_json, release_name,
+                    channel_handle, release_slug, state, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "printables-888",
+                    "sdhash123",
+                    json.dumps(raw),
+                    "Legacy Part",
+                    "@legacy",
+                    "legacy-part",
+                    "pending",
+                    100.0,
+                ),
+            )
+
+        store = JobStore(legacy_path, clock=lambda: self.now)
+        job = store.get("printables-888", "sdhash123")
+        self.assertEqual(job.platform, "printables")
+        self.assertEqual(job.payload_size, 4321)
 
 
 if __name__ == "__main__":

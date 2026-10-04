@@ -50,7 +50,7 @@
                 <form class="archive-search"
                       method="get"
                       action="{{ url_for('archive_browser') }}">
-                    <label for="archive-query">Release, channel, or LBRY slug</label>
+                    <label for="archive-query">Release, channel, or slug</label>
                     <div class="archive-search-controls">
                         <input id="archive-query"
                                name="q"
@@ -58,28 +58,45 @@
                                maxlength="200"
                                value="{{ archive_query }}"
                                placeholder="e.g. @ciwielab or NEO9" />
+                        <select name="platform" id="archive-platform" class="archive-select">
+                            <option value="">All sources</option>
+                            <option value="lbry" {% if archive_platform == 'lbry' %}selected{% endif %}>LBRY / Odysee</option>
+                            <option value="printables" {% if archive_platform == 'printables' %}selected{% endif %}>Printables</option>
+                            <option value="github" {% if archive_platform == 'github' %}selected{% endif %}>GitHub</option>
+                            <option value="http" {% if archive_platform == 'http' %}selected{% endif %}>Direct HTTP</option>
+                            <option value="torrent" {% if archive_platform == 'torrent' %}selected{% endif %}>BitTorrent Swarm</option>
+                        </select>
                         <button class="button" type="submit">Search</button>
-                        {% if archive_query %}<a class="button button-secondary"
-   href="{{ url_for('archive_browser') }}">Clear</a>{% endif %}
+                        {% if archive_query or archive_platform %}<a class="button button-secondary"
+    href="{{ url_for('archive_browser') }}">Clear</a>{% endif %}
                     </div>
                 </form>
                 <p class="fine-print">
                     {{ archive_total }} matching verified release{% if archive_total != 1 %}s{% endif %}.
                     {% if archive_total %}Page {{ archive_page }} of {{ archive_page_count }}.{% endif %}
+                    {% if archive_platform %}Filtered to source: <strong>{{ archive_platform }}</strong>.{% endif %}
                 </p>
             </section>
             {% if archive_entries %}
                 <section class="archive-grid" aria-label="Verified archive releases">
                     {% for entry in archive_entries %}
                         <article class="panel archive-card">
-                            <h2>{{ entry.name }}</h2>
+                            <div class="archive-card-header">
+                                <h2>{{ entry.name }}</h2>
+                                <span class="source-badge source-badge-{{ entry.platform }}">{{ entry.platform }}</span>
+                            </div>
                             <p class="archive-channel">{{ entry.channel_handle }}</p>
                             <p class="fine-print breakable">
                                 {{ entry.slug }} · {{ entry.file_name }}
                                 {% if entry.size is not none %}· {{ entry.size | humanize_bytes }}{% endif %}
                             </p>
                             <p class="fine-print breakable">
-                                Descriptor {{ entry.sd_hash[:12] }} · qB seed: {{ entry.seeding_state.value }} · Index publication: {{ entry.publication_state.value }}
+                                {% if entry.platform == 'lbry' %}
+                                    Descriptor {{ entry.sd_hash[:12] }}
+                                {% else %}
+                                    ID {{ entry.release_id }} · Digest {{ entry.sd_hash[:12] }}
+                                {% endif %}
+                                · qB seed: {{ entry.seeding_state.value }} · Index publication: {{ entry.publication_state.value }}
                             </p>
                             {% if entry.seeding_observed_state %}
                                 <p class="fine-print">
@@ -110,19 +127,19 @@
             {% else %}
                 <section class="panel center">
                     <h2>No verified releases matched.</h2>
-                    <p class="fine-print">Try a shorter release name, channel handle, or LBRY slug.</p>
+                    <p class="fine-print">Try a shorter release name, channel handle, or clear filters.</p>
                 </section>
             {% endif %}
             {% if archive_page_count > 1 %}
                 <nav class="archive-pagination" aria-label="Archive pages">
                     {% if archive_page > 1 %}
                         <a class="button button-secondary"
-                           href="{{ url_for('archive_browser', q=archive_query, page=archive_page - 1) }}">Previous</a>
+                           href="{{ url_for('archive_browser', q=archive_query, platform=archive_platform, page=archive_page - 1) }}">Previous</a>
                     {% endif %}
                     <span>Page {{ archive_page }} of {{ archive_page_count }}</span>
                     {% if archive_page < archive_page_count %}
                         <a class="button button-secondary"
-                           href="{{ url_for('archive_browser', q=archive_query, page=archive_page + 1) }}">Next</a>
+                           href="{{ url_for('archive_browser', q=archive_query, platform=archive_platform, page=archive_page + 1) }}">Next</a>
                     {% endif %}
                 </nav>
             {% endif %}
