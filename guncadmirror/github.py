@@ -7,17 +7,20 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
-from typing import Any
-from urllib.parse import urlsplit
 
 import requests
 
-from .cancellation import check_cancelled, wait_or_cancel
+from .cancellation import check_cancelled
 from .http_download import download_url_to_file
 from .index_client import USER_AGENT
 from .models import Release
 from .paths import safe_component
-from .progress import ActivityPhase, ActivityUpdate, NullProgressReporter, ProgressReporter
+from .progress import (
+    ActivityPhase,
+    ActivityUpdate,
+    NullProgressReporter,
+    ProgressReporter,
+)
 from .sessions import ThreadLocalSessionPool
 
 GITHUB_API_URL = "https://api.github.com"
@@ -181,7 +184,9 @@ class GitHubAcquirer:
                     if zipball:
                         return str(zipball), f"{repo}-{tag_name}.zip"
         except requests.RequestException as error:
-            self.logger.debug("Failed querying GitHub release endpoint %s: %s", endpoint, error)
+            self.logger.debug(
+                "Failed querying GitHub release endpoint %s: %s", endpoint, error
+            )
 
         # Fallback to repo zipball archive
         ref = tag or "main"

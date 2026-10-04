@@ -8,8 +8,6 @@ from threading import Event
 from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.http_download import DownloadError, download_url_to_file
 
-from .helpers import FakeResponse, QueueSession
-
 
 class HttpDownloadTests(unittest.TestCase):
     def setUp(self) -> None:

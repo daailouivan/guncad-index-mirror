@@ -7,12 +7,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from guncadmirror.github import GitHubAcquirer, GitHubAcquisition
+from guncadmirror.http_acquirer import HttpAcquirer, HttpAcquisition
 from guncadmirror.models import AcquisitionTransport, JobState, Release
 from guncadmirror.pipeline import MirrorPipeline
 from guncadmirror.printables import PrintablesAcquirer, PrintablesAcquisition
 from guncadmirror.publisher import OutboxPublisher
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
+from guncadmirror.torrent_acquirer import TorrentAcquirer, TorrentAcquisition
 
 
 class PipelineMultiSourceTests(unittest.TestCase):
@@ -56,10 +58,15 @@ class PipelineMultiSourceTests(unittest.TestCase):
 
         # Mock PrintablesAcquirer
         mock_printables = MagicMock(spec=PrintablesAcquirer)
-        def fake_acquire(rel: Release, output_dir: Path, **kwargs: object) -> PrintablesAcquisition:
+
+        def fake_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> PrintablesAcquisition:
             dest = output_dir / "22LR_AmmoBox.3mf"
             dest.write_bytes(b"A" * 50)
-            return PrintablesAcquisition(path=dest, source_url="https://files.printables.com/file.3mf")
+            return PrintablesAcquisition(
+                path=dest, source_url="https://files.printables.com/file.3mf"
+            )
 
         mock_printables.acquire.side_effect = fake_acquire
 
@@ -92,8 +99,13 @@ class PipelineMultiSourceTests(unittest.TestCase):
 
         self.assertEqual(manifest["release"]["id"], "printables-1863745")
         self.assertEqual(manifest["release"]["platform"], "printables")
-        self.assertEqual(manifest["acquisition"]["transport"], AcquisitionTransport.PRINTABLES)
-        self.assertEqual(manifest["acquisition"]["source_url"], "https://files.printables.com/file.3mf")
+        self.assertEqual(
+            manifest["acquisition"]["transport"], AcquisitionTransport.PRINTABLES
+        )
+        self.assertEqual(
+            manifest["acquisition"]["source_url"],
+            "https://files.printables.com/file.3mf",
+        )
         self.assertEqual(manifest["artifact"]["size"], 50)
 
         torrent_files = list(outbox_entry.glob("*.torrent"))
@@ -121,10 +133,15 @@ class PipelineMultiSourceTests(unittest.TestCase):
 
         # Mock GitHubAcquirer
         mock_github = MagicMock(spec=GitHubAcquirer)
-        def fake_acquire(rel: Release, output_dir: Path, **kwargs: object) -> GitHubAcquisition:
+
+        def fake_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> GitHubAcquisition:
             dest = output_dir / "coolpart.zip"
             dest.write_bytes(b"B" * 60)
-            return GitHubAcquisition(path=dest, source_url="https://github.com/org/coolpart/asset.zip")
+            return GitHubAcquisition(
+                path=dest, source_url="https://github.com/org/coolpart/asset.zip"
+            )
 
         mock_github.acquire.side_effect = fake_acquire
 
@@ -154,4 +171,142 @@ class PipelineMultiSourceTests(unittest.TestCase):
             manifest = json.load(f)
 
         self.assertEqual(manifest["release"]["platform"], "github")
-        self.assertEqual(manifest["acquisition"]["transport"], AcquisitionTransport.GITHUB)
+        self.assertEqual(
+            manifest["acquisition"]["transport"], AcquisitionTransport.GITHUB
+        )
+
+    def test_pipeline_processes_http_release_end_to_end(self) -> None:
+        payload = {
+            "id": "http-direct-frame-v1",
+            "name": "Direct Frame Model",
+            "channel": {"handle": "direct-cad"},
+            "origin": {
+                "platform": "http",
+                "external_id": "direct-frame-v1",
+                "size": 80,
+                "popularity": 1.5,
+                "links": [
+                    {
+                        "name": "Download",
+                        "url": "https://example.com/files/frame.stl",
+                        "download": True,
+                    }
+                ],
+            },
+        }
+        release = Release.from_api(payload)
+
+        # Mock HttpAcquirer
+        mock_http = MagicMock(spec=HttpAcquirer)
+
+        def fake_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> HttpAcquisition:
+            dest = output_dir / "frame.stl"
+            dest.write_bytes(b"H" * 80)
+            return HttpAcquisition(
+                path=dest, source_url="https://example.com/files/frame.stl"
+            )
+
+        mock_http.acquire.side_effect = fake_acquire
+
+        pipeline = MirrorPipeline(
+            self.settings,
+            self.index_client,
+            self.lbry_acquirer,
+            self.store,
+            self.publisher,
+            http_acquirer=mock_http,
+        )
+
+        outcome = pipeline.process(release)
+        self.assertEqual(outcome, "ready")
+
+        # Verify job is recorded in SQLite
+        job = self.store.get(release.id, release.sd_hash)
+        self.assertIsNotNone(job)
+        self.assertEqual(job.state, JobState.AWAITING_INDEX)
+
+        # Verify outbox manifest
+        outbox_entry = self.settings.outbox_dir / release.id / release.sd_hash
+        manifest_path = outbox_entry / "manifest.json"
+        self.assertTrue(manifest_path.is_file())
+
+        with manifest_path.open() as f:
+            manifest = json.load(f)
+
+        self.assertEqual(manifest["release"]["platform"], "http")
+        self.assertEqual(
+            manifest["acquisition"]["transport"], AcquisitionTransport.HTTP
+        )
+        self.assertEqual(
+            manifest["acquisition"]["source_url"], "https://example.com/files/frame.stl"
+        )
+        self.assertEqual(manifest["artifact"]["size"], 80)
+
+    def test_pipeline_processes_torrent_release_end_to_end(self) -> None:
+        payload = {
+            "id": "torrent-external-receiver",
+            "name": "Receiver Package",
+            "channel": {"handle": "swarm-channel"},
+            "origin": {
+                "platform": "torrent",
+                "external_id": "external-receiver",
+                "size": 120,
+                "popularity": 1.8,
+                "links": [
+                    {
+                        "name": "Magnet",
+                        "url": "magnet:?xt=urn:btih:ff54e65a94386a8375b836a294dc9333e0c393cb&dn=receiver.zip",
+                    }
+                ],
+            },
+        }
+        release = Release.from_api(payload)
+
+        # Mock TorrentAcquirer
+        mock_torrent = MagicMock(spec=TorrentAcquirer)
+
+        def fake_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> TorrentAcquisition:
+            dest = output_dir / "receiver.zip"
+            dest.write_bytes(b"T" * 120)
+            return TorrentAcquisition(
+                path=dest,
+                source_url="magnet:?xt=urn:btih:ff54e65a94386a8375b836a294dc9333e0c393cb&dn=receiver.zip",
+            )
+
+        mock_torrent.acquire.side_effect = fake_acquire
+
+        pipeline = MirrorPipeline(
+            self.settings,
+            self.index_client,
+            self.lbry_acquirer,
+            self.store,
+            self.publisher,
+            torrent_acquirer=mock_torrent,
+        )
+
+        outcome = pipeline.process(release)
+        self.assertEqual(outcome, "ready")
+
+        # Verify job is recorded in SQLite
+        job = self.store.get(release.id, release.sd_hash)
+        self.assertIsNotNone(job)
+        self.assertEqual(job.state, JobState.AWAITING_INDEX)
+
+        # Verify outbox manifest
+        outbox_entry = self.settings.outbox_dir / release.id / release.sd_hash
+        manifest_path = outbox_entry / "manifest.json"
+        self.assertTrue(manifest_path.is_file())
+
+        with manifest_path.open() as f:
+            manifest = json.load(f)
+
+        self.assertEqual(manifest["release"]["platform"], "torrent")
+        self.assertEqual(
+            manifest["acquisition"]["transport"], AcquisitionTransport.TORRENT
+        )
+        self.assertIn("magnet:?xt=urn:btih:", manifest["acquisition"]["source_url"])
+        self.assertEqual(manifest["artifact"]["size"], 120)

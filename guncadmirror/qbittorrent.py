@@ -250,6 +250,48 @@ class QBitClient:
             )
         self._require_success(response)
 
+    def add_url(
+        self,
+        urls: str,
+        *,
+        save_path: str,
+        category: str = "",
+        tag: str = "",
+        paused: bool = False,
+    ) -> None:
+        response = self._request(
+            "POST",
+            "/api/v2/torrents/add",
+            data={
+                "urls": urls,
+                "savepath": save_path,
+                "category": category,
+                "tags": tag,
+                "skip_checking": "false",
+                "paused": "true" if paused else "false",
+                "autoTMM": "false",
+                "ratioLimit": "-1",
+                "seedingTimeLimit": "-1",
+            },
+        )
+        self._require_success(response)
+
+    def delete(
+        self,
+        info_hash: str,
+        *,
+        delete_files: bool = False,
+    ) -> None:
+        response = self._request(
+            "POST",
+            "/api/v2/torrents/delete",
+            data={
+                "hashes": info_hash,
+                "deleteFiles": "true" if delete_files else "false",
+            },
+        )
+        self._require_success(response)
+
     def force_start(self, info_hash: str) -> None:
         response = self._request(
             "POST",

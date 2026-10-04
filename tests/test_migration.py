@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 import sqlite3
 import tempfile
@@ -19,7 +18,7 @@ from guncadmirror.migration import (
 )
 from guncadmirror.models import JobState, Release, SeedingState
 from guncadmirror.state import JobStore
-from guncadmirror.torrent import create_torrent, parse_torrent
+from guncadmirror.torrent import create_torrent
 
 
 class TestMigration(unittest.TestCase):
@@ -114,14 +113,18 @@ class TestMigration(unittest.TestCase):
         fn_hex = "test_file.zip".encode("utf-8").hex()
         dd_hex = "/data/mirror/test_author/test_rel".encode("utf-8").hex()
         conn.execute("INSERT INTO stream VALUES ('s1', 'sd1', 'test_file.zip')")
-        conn.execute(f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)")
+        conn.execute(
+            f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)"
+        )
         conn.commit()
         conn.close()
 
         records = read_v1_lbrynet_db(db_path)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["file_name"], "test_file.zip")
-        self.assertEqual(records[0]["download_directory"], "/data/mirror/test_author/test_rel")
+        self.assertEqual(
+            records[0]["download_directory"], "/data/mirror/test_author/test_rel"
+        )
         self.assertEqual(records[0]["sd_hash"], "sd1")
 
     def test_migration_runner_end_to_end(self) -> None:
@@ -198,13 +201,21 @@ class TestMigration(unittest.TestCase):
         )
         fn_hex1 = "test1.zip".encode().hex()
         dd_hex1 = "/data/mirror/Author#a/Release#b".encode().hex()
-        conn.execute("INSERT INTO stream VALUES ('stream1', ?, 'test1.zip')", (sd_hash1,))
-        conn.execute(f"INSERT INTO file VALUES ('stream1', '{fn_hex1}', '{dd_hex1}', 'stopped', 1)")
+        conn.execute(
+            "INSERT INTO stream VALUES ('stream1', ?, 'test1.zip')", (sd_hash1,)
+        )
+        conn.execute(
+            f"INSERT INTO file VALUES ('stream1', '{fn_hex1}', '{dd_hex1}', 'stopped', 1)"
+        )
 
         fn_hex2 = "rare_model.step".encode().hex()
         dd_hex2 = "/data/mirror/Author#a/Delisted#c".encode().hex()
-        conn.execute("INSERT INTO stream VALUES ('stream2', ?, 'rare_model.step')", (sd_hash2,))
-        conn.execute(f"INSERT INTO file VALUES ('stream2', '{fn_hex2}', '{dd_hex2}', 'stopped', 1)")
+        conn.execute(
+            "INSERT INTO stream VALUES ('stream2', ?, 'rare_model.step')", (sd_hash2,)
+        )
+        conn.execute(
+            f"INSERT INTO file VALUES ('stream2', '{fn_hex2}', '{dd_hex2}', 'stopped', 1)"
+        )
 
         conn.commit()
         conn.close()
@@ -242,7 +253,10 @@ class TestMigration(unittest.TestCase):
         }
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("manifest.json", json.dumps(bootstrap_manifest))
-            zf.writestr(f"torrents/{torrent_artifact1.info_hash}.torrent", canonical_torrent_bytes1)
+            zf.writestr(
+                f"torrents/{torrent_artifact1.info_hash}.torrent",
+                canonical_torrent_bytes1,
+            )
 
         # 2. Run Migration Runner in DRY RUN mode
         config = MigrationConfig(
@@ -283,14 +297,30 @@ class TestMigration(unittest.TestCase):
         self.assertEqual(live_stats.errors, 0)
 
         # Check outbox files for Release 1
-        outbox_torrent1 = self.data_dir / "outbox" / release_id1 / sd_hash1 / f"{hashes1.sha384}.torrent"
-        outbox_manifest1 = self.data_dir / "outbox" / release_id1 / sd_hash1 / "manifest.json"
+        outbox_torrent1 = (
+            self.data_dir
+            / "outbox"
+            / release_id1
+            / sd_hash1
+            / f"{hashes1.sha384}.torrent"
+        )
+        outbox_manifest1 = (
+            self.data_dir / "outbox" / release_id1 / sd_hash1 / "manifest.json"
+        )
         self.assertTrue(outbox_torrent1.is_file())
         self.assertTrue(outbox_manifest1.is_file())
 
         # Check outbox files for Delisted Release 2
-        outbox_torrent2 = self.data_dir / "outbox" / release_id2 / sd_hash2 / f"{hashes2.sha384}.torrent"
-        outbox_manifest2 = self.data_dir / "outbox" / release_id2 / sd_hash2 / "manifest.json"
+        outbox_torrent2 = (
+            self.data_dir
+            / "outbox"
+            / release_id2
+            / sd_hash2
+            / f"{hashes2.sha384}.torrent"
+        )
+        outbox_manifest2 = (
+            self.data_dir / "outbox" / release_id2 / sd_hash2 / "manifest.json"
+        )
         self.assertTrue(outbox_torrent2.is_file())
         self.assertTrue(outbox_manifest2.is_file())
 
@@ -298,12 +328,16 @@ class TestMigration(unittest.TestCase):
         job1 = store.get(release_id1, sd_hash1)
         self.assertEqual(job1.state, JobState.AWAITING_INDEX)
         self.assertEqual(job1.seeding_state, SeedingState.PENDING)
-        self.assertEqual(job1.file_path, Path("/data/mirror/Author#a/Release#b/test1.zip"))
+        self.assertEqual(
+            job1.file_path, Path("/data/mirror/Author#a/Release#b/test1.zip")
+        )
 
         job2 = store.get(release_id2, sd_hash2)
         self.assertEqual(job2.state, JobState.AWAITING_INDEX)
         self.assertEqual(job2.seeding_state, SeedingState.PENDING)
-        self.assertEqual(job2.file_path, Path("/data/mirror/Author#a/Delisted#c/rare_model.step"))
+        self.assertEqual(
+            job2.file_path, Path("/data/mirror/Author#a/Delisted#c/rare_model.step")
+        )
         self.assertEqual(job2.sha384, hashes2.sha384)
 
         # Verify idempotency on second run

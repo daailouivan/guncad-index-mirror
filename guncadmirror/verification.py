@@ -49,7 +49,11 @@ def verify_file(
     hashes = hash_file(path, stop=stop, progress=progress)
     if hashes.size == 0:
         raise VerificationError(f"acquired payload for {release.id} is empty")
-    if release.platform == "lbry" and release.size is not None and hashes.size != release.size:
+    if (
+        release.platform == "lbry"
+        and release.size is not None
+        and hashes.size != release.size
+    ):
         raise VerificationError(
             f"size mismatch for {release.id}: got {hashes.size}, expected {release.size}"
         )

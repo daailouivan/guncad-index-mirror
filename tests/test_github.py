@@ -7,7 +7,7 @@ from threading import Event
 from unittest.mock import patch
 
 from guncadmirror.cancellation import AcquisitionCancelled
-from guncadmirror.github import GitHubAcquirer, GitHubProtocolError
+from guncadmirror.github import GitHubAcquirer
 from guncadmirror.models import Release
 
 from .helpers import FakeResponse, QueueSession
@@ -68,7 +68,10 @@ class GitHubAcquirerTests(unittest.TestCase):
 
     @patch("guncadmirror.github.download_url_to_file")
     def test_falls_back_to_zipball(self, mock_download: object) -> None:
-        release_meta = {"assets": [], "zipball_url": "https://api.github.com/repos/owner/repo/zipball/v1.0"}
+        release_meta = {
+            "assets": [],
+            "zipball_url": "https://api.github.com/repos/owner/repo/zipball/v1.0",
+        }
         session = QueueSession(FakeResponse(release_meta))
         acquirer = GitHubAcquirer(session=session)  # type: ignore[arg-type]
         release = make_github_release()

@@ -8,11 +8,9 @@ import os
 import re
 import shutil
 import sqlite3
-import sys
 import tempfile
 import time
 import zipfile
-from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,16 +22,12 @@ from .models import (
     AcquisitionTransport,
     FileHashes,
     JobState,
-    PublicationBundle,
     Release,
-    SeedingState,
     TorrentArtifact,
 )
-from .paths import ensure_within
 from .publisher import OutboxPublisher
-from .settings import Settings
 from .state import JobStore
-from .torrent import create_torrent, parse_torrent, strip_torrent_trackers
+from .torrent import create_torrent, parse_torrent
 
 logger = logging.getLogger("guncad-mirror.migration")
 
@@ -92,7 +86,11 @@ def decode_hex_string(value: str) -> str:
     if not isinstance(value, str):
         return str(value)
     clean = value.strip("'\"")
-    if len(clean) >= 2 and len(clean) % 2 == 0 and all(c in "0123456789abcdefABCDEF" for c in clean):
+    if (
+        len(clean) >= 2
+        and len(clean) % 2 == 0
+        and all(c in "0123456789abcdefABCDEF" for c in clean)
+    ):
         try:
             decoded = bytes.fromhex(clean).decode("utf-8")
             if all(c.isprintable() or c in "\r\n\t " for c in decoded):
@@ -102,7 +100,9 @@ def decode_hex_string(value: str) -> str:
     return clean
 
 
-def load_bootstrap_index(zip_path: Path) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
+def load_bootstrap_index(
+    zip_path: Path,
+) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
     """
     Load guncad-index-torrents.zip manifest.json.
     Returns a dict mapping sd_hash -> (artifact_dict, release_dict).
@@ -269,14 +269,19 @@ class V1MigrationRunner:
                     Path(tempfile.gettempdir())
                     / f"mirror-state-migration-{os.getpid()}-{int(time.time())}.sqlite3"
                 )
-                if self.state_db_path.is_file() and self.state_db_path.stat().st_size > 0:
+                if (
+                    self.state_db_path.is_file()
+                    and self.state_db_path.stat().st_size > 0
+                ):
                     try:
                         shutil.copy2(self.state_db_path, self.local_state_db)
                     except OSError:
                         pass
                 self.store = JobStore(self.local_state_db)
             else:
-                self.store = JobStore(self.state_db_path, nolock=self.config.sqlite_nolock)
+                self.store = JobStore(
+                    self.state_db_path, nolock=self.config.sqlite_nolock
+                )
         else:
             self.store = None
         self.publisher = OutboxPublisher(self.outbox_dir)
@@ -291,16 +296,22 @@ class V1MigrationRunner:
         bootstrap_index: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         zip_obj: zipfile.ZipFile | None = None
         if self.config.bootstrap_zip and self.config.bootstrap_zip.is_file():
-            self.logger.info("Loading bootstrap index from %s...", self.config.bootstrap_zip)
+            self.logger.info(
+                "Loading bootstrap index from %s...", self.config.bootstrap_zip
+            )
             bootstrap_index = load_bootstrap_index(self.config.bootstrap_zip)
             zip_obj = zipfile.ZipFile(self.config.bootstrap_zip, "r")
-            self.logger.info("Bootstrap index loaded with %d artifacts", len(bootstrap_index))
+            self.logger.info(
+                "Bootstrap index loaded with %d artifacts", len(bootstrap_index)
+            )
 
         # 2. Read legacy lbrynet database
         self.logger.info("Reading local stream records from %s...", self.lbry_db_path)
         stream_records = read_v1_lbrynet_db(self.lbry_db_path)
         self.stats.total_local_streams = len(stream_records)
-        self.logger.info("Discovered %d saved stream records in lbrynet.sqlite", len(stream_records))
+        self.logger.info(
+            "Discovered %d saved stream records in lbrynet.sqlite", len(stream_records)
+        )
 
         # 3. Detect faulty empty stubs if requested
         if self.config.detect_faulty_folders and self.mirror_dir.is_dir():
@@ -308,7 +319,9 @@ class V1MigrationRunner:
 
         if self.config.max_items:
             stream_records = stream_records[: self.config.max_items]
-            self.logger.info("Limiting migration to first %d items", len(stream_records))
+            self.logger.info(
+                "Limiting migration to first %d items", len(stream_records)
+            )
 
         # 4. Process each stream record
         db_conn = None
@@ -333,8 +346,12 @@ class V1MigrationRunner:
                         db_conn.commit()
                 except Exception as e:
                     self.stats.errors += 1
-                    self.logger.exception("Error migrating stream %s: %s", item["sd_hash"][:12], e)
-                    self.stats.issues.append(f"{item['sd_hash']}: {type(e).__name__}: {e}")
+                    self.logger.exception(
+                        "Error migrating stream %s: %s", item["sd_hash"][:12], e
+                    )
+                    self.stats.issues.append(
+                        f"{item['sd_hash']}: {type(e).__name__}: {e}"
+                    )
 
             if db_conn is not None:
                 db_conn.commit()
@@ -343,13 +360,21 @@ class V1MigrationRunner:
                 db_conn.close()
 
         # Finalize and deploy staged database
-        if not self.config.dry_run and self.local_state_db is not None and self.local_state_db.is_file():
+        if (
+            not self.config.dry_run
+            and self.local_state_db is not None
+            and self.local_state_db.is_file()
+        ):
             self.logger.info("Finalizing staged SQLite database with checkpoint...")
             with closing(sqlite3.connect(self.local_state_db)) as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            self.logger.info("Deploying finalized SQLite database to %s...", self.state_db_path)
+            self.logger.info(
+                "Deploying finalized SQLite database to %s...", self.state_db_path
+            )
             atomic_write(self.state_db_path, self.local_state_db.read_bytes())
-            self.logger.info("Database deployment to %s completed successfully", self.state_db_path)
+            self.logger.info(
+                "Database deployment to %s completed successfully", self.state_db_path
+            )
 
         if zip_obj:
             zip_obj.close()
@@ -361,7 +386,9 @@ class V1MigrationRunner:
             reports_dir = self.data_dir / "reports"
             reports_dir.mkdir(parents=True, exist_ok=True)
             report_file = reports_dir / "migration-summary.json"
-            atomic_write(report_file, (json.dumps(summary, indent=2) + "\n").encode("utf-8"))
+            atomic_write(
+                report_file, (json.dumps(summary, indent=2) + "\n").encode("utf-8")
+            )
             self.logger.info("Wrote migration summary report to %s", report_file)
 
         return self.stats
@@ -442,7 +469,11 @@ class V1MigrationRunner:
         if matched_bootstrap:
             self.stats.matched_bootstrap += 1
             artifact, rel_info = bootstrap_index[sd_hash]
-            release_id = rel_info.get("id") or rel_info.get("source_release_id") or artifact.get("source_release_id")
+            release_id = (
+                rel_info.get("id")
+                or rel_info.get("source_release_id")
+                or artifact.get("source_release_id")
+            )
             release_name = rel_info.get("name") or local_payload_path.stem
             channel_handle = rel_info.get("channel") or "Unknown"
             sha384 = artifact.get("sha384")
@@ -458,7 +489,8 @@ class V1MigrationRunner:
             release_id = meta_json.get("id")
             release_name = meta_json.get("name") or local_payload_path.stem
             channel_handle = meta_json.get("channel", {}).get("handle", "Unknown")
-            sha384 = meta_json.get("sha384sum")
+            btih = None
+            magnet_uri = None
             if "torrent" in meta_json and isinstance(meta_json["torrent"], dict):
                 btih = meta_json["torrent"].get("btih")
                 magnet_uri = meta_json["torrent"].get("magnet_uri")
@@ -471,6 +503,8 @@ class V1MigrationRunner:
                     "sd_hash": sd_hash,
                     "size": payload_size,
                     "file_path": str(target_payload_path),
+                    "btih": btih,
+                    "magnet_uri": magnet_uri,
                 }
             )
 
@@ -509,7 +543,9 @@ class V1MigrationRunner:
             torrent_filename = f"{sha384}.torrent"
             local_torrent_path = local_outbox_dest / torrent_filename
             target_torrent_path = target_outbox_dest / torrent_filename
-            has_existing_outbox = existing_manifest_path.is_file() and local_torrent_path.is_file()
+            has_existing_outbox = (
+                existing_manifest_path.is_file() and local_torrent_path.is_file()
+            )
         else:
             torrent_filename = None
             local_torrent_path = None
@@ -519,12 +555,16 @@ class V1MigrationRunner:
         hashes: FileHashes
         if has_existing_outbox:
             try:
-                manifest_doc = json.loads(existing_manifest_path.read_text(encoding="utf-8"))
+                manifest_doc = json.loads(
+                    existing_manifest_path.read_text(encoding="utf-8")
+                )
                 manifest_sha256 = manifest_doc.get("artifact", {}).get("sha256")
             except Exception:
                 manifest_sha256 = None
             if manifest_sha256:
-                hashes = FileHashes(size=payload_size, sha384=sha384, sha256=manifest_sha256)
+                hashes = FileHashes(
+                    size=payload_size, sha384=sha384, sha256=manifest_sha256
+                )
             else:
                 hashes = compute_hashes(local_payload_path)
         elif self.config.verify_hashes or not sha384:
@@ -538,7 +578,9 @@ class V1MigrationRunner:
             hashes = FileHashes(
                 size=payload_size,
                 sha384=sha384,
-                sha256=hashlib.sha256(open(local_payload_path, "rb").read(1024 * 1024)).hexdigest(),
+                sha256=hashlib.sha256(
+                    open(local_payload_path, "rb").read(1024 * 1024)
+                ).hexdigest(),
             )
 
         if not sha384:
@@ -570,7 +612,10 @@ class V1MigrationRunner:
         else:
             if torrent_bytes is not None:
                 parsed = parse_torrent(torrent_bytes)
-                if parsed.file_name != local_payload_path.name or parsed.file_length != payload_size:
+                if (
+                    parsed.file_name != local_payload_path.name
+                    or parsed.file_length != payload_size
+                ):
                     torrent_bytes = None
 
             if torrent_bytes is not None:
@@ -618,7 +663,9 @@ class V1MigrationRunner:
                     )
                 self.stats.torrents_generated += 1
             else:
-                self.stats.issues.append(f"No torrent available for {sd_hash} (generate disabled)")
+                self.stats.issues.append(
+                    f"No torrent available for {sd_hash} (generate disabled)"
+                )
                 return
 
         # Build v2 Release model
@@ -636,7 +683,7 @@ class V1MigrationRunner:
 
         if not self.config.dry_run and self.store is not None:
             if not has_existing_outbox:
-                bundle = self.publisher.publish(
+                self.publisher.publish(
                     release_obj,
                     hashes,
                     torrent_artifact,
@@ -713,7 +760,8 @@ def main() -> None:
         help="Write directly to target database rather than using a local staging SQLite file",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose DEBUG logging",
     )

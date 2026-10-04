@@ -6,6 +6,7 @@ from threading import Event
 
 from .cancellation import AcquisitionCancelled
 from .github import GitHubAcquirer
+from .http_acquirer import HttpAcquirer
 from .index_client import IndexClient
 from .index_publisher import IndexPublisherClient
 from .lbry import LbryAcquirer, LbryClient
@@ -19,6 +20,7 @@ from .seeding import SeedingCycleResult, SeedingScheduler
 from .settings import Settings
 from .state import JobStore
 from .stats import StatsCollector
+from .torrent_acquirer import TorrentAcquirer
 from .tracker_policy import TrackerPolicyClient, TrackerPolicyManager
 from .webui import start as start_webui
 
@@ -233,6 +235,27 @@ def build_runtime(settings: Settings) -> Runtime:
         backoff=settings.retry_backoff,
         progress=stats,
     )
+    http = HttpAcquirer(
+        attempts=settings.retry_attempts,
+        backoff=settings.retry_backoff,
+        progress=stats,
+    )
+    qbit_client = (
+        QBitClient(
+            settings.qbittorrent_url,
+            timeout=settings.qbittorrent_timeout,
+            api_key=settings.qbittorrent_api_key,
+            username=settings.qbittorrent_username,
+            password=settings.qbittorrent_password,
+        )
+        if settings.qbittorrent_enabled
+        else None
+    )
+    torrent = TorrentAcquirer(
+        settings,
+        client=qbit_client,
+        progress=stats,
+    )
     pipeline = MirrorPipeline(
         settings,
         index_client,
@@ -242,6 +265,8 @@ def build_runtime(settings: Settings) -> Runtime:
         fallback_acquirer=odysee,
         printables_acquirer=printables,
         github_acquirer=github,
+        http_acquirer=http,
+        torrent_acquirer=torrent,
         progress=stats,
         record_event=stats.log,
     )
@@ -268,17 +293,11 @@ def build_runtime(settings: Settings) -> Runtime:
         SeedingScheduler(
             settings,
             store,
-            QBitClient(
-                settings.qbittorrent_url,
-                timeout=settings.qbittorrent_timeout,
-                api_key=settings.qbittorrent_api_key,
-                username=settings.qbittorrent_username,
-                password=settings.qbittorrent_password,
-            ),
+            qbit_client,
             tracker_policy=tracker_policy,
             record_event=stats.log,
         )
-        if settings.qbittorrent_enabled
+        if settings.qbittorrent_enabled and qbit_client is not None
         else None
     )
     publication = (

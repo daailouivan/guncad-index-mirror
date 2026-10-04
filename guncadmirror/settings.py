@@ -30,6 +30,11 @@ class Settings:
     odysee_concurrency: int = 2
     printables_concurrency: int = 2
     github_concurrency: int = 2
+    http_concurrency: int = 2
+    torrent_concurrency: int = 2
+    torrent_intake_category: str = "guncad-intake"
+    torrent_intake_tag: str = "guncad-intake"
+    torrent_download_timeout: float = 60 * 60
     finalize_concurrency: int = 2
     api_max_pages: int = 1000
     max_releases_per_run: int | None = None
@@ -85,6 +90,19 @@ class Settings:
                 env, "MIRROR_PRINTABLES_CONCURRENCY", 2, minimum=1
             ),
             github_concurrency=_integer(env, "MIRROR_GITHUB_CONCURRENCY", 2, minimum=1),
+            http_concurrency=_integer(env, "MIRROR_HTTP_CONCURRENCY", 2, minimum=1),
+            torrent_concurrency=_integer(
+                env, "MIRROR_TORRENT_CONCURRENCY", 2, minimum=1
+            ),
+            torrent_intake_category=env.get(
+                "MIRROR_TORRENT_INTAKE_CATEGORY", "guncad-intake"
+            ).strip(),
+            torrent_intake_tag=env.get(
+                "MIRROR_TORRENT_INTAKE_TAG", "guncad-intake"
+            ).strip(),
+            torrent_download_timeout=_number(
+                env, "MIRROR_TORRENT_DOWNLOAD_TIMEOUT", 60 * 60, minimum=1
+            ),
             finalize_concurrency=_integer(
                 env, "MIRROR_FINALIZE_CONCURRENCY", 2, minimum=1
             ),
@@ -154,7 +172,9 @@ class Settings:
                 env, "MIRROR_PUBLISH_CONCURRENCY", 2, minimum=1
             ),
             publish_timeout=_number(env, "MIRROR_PUBLISH_TIMEOUT", 60, minimum=1),
-            github_token=env.get("MIRROR_GITHUB_TOKEN", env.get("GITHUB_TOKEN", "")).strip(),
+            github_token=env.get(
+                "MIRROR_GITHUB_TOKEN", env.get("GITHUB_TOKEN", "")
+            ).strip(),
         )
         settings.validate()
         return settings

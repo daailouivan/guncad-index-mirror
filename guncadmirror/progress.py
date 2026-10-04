@@ -13,6 +13,7 @@ class ActivityPhase(StrEnum):
     PRINTABLES = "Acquiring from Printables"
     GITHUB = "Acquiring from GitHub"
     HTTP = "Acquiring via HTTP"
+    TORRENT_SWARM = "Acquiring from BitTorrent"
     VERIFY = "Verifying plaintext"
     TORRENT = "Hashing BitTorrent pieces"
     OUTBOX = "Writing local outbox"

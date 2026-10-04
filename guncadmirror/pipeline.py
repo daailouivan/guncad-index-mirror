@@ -15,6 +15,7 @@ from typing import Any
 
 from .cancellation import AcquisitionCancelled
 from .github import GitHubAcquirer
+from .http_acquirer import HttpAcquirer
 from .index_client import IndexClient
 from .lbry import LbryAcquirer, LbryError, LbryProtocolError
 from .models import (
@@ -37,6 +38,7 @@ from .publisher import Publisher
 from .settings import Settings
 from .state import Job, JobStore
 from .torrent import TorrentError, create_torrent, parse_torrent
+from .torrent_acquirer import TorrentAcquirer
 from .verification import VerificationError, verify_file
 
 
@@ -137,6 +139,8 @@ class MirrorPipeline:
         fallback_acquirer: OdyseeAcquirer | None = None,
         printables_acquirer: PrintablesAcquirer | None = None,
         github_acquirer: GitHubAcquirer | None = None,
+        http_acquirer: HttpAcquirer | None = None,
+        torrent_acquirer: TorrentAcquirer | None = None,
         disk_free: Callable[[Path], int] | None = None,
         logger: logging.Logger | None = None,
         progress: ProgressReporter | None = None,
@@ -148,8 +152,14 @@ class MirrorPipeline:
         self.store = store
         self.publisher = publisher
         self.fallback_acquirer = fallback_acquirer
-        self.printables_acquirer = printables_acquirer or PrintablesAcquirer(progress=progress)
+        self.printables_acquirer = printables_acquirer or PrintablesAcquirer(
+            progress=progress
+        )
         self.github_acquirer = github_acquirer or GitHubAcquirer(progress=progress)
+        self.http_acquirer = http_acquirer or HttpAcquirer(progress=progress)
+        self.torrent_acquirer = torrent_acquirer or TorrentAcquirer(
+            settings, progress=progress
+        )
         self.disk_free = disk_free or (lambda path: shutil.disk_usage(path).free)
         self.logger = logger or logging.getLogger("guncad-mirror.pipeline")
         self.progress = progress or NullProgressReporter()
@@ -180,6 +190,14 @@ class MirrorPipeline:
                 max_workers=self.settings.github_concurrency,
                 thread_name_prefix="mirror-github",
             ),
+            "http": ThreadPoolExecutor(
+                max_workers=self.settings.http_concurrency,
+                thread_name_prefix="mirror-http",
+            ),
+            "torrent": ThreadPoolExecutor(
+                max_workers=self.settings.torrent_concurrency,
+                thread_name_prefix="mirror-torrent",
+            ),
             "finalize": ThreadPoolExecutor(
                 max_workers=self.settings.finalize_concurrency,
                 thread_name_prefix="mirror-finalize",
@@ -193,6 +211,10 @@ class MirrorPipeline:
         max_in_flight = (
             self.settings.lbry_concurrency
             + self.settings.odysee_concurrency
+            + self.settings.printables_concurrency
+            + self.settings.github_concurrency
+            + self.settings.http_concurrency
+            + self.settings.torrent_concurrency
             + self.settings.finalize_concurrency
         )
         try:
@@ -268,6 +290,12 @@ class MirrorPipeline:
                     elif prepared.release.platform == "github":
                         stage = "github"
                         operation = self._acquire_github
+                    elif prepared.release.platform == "http":
+                        stage = "http"
+                        operation = self._acquire_http
+                    elif prepared.release.platform == "torrent":
+                        stage = "torrent"
+                        operation = self._acquire_torrent
                     else:
                         stage = "lbry"
                         operation = self._acquire_lbry
@@ -340,6 +368,10 @@ class MirrorPipeline:
                 acquired = self._acquire_printables(prepared, stop=stop)
             elif release.platform == "github":
                 acquired = self._acquire_github(prepared, stop=stop)
+            elif release.platform == "http":
+                acquired = self._acquire_http(prepared, stop=stop)
+            elif release.platform == "torrent":
+                acquired = self._acquire_torrent(prepared, stop=stop)
             else:
                 acquired = self._acquire_lbry(prepared, stop=stop)
                 if isinstance(acquired, _FallbackJob):
@@ -551,6 +583,46 @@ class MirrorPipeline:
             acquisition.path,
             AcquisitionEvidence(
                 AcquisitionTransport.GITHUB,
+                source_url=acquisition.source_url,
+            ),
+        )
+
+    def _acquire_http(
+        self,
+        prepared: _PreparedJob,
+        *,
+        stop: Event | None = None,
+    ) -> _AcquiredJob:
+        acquisition = self.http_acquirer.acquire(
+            prepared.release,
+            prepared.directory,
+            stop=stop,
+        )
+        return _AcquiredJob(
+            prepared,
+            acquisition.path,
+            AcquisitionEvidence(
+                AcquisitionTransport.HTTP,
+                source_url=acquisition.source_url,
+            ),
+        )
+
+    def _acquire_torrent(
+        self,
+        prepared: _PreparedJob,
+        *,
+        stop: Event | None = None,
+    ) -> _AcquiredJob:
+        acquisition = self.torrent_acquirer.acquire(
+            prepared.release,
+            prepared.directory,
+            stop=stop,
+        )
+        return _AcquiredJob(
+            prepared,
+            acquisition.path,
+            AcquisitionEvidence(
+                AcquisitionTransport.TORRENT,
                 source_url=acquisition.source_url,
             ),
         )

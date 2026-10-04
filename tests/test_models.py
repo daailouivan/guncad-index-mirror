@@ -65,7 +65,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.platform, "printables")
         self.assertEqual(release.external_id, "1863745")
         self.assertEqual(release.channel_handle, "MarcinMJessa_5279187")
-        self.assertEqual(release.url, "https://printables.com/model/1863745-ammobox-22lr")
+        self.assertEqual(
+            release.url, "https://printables.com/model/1863745-ammobox-22lr"
+        )
         self.assertIsNone(release.url_lbry)
         self.assertIsNone(release.sha384)
         self.assertEqual(release.size, 757847)

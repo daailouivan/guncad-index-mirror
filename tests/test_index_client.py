@@ -37,7 +37,9 @@ class IndexClientTests(unittest.TestCase):
             releases = list(client.releases())
 
         self.assertEqual([release.name for release in releases], ["First", "Second"])
-        self.assertTrue(any("origin: unsupported_platform" in line for line in logs.output))
+        self.assertTrue(
+            any("origin: unsupported_platform" in line for line in logs.output)
+        )
         self.assertTrue(any("malformed Index release" in line for line in logs.output))
         self.assertEqual(
             [call[1] for call in session.calls],

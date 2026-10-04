@@ -61,7 +61,9 @@ def download_url_to_file(
                 response.raise_for_status()
                 total_header = response.headers.get("Content-Length")
                 total_bytes = (
-                    int(total_header) if total_header and total_header.isdigit() else None
+                    int(total_header)
+                    if total_header and total_header.isdigit()
+                    else None
                 )
                 bytes_downloaded = 0
 

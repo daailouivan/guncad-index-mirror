@@ -13,13 +13,15 @@ from urllib.parse import unquote, urlsplit
 SHA384_RE = re.compile(r"^[0-9a-f]{96}$")
 CLAIM_ID_RE = re.compile(r"^[0-9a-f]{40}$")
 RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-SUPPORTED_PLATFORMS = frozenset({
-    "lbry",
-    "printables",
-    "github",
-    "http",
-    "torrent",
-})
+SUPPORTED_PLATFORMS = frozenset(
+    {
+        "lbry",
+        "printables",
+        "github",
+        "http",
+        "torrent",
+    }
+)
 
 
 class ReleaseValidationError(ValueError):
@@ -134,9 +136,7 @@ class Release:
                 )
             raw_lbry_only = extra.get("lbry_only", False)
             if not isinstance(raw_lbry_only, bool):
-                raise ReleaseValidationError(
-                    "origin extra lbry_only must be a boolean"
-                )
+                raise ReleaseValidationError("origin extra lbry_only must be a boolean")
             lbry_only = raw_lbry_only
         else:
             sd_hash_val = extra.get("sd_hash") if isinstance(extra, Mapping) else None

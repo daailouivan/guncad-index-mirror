@@ -12,7 +12,6 @@ from guncadmirror.models import Release
 from guncadmirror.printables import (
     PrintablesAcquirer,
     PrintablesProtocolError,
-    PrintablesUnavailable,
 )
 
 from .helpers import FakeResponse, QueueSession
@@ -70,7 +69,9 @@ class PrintablesAcquirerTests(unittest.TestCase):
                 }
             }
         }
-        session = QueueSession(FakeResponse(files_response), FakeResponse(link_response))
+        session = QueueSession(
+            FakeResponse(files_response), FakeResponse(link_response)
+        )
         acquirer = PrintablesAcquirer(session=session)  # type: ignore[arg-type]
         release = make_printables_release()
 
@@ -80,7 +81,9 @@ class PrintablesAcquirerTests(unittest.TestCase):
         self.assertEqual(acquisition.source_url, "https://files.printables.com/box.3mf")
 
     @patch("guncadmirror.printables.download_url_to_file")
-    def test_acquires_multi_file_model_and_packages_zip(self, mock_download: object) -> None:
+    def test_acquires_multi_file_model_and_packages_zip(
+        self, mock_download: object
+    ) -> None:
         def fake_download(url: str, dest: Path, **kwargs: object) -> int:
             dest.write_bytes(b"content for " + dest.name.encode())
             return 100

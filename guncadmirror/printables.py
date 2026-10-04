@@ -15,10 +15,14 @@ import requests
 
 from .cancellation import check_cancelled, wait_or_cancel
 from .http_download import download_url_to_file
-from .index_client import USER_AGENT
 from .models import Release
 from .paths import safe_component
-from .progress import ActivityPhase, ActivityUpdate, NullProgressReporter, ProgressReporter
+from .progress import (
+    ActivityPhase,
+    ActivityUpdate,
+    NullProgressReporter,
+    ProgressReporter,
+)
 from .sessions import ThreadLocalSessionPool
 
 PRINTABLES_GRAPHQL_ENDPOINT = "https://api.printables.com/graphql/"
@@ -110,7 +114,9 @@ class PrintablesAcquirer:
 
         if len(files) == 1:
             file_meta = files[0]
-            link = self._get_download_link(file_meta["id"], model_id, file_meta["type"], stop=stop)
+            link = self._get_download_link(
+                file_meta["id"], model_id, file_meta["type"], stop=stop
+            )
             dest_name = safe_component(file_meta["name"], fallback=f"{model_id}.stl")
             destination = output_directory / dest_name
             download_url_to_file(
@@ -136,10 +142,14 @@ class PrintablesAcquirer:
         try:
             for idx, file_meta in enumerate(files):
                 check_cancelled(stop)
-                link = self._get_download_link(file_meta["id"], model_id, file_meta["type"], stop=stop)
+                link = self._get_download_link(
+                    file_meta["id"], model_id, file_meta["type"], stop=stop
+                )
                 if primary_link is None:
                     primary_link = link
-                file_dest_name = safe_component(file_meta["name"], fallback=f"file_{idx}.stl")
+                file_dest_name = safe_component(
+                    file_meta["name"], fallback=f"file_{idx}.stl"
+                )
                 file_dest = temp_dir / file_dest_name
                 download_url_to_file(
                     link,
@@ -157,10 +167,14 @@ class PrintablesAcquirer:
                 if idx < len(files) - 1:
                     wait_or_cancel(stop, 0.5, sleep=self.sleep)
 
-            zip_name = f"{safe_component(release.name, fallback=f'printables-{model_id}')}.zip"
+            zip_name = (
+                f"{safe_component(release.name, fallback=f'printables-{model_id}')}.zip"
+            )
             zip_destination = output_directory / zip_name
             _create_deterministic_zip(downloaded_entries, zip_destination)
-            return PrintablesAcquisition(path=zip_destination, source_url=release.url or primary_link)
+            return PrintablesAcquisition(
+                path=zip_destination, source_url=release.url or primary_link
+            )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -209,7 +223,9 @@ class PrintablesAcquirer:
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, Mapping):
-                    raise PrintablesProtocolError("GraphQL response must be a JSON object")
+                    raise PrintablesProtocolError(
+                        "GraphQL response must be a JSON object"
+                    )
                 if "errors" in data and not data.get("data"):
                     raise PrintablesProtocolError(f"GraphQL errors: {data['errors']}")
                 return data.get("data", {})
@@ -246,9 +262,7 @@ class PrintablesAcquirer:
             otherFiles { id name fileSize }
           }
         }"""
-        data = self._graphql_post(
-            query, {"id": model_id}, "ModelFiles", stop=stop
-        )
+        data = self._graphql_post(query, {"id": model_id}, "ModelFiles", stop=stop)
         model = data.get("model")
         if not model or not isinstance(model, Mapping):
             return []
@@ -264,12 +278,18 @@ class PrintablesAcquirer:
             file_list = model.get(key)
             if isinstance(file_list, list):
                 for item in file_list:
-                    if isinstance(item, Mapping) and item.get("id") and item.get("name"):
-                        results.append({
-                            "id": str(item["id"]),
-                            "name": str(item["name"]),
-                            "type": type_str,
-                        })
+                    if (
+                        isinstance(item, Mapping)
+                        and item.get("id")
+                        and item.get("name")
+                    ):
+                        results.append(
+                            {
+                                "id": str(item["id"]),
+                                "name": str(item["name"]),
+                                "type": type_str,
+                            }
+                        )
         return results
 
     def _get_download_link(
@@ -296,9 +316,7 @@ class PrintablesAcquirer:
             "fileType": file_type,
             "source": "model_detail",
         }
-        data = self._graphql_post(
-            query, variables, "GetDownloadLink", stop=stop
-        )
+        data = self._graphql_post(query, variables, "GetDownloadLink", stop=stop)
         result = data.get("getDownloadLink")
         if isinstance(result, Mapping) and result.get("ok"):
             output = result.get("output")
