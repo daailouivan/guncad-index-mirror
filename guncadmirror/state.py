@@ -262,23 +262,17 @@ class JobStore:
 
     def _connect(self) -> sqlite3.Connection:
         if self.nolock:
-            connection = sqlite3.connect(f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=30)
+            connection = sqlite3.connect(
+                f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=60
+            )
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
             return connection
 
-        try:
-            connection = sqlite3.connect(self.path, timeout=5)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError as exc:
-            if "locked" in str(exc).lower():
-                connection = sqlite3.connect(f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=30)
-                connection.row_factory = sqlite3.Row
-                connection.execute("PRAGMA journal_mode=WAL")
-            else:
-                raise
+        connection = sqlite3.connect(self.path, timeout=60)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
