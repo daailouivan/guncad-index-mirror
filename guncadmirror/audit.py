@@ -174,6 +174,7 @@ class ArchiveReport:
 def audit_archive(
     data_dir: Path,
     *,
+    target_prefix: Path | None = None,
     rehash_payloads: bool = False,
     progress: Callable[[int, int, Path], None] | None = None,
     now: Callable[[], datetime] | None = None,
@@ -223,6 +224,7 @@ def audit_archive(
         artifact, artifact_issues, manifest_path, torrent_path = _audit_artifact(
             data_dir,
             row,
+            target_prefix=target_prefix,
             rehash_payloads=rehash_payloads,
         )
         artifacts.append(artifact)
@@ -296,6 +298,7 @@ def _audit_artifact(
     data_dir: Path,
     row: sqlite3.Row,
     *,
+    target_prefix: Path | None = None,
     rehash_payloads: bool,
 ) -> tuple[ArtifactRecord, list[AuditIssue], Path, Path | None]:
     release_id = str(row["release_id"])
@@ -328,9 +331,21 @@ def _audit_artifact(
         data_dir / "outbox" / release_id / sd_hash / "manifest.json"
     ).resolve()
 
-    file_path = _safe_path(data_dir, row["file_path"], "payload", errors)
+    file_path = _safe_path(
+        data_dir,
+        row["file_path"],
+        "payload",
+        errors,
+        data_dir=data_dir,
+        target_prefix=target_prefix,
+    )
     torrent_path = _safe_path(
-        data_dir / "outbox", row["torrent_path"], "torrent", errors
+        data_dir / "outbox",
+        row["torrent_path"],
+        "torrent",
+        errors,
+        data_dir=data_dir,
+        target_prefix=target_prefix,
     )
     document = _read_manifest(manifest_path, errors)
     actual_size: int | None = None
@@ -805,12 +820,27 @@ def _exclusion_record(row: sqlite3.Row) -> ExclusionRecord:
     )
 
 
-def _safe_path(root: Path, value: object, label: str, errors: list[str]) -> Path | None:
+def _safe_path(
+    root: Path,
+    value: object,
+    label: str,
+    errors: list[str],
+    *,
+    data_dir: Path | None = None,
+    target_prefix: Path | None = None,
+) -> Path | None:
     if not isinstance(value, str) or not value:
         errors.append(f"job has no {label} path")
         return None
+    candidate = Path(value)
+    if data_dir is not None and target_prefix is not None:
+        try:
+            rel = candidate.relative_to(target_prefix)
+            candidate = data_dir / rel
+        except ValueError:
+            pass
     try:
-        return ensure_within(root, Path(value))
+        return ensure_within(root, candidate)
     except ValueError as error:
         errors.append(str(error))
         return None
@@ -897,6 +927,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Inventory and verify a GunCAD Mirror archive"
     )
     parser.add_argument("--data-dir", type=Path, default=Path("/data"))
+    parser.add_argument(
+        "--target-prefix",
+        type=Path,
+        default=Path("/data"),
+        help="Container path prefix stored in mirror-state.sqlite3 (default: /data)",
+    )
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument(
         "--rehash",
@@ -917,6 +953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         report = audit_archive(
             args.data_dir,
+            target_prefix=args.target_prefix,
             rehash_payloads=args.rehash,
             progress=progress,
         )

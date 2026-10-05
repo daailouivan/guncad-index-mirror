@@ -34,6 +34,7 @@ if [ "$(id -u)" -eq "0" ]; then
 		/data/releases \
 		/home/"$targetuser" \
 		/var/lib/logrotate
+	chown -f "$targetuser:$targetuser" /data/mirror-state.sqlite3* 2>/dev/null || true
 	ls -alh /data
 	echo "Pivoting to $targetuser"
 	printf "Current args:"

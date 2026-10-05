@@ -479,6 +479,21 @@ class ArchiveAuditTests(unittest.TestCase):
             audit_archive(missing)
         self.assertEqual(main(["--data-dir", str(missing)]), 2)
 
+    def test_audit_archive_with_target_prefix(self) -> None:
+        hashes = hash_file(self.payload)
+        with closing(sqlite3.connect(self.data_dir / "mirror-state.sqlite3")) as connection, connection:
+            connection.execute(
+                """
+                UPDATE jobs SET file_path='/data/releases/channel/payload.zip',
+                                torrent_path=?
+                WHERE release_id=?
+                """,
+                (f"/data/outbox/{self.release.id}/{self.release.sd_hash}/{hashes.sha384}.torrent", self.release.id),
+            )
+        report = audit_archive(self.data_dir, target_prefix=Path("/data"))
+        self.assertEqual(len(report.issues), 0)
+        self.assertTrue(report.artifacts[0].valid)
+
 
 if __name__ == "__main__":
     unittest.main()

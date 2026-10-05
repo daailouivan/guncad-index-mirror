@@ -1,28 +1,33 @@
 ---
 services:
   guncad-mirror:
-    image: "${MIRROR_IMAGE:-registry.gitlab.com/guncad-index/mirror:latest}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "${MIRROR_IMAGE:-localhost/guncad-mirror:latest}"
+    container_name: guncad-mirror
+    restart: unless-stopped
     stop_grace_period: 2m
     env_file: "${MIRROR_ENV_FILE:-guncad-mirror.env}"
     environment:
       MIRROR_QBITTORRENT_ENABLED: "true"
-      MIRROR_QBITTORRENT_URL: "http://qbittorrent:8080"
+      MIRROR_QBITTORRENT_URL: "http://guncad-qbittorrent:8080"
       MIRROR_QBITTORRENT_USERNAME: "${MIRROR_QBITTORRENT_USERNAME:-mirror}"
       MIRROR_QBITTORRENT_PASSWORD: "${MIRROR_QBITTORRENT_PASSWORD:?set a qBittorrent control password}"
       MIRROR_QBITTORRENT_DATA_DIR: "/downloads"
     depends_on:
-      - qbittorrent
+      - guncad-qbittorrent
     volumes:
       - guncad-mirror:/data:z
     ports:
       # LBRY uses this port to serve rehosted content. If not exposed, you're
       # just leeching.
-      - 5567:5567/tcp
+      - "5567:5567/tcp"
       # This is to participate in the DHT. Needs both TCP and UDP
-      - 4444:4444/tcp
-      - 4444:4444/udp
+      - "4444:4444/tcp"
+      - "4444:4444/udp"
       # This is for the web UI. You can omit if you don't want it
-      - 8081:5000/tcp
+      - "${MIRROR_WEBUI_PORT:-8081}:5000/tcp"
     healthcheck:
       test: |
         curl -f http://127.0.0.1:5279 -X POST -d '{"method": "status"}' | grep -ie '^.*is_running.*true.*$' || exit 1
@@ -30,11 +35,14 @@ services:
       interval: 5s
       timeout: 15s
       retries: 12
-  qbittorrent:
+
+  guncad-qbittorrent:
     build:
       context: .
       dockerfile: Dockerfile.qbittorrent
     image: "${MIRROR_QBITTORRENT_IMAGE:-guncad-mirror-qbittorrent:5.2.3-1}"
+    container_name: guncad-qbittorrent
+    restart: unless-stopped
     read_only: true
     stop_grace_period: 30m
     environment:
@@ -60,8 +68,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+
 volumes:
   guncad-mirror:
     name: "${MIRROR_DATA_VOLUME:-guncad-mirror}"
   guncad-mirror-qbittorrent:
     name: "${MIRROR_QBITTORRENT_VOLUME:-guncad-mirror-qbittorrent}"
+

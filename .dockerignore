@@ -12,6 +12,13 @@ venv
 contrib/*
 !contrib/lbry-sdk-direct-sd.patch
 !contrib/qbittorrent-entrypoint.py
+data
+data/
+data/**
+guncad.bak
+guncad.bak/**
+.venv
+.venv/**
 data-dumps
 data*.json
 docker-data

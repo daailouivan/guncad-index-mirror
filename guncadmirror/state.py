@@ -153,9 +153,16 @@ class TrackerPolicyCache:
 
 
 class JobStore:
-    def __init__(self, path: Path, *, clock: Callable[[], float] = time):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        clock: Callable[[], float] = time,
+        nolock: bool = False,
+    ):
         self.path = path
         self.clock = clock
+        self.nolock = nolock
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection, connection:
             connection.executescript(SCHEMA)
@@ -254,9 +261,24 @@ class JobStore:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
+        if self.nolock:
+            connection = sqlite3.connect(f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=30)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            return connection
+
+        try:
+            connection = sqlite3.connect(self.path, timeout=5)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower():
+                connection = sqlite3.connect(f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=30)
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA journal_mode=WAL")
+            else:
+                raise
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
@@ -363,6 +385,80 @@ class JobStore:
             exclusion_reason=None,
         )
         return self.get(release.id, release.sd_hash)
+
+    def record_migrated(
+        self,
+        release: Release,
+        *,
+        file_path: Path,
+        sha384: str,
+        sha256: str,
+        torrent: TorrentArtifact,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        now = self.clock()
+        release_slug = _release_slug(release)
+        query = """
+            INSERT INTO jobs (
+                release_id, sd_hash, release_json, release_name,
+                channel_handle, release_slug, state,
+                file_path, sha384, sha256,
+                torrent_path, info_hash, magnet_uri,
+                seeding_state, seeding_attempts, seeding_next_attempt_at, seeding_updated_at,
+                publication_state, publication_attempts, publication_next_attempt_at,
+                updated_at
+            ) VALUES (
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?
+            )
+            ON CONFLICT(release_id, sd_hash) DO UPDATE SET
+                release_json=excluded.release_json,
+                release_name=excluded.release_name,
+                channel_handle=excluded.channel_handle,
+                release_slug=excluded.release_slug,
+                state=excluded.state,
+                file_path=excluded.file_path,
+                sha384=excluded.sha384,
+                sha256=excluded.sha256,
+                torrent_path=excluded.torrent_path,
+                info_hash=excluded.info_hash,
+                magnet_uri=excluded.magnet_uri,
+                seeding_state=excluded.seeding_state,
+                updated_at=excluded.updated_at
+        """
+        params = (
+            release.id,
+            release.sd_hash,
+            release.to_json(),
+            release.name,
+            release.channel_handle,
+            release_slug,
+            JobState.AWAITING_INDEX,
+            str(file_path),
+            sha384,
+            sha256,
+            str(torrent.torrent_path),
+            torrent.info_hash,
+            torrent.magnet_uri,
+            SeedingState.PENDING,
+            0,
+            0,
+            now,
+            PublicationState.PENDING,
+            0,
+            0,
+            now,
+        )
+        if connection is not None:
+            connection.execute(query, params)
+        else:
+            with closing(self._connect()) as conn, conn:
+                conn.execute(query, params)
 
     def mark_excluded(self, release: Release, reason: str) -> Job:
         self._update(

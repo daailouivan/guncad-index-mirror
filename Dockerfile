@@ -90,6 +90,7 @@ RUN	adduser --disabled-password --gecos "" --uid 1000 mirror && \
 	chown -R mirror: /app /data
 COPY --from=builder /opt/venv /opt/venv
 COPY start.sh /usr/local/bin/start-guncad-mirror
+RUN chmod +x /usr/local/bin/start-guncad-mirror
 COPY --from=lbrynet /root/buildlbrynet/lbry-sdk/dist/lbrynet /usr/local/bin/lbrynet
 COPY --from=builder --chown=mirror /app /app
 COPY configfiles/logrotate.conf /etc/logrotate.d/lbrynet

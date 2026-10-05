@@ -10,6 +10,22 @@ GunCAD Mirror is an evacuation bridge from LBRY to BitTorrent. It reads GunCAD I
 
 The supplied Compose stack runs qBittorrent beside Mirror. qBittorrent receives each generated torrent at the assembled payload's existing path, then seeds that file without downloading a second copy. Mirror won't publish a torrent to GunCAD Index until qBittorrent reports the same BTIH, a ledger-verified archive path and byte count, 100% completion, forced upload mode, and a working DHT or tracker path.
 
+## Repository status
+
+GitHub (`daailouivan/guncad-index-mirror`) is the working remote, and its default branch is `v2-migration`. The GitLab fork [gitlab.com/daailouivan/mirror](https://gitlab.com/daailouivan/mirror) is kept in sync on `v2-migration`. Upstream remains [gitlab.com/guncad-index/mirror](https://gitlab.com/guncad-index/mirror); this account does not push there.
+
+The v1-to-v2 migration runner (`python -m guncadmirror.migration`) is on this branch and has been live-tested against a sample of the archive:
+
+- It reads local LBRY stream records from `lbrynet.sqlite` instead of walking the SMB share.
+- It extracts canonical torrents from the bootstrap archive into the API v2 outbox, and builds torrents for delisted or unindexed files that are still on disk.
+- It skips empty 40-character hex directory stubs left by an interrupted update.
+- It records migrated releases in `/data/mirror-state.sqlite3`. On a CIFS mount, SQLite falls back when POSIX byte-range locks fail. Pass `--nolock` if the share is mounted without `nobrl`.
+- `audit` accepts `--target-prefix` so a host data directory can be checked against container paths stored as `/data/...`.
+
+A sample audit of 5 artifacts reported 0 integrity issues, 0 orphan manifests, and 0 orphan torrents. The full archive run (about 12,060 local streams, 11,087 canonical bootstrap torrents) has not been started. Index publication stays opt-in.
+
+Multi-source ingestion is next, not done. The release model still accepts only `origin.platform == "lbry"`. Printables and GitHub origins are skipped. Each new platform should acquire its own payload, then use the same checksum, torrent, outbox, and qBittorrent path.
+
 ## Current data path
 
 For every valid API v2 release whose `origin.platform` is `lbry`, Mirror performs these steps:
