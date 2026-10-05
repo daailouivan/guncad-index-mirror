@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from guncadmirror.migration import (
     MigrationConfig,
@@ -14,9 +15,11 @@ from guncadmirror.migration import (
     decode_hex_string,
     load_bootstrap_index,
     read_v1_lbrynet_db,
+    relocate_qbit_seeds,
     synthesize_v2_payload,
 )
-from guncadmirror.models import JobState, Release, SeedingState
+from guncadmirror.models import JobState, Release, SeedingState, TorrentArtifact
+from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
 from guncadmirror.torrent import create_torrent
 
@@ -343,3 +346,73 @@ class TestMigration(unittest.TestCase):
         # Verify idempotency on second run
         idempotent_stats = runner.run()
         self.assertEqual(idempotent_stats.skipped_existing, 2)
+
+    @patch("guncadmirror.migration.QBitClient")
+    def test_relocate_qbit_seeds(self, mock_client_cls: Mock) -> None:
+        mock_client = mock_client_cls.return_value
+        store = JobStore(self.data_dir / "mirror-state.sqlite3")
+        release = Release.from_api(
+            synthesize_v2_payload(
+                release_id="0" * 40,
+                name="Relocatable Release",
+                channel_handle="@author:1",
+                sd_hash="1" * 96,
+                size=10,
+                checksum="2" * 96,
+            )
+        )
+        payload = self.data_dir / "releases" / "@author#1" / "test-123" / "file.zip"
+        payload.parent.mkdir(parents=True, exist_ok=True)
+        payload.write_bytes(b"0123456789")
+
+        torrent = TorrentArtifact(
+            file_path=Path("/data/releases/@author#1/test-123/file.zip"),
+            torrent_path=self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent",
+            piece_length=16384,
+            piece_count=1,
+            info_hash="a" * 40,
+            torrent_sha256="0" * 64,
+            magnet_uri="",
+            trackers=(),
+        )
+        store.record_migrated(
+            release,
+            file_path=payload,
+            sha384="2" * 96,
+            sha256="0" * 64,
+            torrent=torrent,
+        )
+        store.block_seeding(
+            release.id,
+            release.sd_hash,
+            code="content_path_conflict",
+            error="conflict",
+            retry_after=300,
+        )
+
+        mock_client._json.return_value = [
+            {
+                "hash": "a" * 40,
+                "save_path": "/downloads/mirror/author/test",
+                "content_path": "/downloads/mirror/author/test/file.zip",
+            }
+        ]
+
+        settings = Settings.from_env(
+            {
+                "MIRROR_DATA_DIR": str(self.data_dir),
+                "MIRROR_QBITTORRENT_ENABLED": "true",
+                "MIRROR_QBITTORRENT_USERNAME": "mirror",
+                "MIRROR_QBITTORRENT_PASSWORD": "secret",
+            }
+        )
+
+        stats = relocate_qbit_seeds(settings)
+        self.assertEqual(stats["relocated"], 1)
+        mock_client.set_location.assert_called_once_with(
+            "a" * 40,
+            "/downloads/releases/@author#1/test-123",
+        )
+        job = store.get(release.id, release.sd_hash)
+        self.assertEqual(job.seeding_state, SeedingState.PENDING)
+        self.assertIsNone(job.seeding_error_code)

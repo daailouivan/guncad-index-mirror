@@ -264,6 +264,13 @@ class QBitClientTests(unittest.TestCase):
         self.client.remove_trackers("a" * 40, ())
         self.session.request.assert_not_called()
 
+    def test_set_location_posts_hashes_and_location(self) -> None:
+        self.response(status=200)
+        self.client.set_location("a" * 40, "/downloads/releases/target")
+        self.session.request.assert_called_once()
+        _, request = self.session.request.call_args
+        self.assertEqual(request["data"], {"hashes": "a" * 40, "location": "/downloads/releases/target"})
+
     def test_missing_torrent_and_non_green_states_are_reported(self) -> None:
         self.response(document=[])
         self.assertIsNone(self.client.torrent("a" * 40))

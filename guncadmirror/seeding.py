@@ -268,27 +268,22 @@ class SeedingScheduler:
                 tag=self.settings.qbittorrent_tag,
             )
         else:
-            _validate_observation(observation, paths, allowed_locations)
-            updated, failed = self._reconcile_trackers(candidate, observation)
-            tracker_updates += updated
-            tracker_errors += failed
-            if observation.green and not updated:
-                return SeedReadiness(
-                    observation,
-                    tracker_updates=tracker_updates,
-                    tracker_errors=tracker_errors,
+            content_path = PurePosixPath(observation.torrent.content_path)
+            if content_path not in allowed_locations and (
+                PurePosixPath(observation.torrent.save_path)
+                != PurePosixPath(paths.qbit_save_path)
+            ):
+                self.logger.info(
+                    "Relocating qBittorrent seed %s from %s to %s",
+                    candidate.release.name,
+                    observation.torrent.save_path,
+                    paths.qbit_save_path,
                 )
-            activation_required = not observation.green
-
-        if activation_required:
-            self.client.force_start(info_hash)
-            self.client.reannounce(info_hash)
-        deadline = self.monotonic() + self.settings.qbittorrent_ready_timeout
-        last_detail = "torrent has not appeared in qBittorrent"
-        while True:
-            check_cancelled(stop)
-            observation = self.client.observe(info_hash)
-            if observation is not None:
+                self.client.set_location(info_hash, paths.qbit_save_path)
+                activation_required = True
+            elif observation.torrent.state == "moving":
+                activation_required = True
+            else:
                 _validate_observation(observation, paths, allowed_locations)
                 updated, failed = self._reconcile_trackers(candidate, observation)
                 tracker_updates += updated
@@ -299,7 +294,33 @@ class SeedingScheduler:
                         tracker_updates=tracker_updates,
                         tracker_errors=tracker_errors,
                     )
-                last_detail = _not_green_detail(observation)
+                activation_required = not observation.green
+
+        if activation_required:
+            self.client.force_start(info_hash)
+            self.client.reannounce(info_hash)
+        deadline = self.monotonic() + self.settings.qbittorrent_ready_timeout
+        last_detail = "torrent has not appeared in qBittorrent"
+        while True:
+            check_cancelled(stop)
+            observation = self.client.observe(info_hash)
+            if observation is not None:
+                if observation.torrent.state == "moving":
+                    last_detail = (
+                        f"qBittorrent is moving torrent to {paths.qbit_save_path}"
+                    )
+                else:
+                    _validate_observation(observation, paths, allowed_locations)
+                    updated, failed = self._reconcile_trackers(candidate, observation)
+                    tracker_updates += updated
+                    tracker_errors += failed
+                    if observation.green and not updated:
+                        return SeedReadiness(
+                            observation,
+                            tracker_updates=tracker_updates,
+                            tracker_errors=tracker_errors,
+                        )
+                    last_detail = _not_green_detail(observation)
             now = self.monotonic()
             if now >= deadline:
                 raise QBitRetryableError(
@@ -493,6 +514,11 @@ def _validate_observation(
         raise QBitArtifactError(
             "payload_size_conflict",
             "qBittorrent's torrent size contradicts the verified payload",
+        )
+    if torrent.state == "moving":
+        raise QBitRetryableError(
+            "torrent_moving",
+            "qBittorrent is relocating torrent storage",
         )
     if torrent.state in UNSAFE_DOWNLOAD_STATES:
         raise QBitArtifactError(

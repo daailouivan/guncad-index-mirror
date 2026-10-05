@@ -300,6 +300,14 @@ class QBitClient:
         )
         self._require_success(response)
 
+    def set_location(self, info_hash: str, location: str) -> None:
+        response = self._request(
+            "POST",
+            "/api/v2/torrents/setLocation",
+            data={"hashes": info_hash, "location": location},
+        )
+        self._require_success(response)
+
     def reannounce(self, info_hash: str) -> None:
         response = self._request(
             "POST",

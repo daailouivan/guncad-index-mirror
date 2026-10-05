@@ -13,7 +13,7 @@ import time
 import zipfile
 from contextlib import closing
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
 from typing import Any
 
@@ -26,6 +26,8 @@ from .models import (
     TorrentArtifact,
 )
 from .publisher import OutboxPublisher
+from .qbittorrent import QBitClient
+from .settings import Settings
 from .state import JobStore
 from .torrent import create_torrent, parse_torrent
 
@@ -700,6 +702,122 @@ class V1MigrationRunner:
             )
 
 
+def relocate_qbit_seeds(
+    settings: Settings,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+    logger: logging.Logger = logger,
+) -> dict[str, int]:
+    """
+    Relocate torrents in qBittorrent that have legacy or mismatched save paths
+    (such as /downloads/mirror/...) to their canonical verified location (/downloads/releases/...)
+    as recorded in the SQLite jobs ledger.
+    """
+    client = QBitClient(
+        str(settings.qbittorrent_url),
+        timeout=settings.qbittorrent_timeout,
+        api_key=settings.qbittorrent_api_key,
+        username=settings.qbittorrent_username,
+        password=settings.qbittorrent_password,
+    )
+    logger.info("Connecting to qBittorrent at %s...", settings.qbittorrent_url)
+    torrents_data = client._json("GET", "/api/v2/torrents/info")
+    if not isinstance(torrents_data, list):
+        raise RuntimeError("Failed to fetch torrent list from qBittorrent")
+
+    logger.info("Discovered %d torrents in qBittorrent", len(torrents_data))
+
+    db_path = settings.state_path
+    if not db_path.is_file():
+        raise FileNotFoundError(f"State database not found: {db_path}")
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=rw", uri=True)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT info_hash, file_path, release_name FROM jobs WHERE file_path IS NOT NULL"
+        )
+        job_map: dict[str, tuple[str, str]] = {
+            row[0].lower(): (row[1], row[2]) for row in cur.fetchall() if row[0]
+        }
+
+        stats = {
+            "scanned": len(torrents_data),
+            "relocated": 0,
+            "skipped_canonical": 0,
+            "skipped_missing": 0,
+        }
+
+        for item in torrents_data:
+            if limit and stats["relocated"] >= limit:
+                break
+            info_hash = item.get("hash", "").lower()
+            current_save = item.get("save_path", "")
+            if not info_hash or info_hash not in job_map:
+                stats["skipped_missing"] += 1
+                continue
+
+            file_path_str, release_name = job_map[info_hash]
+            try:
+                file_path = Path(file_path_str)
+                rel = file_path.resolve().relative_to(settings.data_dir.resolve())
+            except (ValueError, OSError):
+                rel_parts = PurePosixPath(file_path_str).parts
+                if len(rel_parts) > 2 and rel_parts[1] == "data":
+                    rel = PurePosixPath(*rel_parts[2:])
+                else:
+                    stats["skipped_missing"] += 1
+                    continue
+
+            canonical_save = str(
+                PurePosixPath(settings.qbittorrent_data_dir.as_posix()).joinpath(
+                    *rel.parts[:-1]
+                )
+            )
+            if PurePosixPath(current_save) == PurePosixPath(canonical_save):
+                stats["skipped_canonical"] += 1
+                continue
+
+            local_payload = settings.data_dir.resolve() / rel
+            if not local_payload.is_file():
+                logger.warning(
+                    "Payload missing on disk for %s at %s, skipping relocation",
+                    release_name,
+                    local_payload,
+                )
+                stats["skipped_missing"] += 1
+                continue
+
+            if not dry_run:
+                client.set_location(info_hash, canonical_save)
+                cur.execute(
+                    """
+                    UPDATE jobs SET
+                        seeding_state='pending',
+                        seeding_attempts=0,
+                        seeding_next_attempt_at=0,
+                        seeding_error_code=NULL,
+                        seeding_error=NULL
+                    WHERE info_hash=? AND seeding_error_code='content_path_conflict'
+                    """,
+                    (info_hash,),
+                )
+            stats["relocated"] += 1
+            if stats["relocated"] % 500 == 0:
+                logger.info("Relocated %d torrents...", stats["relocated"])
+                if not dry_run:
+                    conn.commit()
+
+        if not dry_run:
+            conn.commit()
+
+        logger.info("Relocation complete: %s", stats)
+        return stats
+    finally:
+        conn.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m guncadmirror.migration",
@@ -708,7 +826,7 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        required=True,
+        default=None,
         help="Path to the root v1/v2 data directory (containing lbry/, mirror/, etc.)",
     )
     parser.add_argument(
@@ -744,6 +862,11 @@ def main() -> None:
         help="Skip scanning for faulty metadata stubs",
     )
     parser.add_argument(
+        "--relocate-seeds",
+        action="store_true",
+        help="Relocate legacy or mismatched seeds in qBittorrent to canonical storage locations",
+    )
+    parser.add_argument(
         "--max-items",
         type=int,
         default=None,
@@ -772,6 +895,28 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
+
+    if args.relocate_seeds:
+        settings = Settings.from_env()
+        if args.data_dir:
+            settings = Settings(
+                **{
+                    k: getattr(settings, k)
+                    for k in settings.__dataclass_fields__
+                    if k != "data_dir"
+                },
+                data_dir=args.data_dir.resolve(),
+            )
+        relocate_qbit_seeds(
+            settings,
+            dry_run=args.dry_run,
+            limit=args.max_items,
+            logger=logger,
+        )
+        return
+
+    if not args.data_dir:
+        parser.error("--data-dir is required when not using --relocate-seeds")
 
     config = MigrationConfig(
         data_dir=args.data_dir,

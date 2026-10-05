@@ -357,6 +357,49 @@ class SeedingSchedulerTests(unittest.TestCase):
             SeedingState.GREEN,
         )
 
+    def test_seeding_relocates_mismatched_save_path_to_canonical_location(self) -> None:
+        initial_observation = self.observation(
+            content_path="/downloads/mirror/author/release/payload.zip",
+            save_path="/downloads/mirror/author/release",
+        )
+        moved_observation = self.observation(
+            content_path="/downloads/releases/payload.zip",
+            save_path="/downloads/releases",
+        )
+        self.client.observe.side_effect = [initial_observation, moved_observation]
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.green, 1)
+        self.client.set_location.assert_called_once_with(
+            self.torrent.info_hash, "/downloads/releases"
+        )
+        self.assertEqual(
+            self.store.get(self.release.id, self.release.sd_hash).seeding_state,
+            SeedingState.GREEN,
+        )
+
+    def test_seeding_waits_during_moving_state(self) -> None:
+        moving_observation = self.observation(
+            content_path="/downloads/releases/payload.zip",
+            save_path="/downloads/releases",
+            state="moving",
+        )
+        ready_observation = self.observation(
+            content_path="/downloads/releases/payload.zip",
+            save_path="/downloads/releases",
+            state="forcedUP",
+        )
+        self.client.observe.side_effect = [moving_observation, ready_observation]
+
+        result = self.scheduler.run()
+
+        self.assertEqual(result.green, 1)
+        self.assertEqual(
+            self.store.get(self.release.id, self.release.sd_hash).seeding_state,
+            SeedingState.GREEN,
+        )
+
     def test_lost_seed_readiness_is_retryable_and_closes_publication_gate(self) -> None:
         self.client.observe.return_value = self.observation()
         self.scheduler.run()
