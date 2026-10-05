@@ -366,48 +366,43 @@ progress {
 }
 
 .cell-link-btn.platform-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.65rem;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.2rem;
 	text-decoration: none;
 	color: inherit;
-	white-space: nowrap;
 	text-align: left;
 	vertical-align: middle;
 }
 
-.cell-link-btn.platform-btn strong {
+.cell-link-btn.platform-btn .platform-title {
 	color: var(--text);
 	transition: color 0.15s ease;
 	font-weight: 700;
+	font-size: 0.88rem;
+	white-space: nowrap;
 }
 
-.cell-link-btn.platform-btn:hover strong {
+.cell-link-btn.platform-btn:hover .platform-title {
 	color: var(--link);
 	text-decoration: underline;
-	text-underline-offset: 3px;
+	text-underline-offset: 2px;
 }
 
 .cell-link-btn.platform-btn .source-badge {
-	min-width: 6.8rem;
+	min-width: unset;
 	text-align: center;
-	flex-shrink: 0;
+	padding: 0.1rem 0.4rem;
+	font-size: 0.68rem;
+	line-height: 1.15;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
 	margin-right: 0;
 }
 
 .cell-link-btn.text-danger {
 	color: var(--error);
-}
-
-.view-pill {
-	display: inline-block;
-	margin-left: 0.4rem;
-	padding: 0.1rem 0.35rem;
-	font-size: 0.7rem;
-	border-radius: 0.2rem;
-	background: var(--panel-raised);
-	border: 1px solid var(--border);
-	color: var(--link);
 }
 
 /* Modal Dialog */
@@ -759,6 +754,68 @@ td {
 thead th {
 	background: var(--background);
 	white-space: nowrap;
+}
+
+.sources-table {
+	width: 100%;
+	table-layout: auto;
+}
+
+.sources-table th,
+.sources-table td {
+	padding: 0.5rem 0.55rem;
+	font-size: 0.88rem;
+	vertical-align: middle;
+}
+
+.sources-table thead th {
+	font-size: 0.78rem;
+	line-height: 1.25;
+	vertical-align: bottom;
+	padding-bottom: 0.5rem;
+	white-space: nowrap;
+}
+
+.sources-table thead th .th-sub {
+	color: var(--muted);
+	font-size: 0.72rem;
+	font-weight: 500;
+}
+
+.sources-table .num-col {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.sources-table .num-col .cell-link-btn {
+	text-align: right;
+	display: inline-block;
+}
+
+.sources-table .action-col {
+	text-align: center;
+	white-space: nowrap;
+}
+
+.archive-filter-btn {
+	display: inline-block;
+	padding: 0.2rem 0.55rem;
+	font-size: 0.78rem;
+	border: 1px solid var(--border);
+	border-radius: 0.25rem;
+	background: var(--panel-raised);
+	color: var(--link);
+	text-decoration: none;
+	transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+	white-space: nowrap;
+}
+
+.archive-filter-btn:hover {
+	background: var(--panel);
+	border-color: var(--link);
+	color: #fff;
+	text-decoration: none;
 }
 
 th[scope="row"] {

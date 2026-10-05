@@ -186,34 +186,33 @@
                 {% set sources = platform_breakdown or {} %}
                 <div class="job-grid source-summary-grid">
                     {% for source in sources.values() %}
-                        <div class="source-summary-card clickable"
-                             data-modal-trigger
-                             data-section="source"
-                             data-platform="{{ source.platform }}"
-                             data-category="all"
-                             role="button"
-                             tabindex="0"
-                             title="View {{ source.display_name }} entries">
+                        <button type="button"
+                                class="job-stat-card source-summary-card"
+                                data-modal-trigger
+                                data-section="source"
+                                data-platform="{{ source.platform }}"
+                                data-category="all"
+                                title="View {{ source.display_name }} entries">
                             <span>{{ source.awaiting_index }} <small>/ {{ source.total }}</small></span>
                             <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
                             <strong>{{ source.display_name }}</strong>
-                            <div class="fine-print">staged / indexed <small class="view-pill">view list</small></div>
-                        </div>
+                            <div class="fine-print">staged / indexed</div>
+                        </button>
                     {% endfor %}
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table class="sources-table">
                         <thead>
                             <tr>
-                                <th scope="col">Source platform</th>
-                                <th scope="col">Total indexed</th>
-                                <th scope="col">Staged / Verified</th>
-                                <th scope="col">qB seeding</th>
-                                <th scope="col">Index published</th>
-                                <th scope="col">In-flight</th>
-                                <th scope="col">Failed</th>
-                                <th scope="col">Payload volume</th>
-                                <th scope="col">Archive</th>
+                                <th scope="col">Source<br><span class="th-sub">platform</span></th>
+                                <th scope="col" class="num-col">Total<br><span class="th-sub">indexed</span></th>
+                                <th scope="col" class="num-col">Staged /<br><span class="th-sub">verified</span></th>
+                                <th scope="col" class="num-col">qB<br><span class="th-sub">seeding</span></th>
+                                <th scope="col" class="num-col">Index<br><span class="th-sub">published</span></th>
+                                <th scope="col" class="num-col">In-flight</th>
+                                <th scope="col" class="num-col">Failed</th>
+                                <th scope="col" class="num-col">Payload<br><span class="th-sub">volume</span></th>
+                                <th scope="col" class="action-col">Archive</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -228,10 +227,10 @@
                                                 data-category="all"
                                                 title="View all {{ source.display_name }} entries">
                                             <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
-                                            <strong>{{ source.display_name }}</strong>
+                                            <strong class="platform-title">{{ source.display_name }}</strong>
                                         </button>
                                     </th>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
@@ -240,7 +239,7 @@
                                                 data-category="all"
                                                 title="View all {{ source.display_name }} entries">{{ source.total }}</button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
@@ -249,7 +248,7 @@
                                                 data-category="awaiting_index"
                                                 title="View staged {{ source.display_name }} entries">{{ source.awaiting_index }}</button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
@@ -258,7 +257,7 @@
                                                 data-category="seeding_green"
                                                 title="View seeding {{ source.display_name }} entries">{{ source.seeding_green }}</button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
@@ -267,7 +266,7 @@
                                                 data-category="published"
                                                 title="View published {{ source.display_name }} entries">{{ source.published }}</button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
@@ -276,7 +275,7 @@
                                                 data-category="inflight"
                                                 title="View in-flight {{ source.display_name }} entries">{{ source.acquiring + source.pending }}</button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn{% if source.failed > 0 %} text-danger{% endif %}"
                                                 data-modal-trigger
@@ -285,9 +284,9 @@
                                                 data-category="failed"
                                                 title="View failed {{ source.display_name }} entries">{{ source.failed }}</button>
                                     </td>
-                                    <td>{{ source.staged_bytes | humanize_bytes }}</td>
-                                    <td>
-                                        <a href="{{ url_for('archive_browser', platform=source.platform) }}">Filter archive</a>
+                                    <td class="num-col">{{ source.staged_bytes | humanize_bytes }}</td>
+                                    <td class="action-col">
+                                        <a href="{{ url_for('archive_browser', platform=source.platform) }}" class="archive-filter-btn" title="Filter archive for {{ source.display_name }}">Filter archive</a>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -303,53 +302,53 @@
                                                 data-category="all"
                                                 title="View all entries">
                                             <span class="source-badge">ALL</span>
-                                            <strong>All sources</strong>
+                                            <strong class="platform-title">All sources</strong>
                                         </button>
                                     </th>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="all"><strong>{{ platform_totals.total }}</strong></button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="awaiting_index"><strong>{{ platform_totals.awaiting_index }}</strong></button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="seeding_green"><strong>{{ platform_totals.seeding_green }}</strong></button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="published"><strong>{{ platform_totals.published }}</strong></button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="inflight"><strong>{{ platform_totals.acquiring + platform_totals.pending }}</strong></button>
                                     </td>
-                                    <td>
+                                    <td class="num-col">
                                         <button type="button"
                                                 class="cell-link-btn{% if platform_totals.failed > 0 %} text-danger{% endif %}"
                                                 data-modal-trigger
                                                 data-section="source"
                                                 data-category="failed"><strong>{{ platform_totals.failed }}</strong></button>
                                     </td>
-                                    <td><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
-                                    <td><a href="{{ url_for('archive_browser') }}">Browse all</a></td>
+                                    <td class="num-col"><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
+                                    <td class="action-col"><a href="{{ url_for('archive_browser') }}" class="archive-filter-btn" title="Browse all entries in archive">Browse all</a></td>
                                 </tr>
                             </tfoot>
                         {% endif %}
