@@ -519,6 +519,19 @@ dialog.category-modal::backdrop {
 	outline-offset: 2px;
 }
 
+.modal-toolbar-filters {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.modal-toolbar .archive-select {
+	min-height: 2.4rem;
+	padding: 0.4rem 0.75rem;
+	font-size: 0.85rem;
+}
+
 .modal-body {
 	flex: 1;
 	overflow-y: auto;
@@ -564,41 +577,67 @@ dialog.category-modal::backdrop {
 	display: flex;
 	justify-content: space-between;
 	align-items: flex-start;
-	gap: 0.75rem;
-	flex-wrap: wrap;
-	margin-bottom: 0.4rem;
+	gap: 1rem;
+	margin-bottom: 0.35rem;
 }
 
-.entry-title-area {
+.entry-primary {
+	flex: 1 1 auto;
+	min-width: 0;
 	display: flex;
-	align-items: center;
-	gap: 0.5rem;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.entry-title-row {
+	display: flex;
+	align-items: baseline;
+	gap: 0.45rem;
 	flex-wrap: wrap;
 }
 
 .entry-name {
 	font-size: 1.05rem;
 	color: #fff;
+	line-height: 1.35;
+	word-break: break-word;
+}
+
+.entry-sub-row {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
 }
 
 .entry-channel {
 	color: var(--muted);
+	font-size: 0.82rem;
+}
+
+.entry-channel .channel-label {
+	color: #768390;
+	font-size: 0.75rem;
+	margin-right: 0.15rem;
 }
 
 .entry-tags {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+	flex-shrink: 0;
+	white-space: nowrap;
+	margin-top: 0.1rem;
 }
 
 .status-tag {
-	padding: 0.1rem 0.4rem;
+	padding: 0.12rem 0.45rem;
 	border-radius: 0.2rem;
 	font-size: 0.75rem;
 	font-weight: 700;
 	text-transform: uppercase;
 	background: var(--panel-raised);
 	border: 1px solid var(--border);
+	line-height: 1.25;
 }
 
 .status-tag-failed {
@@ -616,16 +655,59 @@ dialog.category-modal::backdrop {
 .status-tag-green {
 	color: #7ee787;
 	border-color: #3fb950;
+	background: #132b1a;
 }
 
 .status-tag-blocked {
 	color: var(--error);
 	border-color: var(--error);
+	background: #331515;
 }
 
 .status-tag-acquiring {
 	color: var(--link);
 	border-color: var(--link);
+	background: #142233;
+}
+
+.status-tag-pending {
+	color: #8b949e;
+	border-color: #30363d;
+	background: #161b22;
+}
+
+.status-tag-excluded {
+	color: #e3b341;
+	border-color: #bb8009;
+	background: #261f12;
+}
+
+.status-tag-verified {
+	color: #79c0ff;
+	border-color: #388bfd;
+	background: #0d2238;
+}
+
+.size-tag {
+	padding: 0.12rem 0.45rem;
+	border-radius: 0.2rem;
+	font-size: 0.75rem;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	color: #c9d1d9;
+	background: #1f242c;
+	border: 1px solid #30363d;
+	line-height: 1.25;
+}
+
+@media (max-width: 560px) {
+	.entry-header {
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.entry-tags {
+		margin-top: 0;
+	}
 }
 
 .entry-meta {

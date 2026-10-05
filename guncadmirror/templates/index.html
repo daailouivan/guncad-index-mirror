@@ -775,6 +775,12 @@
                             <option value="http">Direct HTTP</option>
                             <option value="torrent">BitTorrent Swarm</option>
                         </select>
+                        <select id="modal-limit-select" class="archive-select" aria-label="Entries per page">
+                            <option value="25">25 / page</option>
+                            <option value="50" selected>50 / page</option>
+                            <option value="100">100 / page</option>
+                            <option value="200">200 / page</option>
+                        </select>
                     </div>
                 </div>
                 <div id="modal-body" class="modal-body" role="region" aria-live="polite">
@@ -804,6 +810,7 @@
             const bodyEl = document.getElementById("modal-body");
             const searchInput = document.getElementById("modal-search");
             const platformFilter = document.getElementById("modal-platform-filter");
+            const limitSelect = document.getElementById("modal-limit-select");
             const retryAllBtn = document.getElementById("modal-retry-all-btn");
             const closeBtn = document.getElementById("modal-close-btn");
             const prevBtn = document.getElementById("modal-prev-btn");
@@ -816,6 +823,24 @@
             let currentPlatform = "";
             let currentQuery = "";
             let currentPage = 1;
+            let currentLimit = 50;
+            try {
+                const savedLimit = parseInt(localStorage.getItem("guncad_modal_limit"), 10);
+                if ([25, 50, 100, 200].includes(savedLimit)) {
+                    currentLimit = savedLimit;
+                }
+            } catch (_) {}
+            if (limitSelect) {
+                limitSelect.value = String(currentLimit);
+                limitSelect.addEventListener("change", () => {
+                    currentLimit = parseInt(limitSelect.value, 10) || 50;
+                    try {
+                        localStorage.setItem("guncad_modal_limit", String(currentLimit));
+                    } catch (_) {}
+                    currentPage = 1;
+                    loadEntries();
+                });
+            }
             let totalEntries = 0;
             let pageCount = 1;
             let searchDebounceTimer = null;
@@ -932,7 +957,7 @@
                     section: currentSection,
                     category: currentCategory,
                     page: currentPage,
-                    limit: 50
+                    limit: currentLimit
                 });
                 if (currentPlatform) params.set("platform", currentPlatform);
                 if (currentQuery) params.set("q", currentQuery);
@@ -985,12 +1010,16 @@
                     const platform = entry.platform || "lbry";
                     const isFailed = entry.state === "failed" || entry.publication_state === "rejected" || entry.publication_state === "conflict" || entry.seeding_state === "blocked";
 
+                    const title = entry.release_name || entry.release_slug || entry.release_id;
+
                     html += `<article class="entry-card ${isFailed ? 'entry-card-failed' : ''}">
                         <div class="entry-header">
-                            <div class="entry-title-area">
-                                <span class="source-badge source-badge-${escapeHtml(platform)}">${escapeHtml(platform)}</span>
-                                <strong class="entry-name">${escapeHtml(entry.release_name || entry.release_slug || entry.release_id)}</strong>
-                                <span class="entry-channel fine-print">${escapeHtml(entry.channel_handle)}</span>
+                            <div class="entry-primary">
+                                <div class="entry-title-row">
+                                    <span class="source-badge source-badge-${escapeHtml(platform)}">${escapeHtml(platform)}</span>
+                                    <strong class="entry-name" title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
+                                </div>
+                                ${entry.channel_handle ? `<div class="entry-sub-row fine-print"><span class="entry-channel"><span class="channel-label">by</span> ${escapeHtml(entry.channel_handle)}</span></div>` : ''}
                             </div>
                             <div class="entry-tags">
                                 <span class="status-tag status-tag-${escapeHtml(entry.state)}">${escapeHtml(entry.state)}</span>
@@ -1141,8 +1170,8 @@
                 nextBtn.disabled = currentPage >= pageCount;
                 pageInfo.textContent = `Page ${currentPage} of ${pageCount}`;
 
-                const startIdx = totalEntries === 0 ? 0 : (currentPage - 1) * 50 + 1;
-                const endIdx = Math.min(currentPage * 50, totalEntries);
+                const startIdx = totalEntries === 0 ? 0 : (currentPage - 1) * currentLimit + 1;
+                const endIdx = Math.min(currentPage * currentLimit, totalEntries);
                 rangeInfo.textContent = totalEntries > 0 ? `Showing ${startIdx}–${endIdx} of ${totalEntries} entries` : `0 entries`;
             }
 
