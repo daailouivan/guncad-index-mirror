@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from threading import Event, Lock
 
 from .cancellation import check_cancelled, wait_or_cancel
+from .models import SeedingState
 from .paths import ensure_within
 from .qbittorrent import (
     QBitArtifactError,
@@ -121,13 +122,31 @@ class SeedingScheduler:
         with self._run_lock:
             candidates = self.store.seeding_candidates()
             result = SeedingCycleResult(considered=len(candidates))
-            ready = [
+            unseeded = [
                 candidate
                 for candidate in candidates
-                if self.store.seeding_ready(candidate.job)
+                if candidate.job.seeding_state != SeedingState.GREEN
+                and self.store.seeding_ready(candidate.job)
             ]
+            rechecks = [
+                candidate
+                for candidate in candidates
+                if candidate.job.seeding_state == SeedingState.GREEN
+                and self.store.seeding_ready(candidate.job)
+            ]
+            batch_limit = self.settings.qbittorrent_recheck_batch
+            if batch_limit is not None and batch_limit > 0:
+                rechecks = rechecks[:batch_limit]
+            ready = unseeded + rechecks
             if not ready or (stop is not None and stop.is_set()):
                 return result
+            if len(ready) > 1:
+                self.logger.info(
+                    "Reconciling qBittorrent seeds: %d pending/retrying, %d routine rechecks (%d total considered)",
+                    len(unseeded),
+                    len(rechecks),
+                    len(candidates),
+                )
             try:
                 client_version, _webapi_version = self.client.versions()
             except QBitConfigurationError as error:

@@ -64,6 +64,7 @@ class Settings:
     qbittorrent_ready_timeout: float = 120
     qbittorrent_poll_interval: float = 2
     qbittorrent_recheck_interval: float = 5 * 60
+    qbittorrent_recheck_batch: int = 100
     qbittorrent_category: str = "guncad-mirror"
     qbittorrent_tag: str = "guncad-mirror"
     publish_enabled: bool = False
@@ -162,6 +163,9 @@ class Settings:
             ),
             qbittorrent_recheck_interval=_number(
                 env, "MIRROR_QBITTORRENT_RECHECK_INTERVAL", 5 * 60, minimum=5
+            ),
+            qbittorrent_recheck_batch=_integer(
+                env, "MIRROR_QBITTORRENT_RECHECK_BATCH", 100, minimum=1
             ),
             qbittorrent_category=env.get(
                 "MIRROR_QBITTORRENT_CATEGORY", "guncad-mirror"

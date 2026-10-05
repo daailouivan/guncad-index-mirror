@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from unittest.mock import Mock, call
@@ -502,6 +503,69 @@ class SeedingSchedulerTests(unittest.TestCase):
         self.torrent.torrent_path.write_bytes(b"invalid")
         with self.assertRaisesRegex(Exception, "torrent cannot be parsed"):
             prepare_seed(self.settings, candidate)
+
+    def test_prioritizes_unseeded_and_caps_green_rechecks_to_batch_limit(self) -> None:
+        release2 = make_release(release_id="2" * 40, name="Second Release")
+        payload2 = self.settings.releases_dir / "payload2.zip"
+        payload2.write_bytes(b"payload2")
+        torrent2 = create_torrent(
+            payload2,
+            self.settings.outbox_dir / release2.id / release2.sd_hash / "payload2.torrent",
+            piece_length=16 * 1024,
+        )
+        self.store.register(release2)
+        self.store.start_attempt(release2)
+        self.store.mark_verified(
+            release2,
+            file_path=payload2,
+            sha384=hashlib.sha384(b"payload2").hexdigest(),
+            sha256=hashlib.sha256(b"payload2").hexdigest(),
+        )
+        self.store.mark_awaiting_index(release2, torrent2)
+
+        # self.release is green, release2 is pending
+        self.store.mark_seed_green(
+            self.release.id,
+            self.release.sd_hash,
+            client_version="v5.2.3",
+            observed_state="forcedUP",
+            content_path="/downloads/releases/payload.zip",
+            dht_nodes=4,
+            working_trackers=1,
+            recheck_interval=0,  # ready for recheck immediately
+        )
+
+        obs2 = QBitObservation(
+            torrent=QBitTorrent(
+                info_hash=torrent2.info_hash,
+                content_path="/downloads/releases/payload2.zip",
+                save_path="/downloads/releases",
+                progress=1.0,
+                amount_left=0,
+                total_size=len(b"payload2"),
+                state="forcedUP",
+                force_start=True,
+                category="guncad-mirror",
+                tags=("guncad-mirror",),
+            ),
+            transfer=QBitTransfer("firewalled", 4),
+            trackers=(),
+        )
+        self.client.observe.side_effect = [None, obs2, self.observation()]
+
+        # With batch limit = 1 for green rechecks, both release2 (unseeded) and 1 green recheck run
+        scheduler = SeedingScheduler(
+            replace(self.settings, qbittorrent_recheck_batch=1),
+            self.store,
+            self.client,
+            record_event=self.events.append,
+            monotonic=lambda: self.tick,
+            sleep=self._sleep,
+        )
+        result = scheduler.run()
+        self.assertEqual(result.considered, 2)
+        self.assertEqual(result.attempted, 2)
+        self.assertEqual(result.green, 2)
 
     def test_stopped_run_is_side_effect_free_and_close_closes_client(self) -> None:
         stop = Event()

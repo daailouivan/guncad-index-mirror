@@ -730,7 +730,11 @@ class JobStore:
                     file_path IS NOT NULL AND
                     torrent_path IS NOT NULL AND
                     info_hash IS NOT NULL
-                ORDER BY seeding_next_attempt_at, release_id, sd_hash
+                ORDER BY
+                    CASE WHEN seeding_state = 'green' THEN 1 ELSE 0 END,
+                    seeding_next_attempt_at,
+                    release_id,
+                    sd_hash
                 """,
                 (
                     JobState.AWAITING_INDEX,

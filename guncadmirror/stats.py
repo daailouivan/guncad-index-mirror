@@ -26,7 +26,7 @@ class StatsCollector:
         store: JobStore,
         *,
         cheap_interval: float = 1,
-        disk_interval: float = 30,
+        disk_interval: float = 300,
         monotonic: Callable[[], float] = time.monotonic,
     ):
         self.settings = settings
@@ -281,7 +281,12 @@ class StatsCollector:
             self._snapshot.update(values)
 
     def collect_disk(self) -> None:
-        value = directory_size(self.settings.data_dir)
+        target = (
+            self.settings.releases_dir
+            if self.settings.releases_dir.exists()
+            else self.settings.data_dir
+        )
+        value = directory_size(target)
         with self._lock:
             self._snapshot["disk_space_used"] = value
 
