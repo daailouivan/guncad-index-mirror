@@ -15,7 +15,7 @@ services:
     depends_on:
       gluetun:
         condition: service_healthy
-      qbittorrent:
+      guncad-qbittorrent:
         condition: service_healthy
     volumes:
       - guncad-mirror:/data:z
@@ -63,7 +63,7 @@ services:
       - ./contrib/gluetun-qbittorrent-port.sh:/usr/local/bin/guncad-qbittorrent-port:ro,Z
     ports:
       - "127.0.0.1:${MIRROR_QBITTORRENT_WEBUI_PORT:-8083}:8080/tcp"
-  qbittorrent:
+  guncad-qbittorrent:
     build:
       context: .
       dockerfile: Dockerfile.qbittorrent

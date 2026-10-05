@@ -12,7 +12,7 @@ The supplied Compose stack runs qBittorrent beside Mirror. qBittorrent receives 
 
 ## Repository status
 
-GitHub (`daailouivan/guncad-index-mirror`) is the working remote, and its default branch is `v2-migration`. The GitLab fork [gitlab.com/daailouivan/mirror](https://gitlab.com/daailouivan/mirror) is kept in sync on `v2-migration`. Upstream remains [gitlab.com/guncad-index/mirror](https://gitlab.com/guncad-index/mirror); this account does not push there.
+GitHub (`daailouivan/guncad-index-mirror`) is the working repository on `v2-multisource`. Upstream is [gitlab.com/guncad-index/mirror](https://gitlab.com/guncad-index/mirror).
 
 The v1-to-v2 migration runner (`python -m guncadmirror.migration`) is on this branch and has been live-tested against a sample of the archive:
 
@@ -24,7 +24,7 @@ The v1-to-v2 migration runner (`python -m guncadmirror.migration`) is on this br
 
 A sample audit of 5 artifacts reported 0 integrity issues, 0 orphan manifests, and 0 orphan torrents. The full archive run (about 12,060 local streams, 11,087 canonical bootstrap torrents) has not been started. Index publication stays opt-in.
 
-Multi-source ingestion is next, not done. The release model still accepts only `origin.platform == "lbry"`. Printables and GitHub origins are skipped. Each new platform should acquire its own payload, then use the same checksum, torrent, outbox, and qBittorrent path.
+Multi-source ingestion is implemented for GunCAD Index v2 releases, supporting Printables, GitHub, direct HTTP, and BitTorrent swarm origins in addition to LBRY/Odysee claims. Each platform acquires its own payload, then uses the same checksum, torrent, outbox, and qBittorrent path.
 
 ## Current data path
 
