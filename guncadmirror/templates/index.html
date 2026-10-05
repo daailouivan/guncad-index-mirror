@@ -3,7 +3,6 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta http-equiv="refresh" content="10" />
         <style>
             @font-face {
                 font-display: block;
@@ -726,7 +725,7 @@
         </footer>
 
         <!-- Category Entries Modal Dialog -->
-        <dialog id="category-modal" class="category-modal" closedby="any" aria-labelledby="modal-title" aria-modal="true">
+        <dialog id="category-modal" class="category-modal" aria-labelledby="modal-title" aria-modal="true">
             <div class="modal-wrapper">
                 <header class="modal-header">
                     <div class="modal-title-group">
@@ -735,6 +734,9 @@
                         <span id="modal-count-badge" class="modal-count-pill">0 items</span>
                     </div>
                     <div class="modal-header-actions">
+                        <button type="button" id="modal-refresh-btn" class="button button-sm button-secondary" title="Refresh entries in this view">
+                            ⟳ Refresh
+                        </button>
                         <button type="button" id="modal-retry-all-btn" class="button button-sm button-warning" style="display: none;">
                             ⟳ Retry All Failed
                         </button>
@@ -799,40 +801,45 @@
             let pageCount = 1;
             let searchDebounceTimer = null;
 
-            // Auto-refresh suspension when modal is open
+            // Auto-refresh control: strictly paused while modal is open
             let autoRefreshTimer = null;
-            function resetAutoRefresh() {
+            function startAutoRefresh() {
                 clearTimeout(autoRefreshTimer);
                 autoRefreshTimer = setTimeout(() => {
                     if (!modal.open) {
                         window.location.reload();
                     } else {
-                        resetAutoRefresh();
+                        startAutoRefresh();
                     }
                 }, 10000);
             }
-            resetAutoRefresh();
-
-            // Light-dismiss fallback for browsers without 'closedBy' in HTMLDialogElement.prototype
-            if (!('closedBy' in HTMLDialogElement.prototype)) {
-                modal.addEventListener('click', (event) => {
-                    if (event.target !== modal) return;
-                    const rect = modal.getBoundingClientRect();
-                    const isInside = (
-                        rect.top <= event.clientY &&
-                        event.clientY <= rect.top + rect.height &&
-                        rect.left <= event.clientX &&
-                        event.clientX <= rect.left + rect.width
-                    );
-                    if (!isInside) {
-                        modal.close();
-                    }
-                });
+            function stopAutoRefresh() {
+                clearTimeout(autoRefreshTimer);
+                autoRefreshTimer = null;
             }
+            startAutoRefresh();
+
+            // Light-dismiss: click outside the modal wrapper closes dialog
+            modal.addEventListener('click', (event) => {
+                if (event.target !== modal) return;
+                const rect = modal.getBoundingClientRect();
+                const isInside = (
+                    rect.top <= event.clientY &&
+                    event.clientY <= rect.top + rect.height &&
+                    rect.left <= event.clientX &&
+                    event.clientX <= rect.left + rect.width
+                );
+                if (!isInside) {
+                    modal.close();
+                }
+            });
 
             closeBtn.addEventListener("click", () => modal.close());
             modal.addEventListener("close", () => {
-                resetAutoRefresh();
+                startAutoRefresh();
+                try {
+                    history.replaceState(null, "", window.location.pathname + window.location.search);
+                } catch (_) {}
             });
 
             const SECTION_LABELS = {
@@ -1089,22 +1096,60 @@
                 }
             });
 
+            function openModal(section, category, platform) {
+                currentSection = section || "pipeline";
+                currentCategory = category || "all";
+                currentPlatform = platform || "";
+                currentQuery = "";
+                currentPage = 1;
+
+                searchInput.value = "";
+                platformFilter.value = currentPlatform;
+
+                stopAutoRefresh();
+                loadEntries();
+                if (!modal.open) {
+                    modal.showModal();
+                }
+
+                try {
+                    const hash = `category=${currentSection}:${currentCategory}${currentPlatform ? ':' + currentPlatform : ''}`;
+                    if (window.location.hash !== '#' + hash) {
+                        history.replaceState(null, "", '#' + hash);
+                    }
+                } catch (_) {}
+            }
+
+            const refreshBtn = document.getElementById("modal-refresh-btn");
+            if (refreshBtn) {
+                refreshBtn.addEventListener("click", async () => {
+                    refreshBtn.disabled = true;
+                    try {
+                        await loadEntries();
+                    } finally {
+                        refreshBtn.disabled = false;
+                    }
+                });
+            }
+
             document.querySelectorAll("[data-modal-trigger]").forEach(trigger => {
                 trigger.addEventListener("click", (e) => {
                     e.preventDefault();
-                    currentSection = trigger.getAttribute("data-section") || "pipeline";
-                    currentCategory = trigger.getAttribute("data-category") || "all";
-                    currentPlatform = trigger.getAttribute("data-platform") || "";
-                    currentQuery = "";
-                    currentPage = 1;
-
-                    searchInput.value = "";
-                    platformFilter.value = currentPlatform;
-
-                    loadEntries();
-                    modal.showModal();
+                    openModal(
+                        trigger.getAttribute("data-section"),
+                        trigger.getAttribute("data-category"),
+                        trigger.getAttribute("data-platform")
+                    );
                 });
             });
+
+            // Restore modal state from URL hash on load
+            if (window.location.hash && window.location.hash.startsWith("#category=")) {
+                const parts = window.location.hash.replace("#category=", "").split(":");
+                if (parts.length >= 2) {
+                    openModal(parts[0], parts[1], parts[2] || "");
+                }
+            }
         })();
         </script>
     </body>
