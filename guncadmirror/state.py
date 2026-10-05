@@ -1142,11 +1142,14 @@ class JobStore:
                     release_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR
                     channel_handle LIKE ? ESCAPE '\\' COLLATE NOCASE OR
                     release_slug LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    release_id LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    sd_hash LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    info_hash LIKE ? ESCAPE '\\' COLLATE NOCASE OR
                     platform LIKE ? ESCAPE '\\' COLLATE NOCASE
                 )
                 """
             )
-            parameters.extend((pattern, pattern, pattern, pattern))
+            parameters.extend((pattern, pattern, pattern, pattern, pattern, pattern, pattern))
         where = " AND ".join(clauses)
 
         with closing(self._connect()) as connection:
@@ -1375,6 +1378,7 @@ class JobStore:
                 SELECT
                     release_id,
                     sd_hash,
+                    release_json,
                     release_name,
                     channel_handle,
                     release_slug,
@@ -1422,6 +1426,7 @@ class JobStore:
                     "release_slug": row["release_slug"],
                     "platform": row["platform"] or "lbry",
                     "payload_size": row["payload_size"],
+                    "source_url": _source_url_from_json(row["release_json"]),
                     "state": row["state"],
                     "attempts": row["attempts"],
                     "next_attempt_at": row["next_attempt_at"],
@@ -1751,3 +1756,28 @@ def _platform_from_json(release_json: str) -> str:
         if isinstance(plat, str) and plat.strip().lower() in SUPPORTED_PLATFORMS:
             return plat.strip().lower()
     return "lbry"
+
+
+def _source_url_from_json(release_json: str) -> str | None:
+    try:
+        value = json.loads(release_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(value, Mapping):
+        return None
+    origin = value.get("origin")
+    if not isinstance(origin, Mapping):
+        return None
+    links = origin.get("links")
+    if isinstance(links, list):
+        for scheme in ("https", "http", "lbry"):
+            for link in links:
+                if isinstance(link, Mapping):
+                    u = link.get("url")
+                    if isinstance(u, str) and u.strip():
+                        if u.strip().lower().startswith(f"{scheme}:"):
+                            return u.strip()
+    url_field = origin.get("url")
+    if isinstance(url_field, str) and url_field.strip():
+        return url_field.strip()
+    return None

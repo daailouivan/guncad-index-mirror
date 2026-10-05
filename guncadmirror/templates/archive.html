@@ -50,14 +50,14 @@
                 <form class="archive-search"
                       method="get"
                       action="{{ url_for('archive_browser') }}">
-                    <label for="archive-query">Release, channel, or slug</label>
+                    <label for="archive-query">Release, channel, slug, ID, or hash</label>
                     <div class="archive-search-controls">
                         <input id="archive-query"
                                name="q"
                                type="search"
                                maxlength="200"
                                value="{{ archive_query }}"
-                               placeholder="e.g. @ciwielab or NEO9" />
+                               placeholder="e.g. @ciwielab, NEO9, or release ID" />
                         <select name="platform" id="archive-platform" class="archive-select">
                             <option value="">All sources</option>
                             <option value="lbry" {% if archive_platform == 'lbry' %}selected{% endif %}>LBRY / Odysee</option>

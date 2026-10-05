@@ -609,6 +609,16 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(m_total, 1)
         self.assertEqual(matched[0].platform, "printables")
 
+        # Query matches exact release_id
+        by_id, id_total = self.store.search_archive(query="printables-12345")
+        self.assertEqual(id_total, 1)
+        self.assertEqual(by_id[0].name, "Printables Bracket")
+
+        # Query matches sd_hash prefix
+        by_sd, sd_total = self.store.search_archive(query=printables_rel.sd_hash[:16])
+        self.assertEqual(sd_total, 1)
+        self.assertEqual(by_sd[0].name, "Printables Bracket")
+
     def test_legacy_database_backfills_platform_and_size(self) -> None:
         legacy_path = Path(self.temporary.name) / "legacy.sqlite3"
         legacy_schema = SCHEMA.replace(
@@ -719,6 +729,7 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(entries[0]["release_id"], "a" * 40)
         self.assertEqual(entries[0]["state"], "failed")
         self.assertIn("Connection timeout", entries[0]["last_error"])
+        self.assertIn("source_url", entries[0])
 
         # Query pipeline pending
         entries, total = self.store.get_category_entries("pipeline", "pending")

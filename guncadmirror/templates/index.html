@@ -1023,10 +1023,10 @@
                             </div>
                             <div class="entry-tags">
                                 <span class="status-tag status-tag-${escapeHtml(entry.state)}">${escapeHtml(entry.state)}</span>
-                                ${entry.payload_size ? `<span class="size-tag fine-print">${escapeHtml(entry.size_human)}</span>` : ''}
                             </div>
                         </div>
                         <div class="entry-meta fine-print breakable">
+                            ${entry.payload_size ? `<span><strong>Size:</strong> ${escapeHtml(entry.size_human)}</span>` : ''}
                             <span><strong>ID:</strong> <code>${escapeHtml(entry.release_id)}</code></span>
                             <span><strong>Descriptor:</strong> <code>${escapeHtml(entry.sd_hash ? entry.sd_hash.slice(0, 16) : '')}…</code></span>
                             <span><strong>Attempts:</strong> ${entry.attempts}</span>
@@ -1086,6 +1086,9 @@
                     }
 
                     html += `<div class="entry-actions">`;
+                    if (entry.source_url) {
+                        html += `<a href="${escapeHtml(entry.source_url)}" class="button button-sm button-secondary" target="_blank" rel="noopener" title="Open upstream release page">Open Source ↗</a>`;
+                    }
                     if (entry.state === "failed") {
                         html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Retry Job</button>`;
                     }
@@ -1100,7 +1103,9 @@
                     if (entry.torrent_url) {
                         html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
                     }
-                    html += `<a href="/archive?q=${encodeURIComponent(entry.release_name || entry.release_id)}" class="button button-sm button-secondary" target="_blank" rel="noopener">Find in Archive</a>`;
+                    if (entry.state === "awaiting_index") {
+                        html += `<a href="/archive?q=${encodeURIComponent(entry.release_id)}" class="button button-sm button-secondary" target="_blank" rel="noopener" title="View exact verified record in archive">View in Archive</a>`;
+                    }
                     html += `</div></article>`;
                 });
                 html += '</div>';

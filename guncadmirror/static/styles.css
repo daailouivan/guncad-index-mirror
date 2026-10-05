@@ -590,17 +590,29 @@ dialog.category-modal::backdrop {
 }
 
 .entry-title-row {
-	display: flex;
-	align-items: baseline;
-	gap: 0.45rem;
-	flex-wrap: wrap;
+	display: block;
+	min-width: 0;
+	line-height: 1.4;
+	word-break: break-word;
+	overflow-wrap: break-word;
+}
+
+.entry-title-row .source-badge {
+	display: inline-block;
+	vertical-align: middle;
+	margin-right: 0.45rem;
+	margin-bottom: 0.15rem;
 }
 
 .entry-name {
+	display: inline;
+	vertical-align: middle;
 	font-size: 1.05rem;
+	font-weight: 700;
 	color: #fff;
-	line-height: 1.35;
+	line-height: 1.4;
 	word-break: break-word;
+	overflow-wrap: break-word;
 }
 
 .entry-sub-row {
@@ -623,14 +635,18 @@ dialog.category-modal::backdrop {
 .entry-tags {
 	display: flex;
 	align-items: center;
-	gap: 0.5rem;
+	justify-content: flex-end;
 	flex-shrink: 0;
 	white-space: nowrap;
 	margin-top: 0.1rem;
 }
 
 .status-tag {
-	padding: 0.12rem 0.45rem;
+	min-width: 105px;
+	text-align: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 0.15rem 0.5rem;
 	border-radius: 0.2rem;
 	font-size: 0.75rem;
 	font-weight: 700;
