@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from guncadmirror.models import PublicationState, Release, TorrentArtifact
+from guncadmirror.models import JobState, PublicationState, Release, TorrentArtifact
 from guncadmirror.settings import Settings
 from guncadmirror.state import JobStore
 from guncadmirror.webui import create_app, start
@@ -156,6 +156,8 @@ class WebUiTests(unittest.TestCase):
             "psutil_mem": 2,
             "psutil_disk": disk,
             "psutil_net": network,
+            "github_token_configured": False,
+            "github_token_masked": "",
             "extralog": ["event"],
         }
 
@@ -544,6 +546,41 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(kwargs["kwargs"]["port"], 5000)
         self.assertEqual(kwargs["kwargs"]["threads"], 8)
         thread.start.assert_called_once_with()
+
+    def test_update_github_token_endpoint(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Insert a failed github job into the real store to test retry on token update
+        gh_raw = release_payload(b"github", release_id="github-123", sd_hash="a" * 96)
+        gh_raw["origin"]["platform"] = "github"
+        gh_rel = Release.from_api(gh_raw)
+        self.store.register(gh_rel)
+        self.store.start_attempt(gh_rel)
+        self.store.mark_failed(gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0)
+
+        # Post token update
+        response = client.post(
+            "/settings/github-token",
+            data={"github_token": "ghp_mocktoken12345678"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/?token_saved=1", response.headers["Location"])
+
+        # Check real store updated and failed job was reset to pending
+        self.assertEqual(self.store.get_setting("github_token"), "ghp_mocktoken12345678")
+        job = self.store.get("github-123", "a" * 96)
+        self.assertEqual(job.state, JobState.PENDING)
+
+        # Test index page rendering with saved token banner and configured status
+        self.collector.snapshot.return_value["github_token_configured"] = True
+        self.collector.snapshot.return_value["github_token_masked"] = "ghp_...5678"
+
+        index_resp = client.get("/?token_saved=1")
+        self.assertEqual(index_resp.status_code, 200)
+        self.assertIn(b"GitHub Token updated successfully", index_resp.data)
+        self.assertIn(b"Authenticated (5,000 req/hr)", index_resp.data)
+        self.assertIn(b"ghp_...5678", index_resp.data)
 
 
 if __name__ == "__main__":

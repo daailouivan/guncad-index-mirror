@@ -4,7 +4,7 @@ from math import ceil
 from pathlib import Path
 from threading import Thread
 
-from flask import Flask, Response, abort, render_template, request, send_file
+from flask import Flask, Response, abort, redirect, render_template, request, send_file
 from waitress import serve
 
 from .models import RELEASE_ID_RE, SHA384_RE, JobState
@@ -21,7 +21,22 @@ def create_app(collector: StatsCollector) -> Flask:
 
     @app.route("/")
     def mirror_statistics() -> str:
-        return render_template("index.html", **collector.snapshot())
+        context = collector.snapshot()
+        context["token_saved"] = request.args.get("token_saved") == "1"
+        return render_template("index.html", **context)
+
+    @app.route("/settings/github-token", methods=["POST"])
+    def update_github_token() -> Response:
+        raw_token = request.form.get("github_token", "").strip()
+        collector.store.set_setting("github_token", raw_token)
+        if raw_token:
+            retried = collector.store.retry_failed_jobs(platform="github")
+            if retried > 0:
+                collector.events.append(
+                    f"Reset {retried} rate-limited GitHub releases for immediate retry with updated token"
+                )
+        collector.collect()
+        return redirect("/?token_saved=1")
 
     @app.route("/archive")
     def archive_browser() -> str:

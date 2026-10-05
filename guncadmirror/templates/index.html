@@ -251,6 +251,38 @@
                     File counts reflect upstream catalog releases discovered from each ingestion source versus locally assembled, verified payloads with generated torrents. Staged volume reflects completed plaintext payload bytes on disk.
                 </p>
             </section>
+            <section class="panel" data-testid="github-token-configuration">
+                <h2>GitHub API Access &amp; Rate Limits</h2>
+                {% if token_saved %}
+                    <div class="banner banner-success" role="alert" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: #1a4731; border: 1px solid #2e7d32; border-radius: 4px; color: #a5d6a7;">
+                        <strong>✓ GitHub Token updated successfully.</strong> Any previously rate-limited GitHub releases have been reset for immediate retry.
+                    </div>
+                {% endif %}
+                <div class="github-token-box" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
+                    <div style="flex: 1; min-width: 280px;">
+                        <p style="margin-top: 0;">
+                            <strong>Authentication Status:</strong>
+                            {% if github_token_configured %}
+                                <span class="source-badge source-badge-github" style="background: #2e7d32; color: #fff;">Authenticated (5,000 req/hr)</span>
+                                {% if github_token_masked %}<code style="margin-left: 0.5rem;">{{ github_token_masked }}</code>{% endif %}
+                            {% else %}
+                                <span class="source-badge" style="background: #b71c1c; color: #fff;">Unauthenticated (60 req/hr limit)</span>
+                            {% endif %}
+                        </p>
+                        <p class="fine-print">
+                            GitHub enforces an unauthenticated limit of 60 requests per hour per IP. Adding a personal access token (classic or fine-grained with public repository read permissions) increases the rate limit to 5,000 requests per hour, unblocking automated release and source archive mirroring.
+                        </p>
+                    </div>
+                    <form method="POST" action="{{ url_for('update_github_token') }}" style="flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <label for="github_token" style="font-weight: 600;">Personal Access Token</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="password" id="github_token" name="github_token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="flex: 1; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid #444; background: #222; color: #fff; font-family: monospace;">
+                            <button type="submit" class="button" style="padding: 0.5rem 1rem; cursor: pointer;">Save Token</button>
+                        </div>
+                        <span class="fine-print">Submitting an updated token instantly resets all failed GitHub downloads for immediate retry.</span>
+                    </form>
+                </div>
+            </section>
             <section class="panel">
                 <h2>qBittorrent seeding</h2>
                 <div class="job-grid">

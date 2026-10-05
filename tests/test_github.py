@@ -92,3 +92,26 @@ class GitHubAcquirerTests(unittest.TestCase):
 
         with self.assertRaises(AcquisitionCancelled):
             acquirer.acquire(release, self.output_dir, stop=stop)
+
+    @patch("guncadmirror.github.download_url_to_file")
+    def test_dynamic_token_provider_and_headers(self, mock_download: object) -> None:
+        token_val = "ghp_initial"
+        acquirer = GitHubAcquirer(
+            token_provider=lambda: token_val,
+            session=QueueSession(FakeResponse({"assets": []})),  # type: ignore[arg-type]
+        )
+        self.assertEqual(acquirer.token, "ghp_initial")
+        token_val = "ghp_dynamic_updated"
+        self.assertEqual(acquirer.token, "ghp_dynamic_updated")
+
+        release = make_github_release()
+        acquirer.acquire(release, self.output_dir)
+
+        self.assertTrue(mock_download.called)  # type: ignore[attr-defined]
+        call_kwargs = mock_download.call_args[1]  # type: ignore[attr-defined]
+        self.assertIn("headers", call_kwargs)
+        self.assertEqual(
+            call_kwargs["headers"].get("Authorization"),
+            "Bearer ghp_dynamic_updated",
+        )
+

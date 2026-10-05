@@ -117,6 +117,16 @@ class StatsCollector:
                 "error_code": None,
                 "error": None,
             },
+            "github_token_configured": bool(
+                self.store.get_setting("github_token") or settings.github_token
+            ),
+            "github_token_masked": (
+                (
+                    f"{(self.store.get_setting('github_token') or settings.github_token)[:4]}...{(self.store.get_setting('github_token') or settings.github_token)[-4:]}"
+                    if len(self.store.get_setting("github_token") or settings.github_token) >= 8
+                    else ("Configured" if (self.store.get_setting("github_token") or settings.github_token) else "")
+                )
+            ),
         }
         self._activities: dict[tuple[str, str], dict[str, Any]] = {}
         self._activity_rates: dict[
@@ -245,6 +255,16 @@ class StatsCollector:
                 plat: s["awaiting_index"] for plat, s in breakdown.items()
             },
             "known_jobs": sum(counts.values()),
+            "github_token_configured": bool(
+                self.store.get_setting("github_token") or self.settings.github_token
+            ),
+            "github_token_masked": (
+                (
+                    f"{(self.store.get_setting('github_token') or self.settings.github_token)[:4]}...{(self.store.get_setting('github_token') or self.settings.github_token)[-4:]}"
+                    if len(self.store.get_setting("github_token") or self.settings.github_token) >= 8
+                    else ("Configured" if (self.store.get_setting("github_token") or self.settings.github_token) else "")
+                )
+            ),
         }
         with self._lock:
             self._snapshot.update(values)

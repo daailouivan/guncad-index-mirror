@@ -47,11 +47,13 @@ class FakeResponse:
         payload: Any = None,
         *,
         status_code: int = 200,
+        headers: Mapping[str, str] | None = None,
         status_error: Exception | None = None,
         json_error: Exception | None = None,
     ):
         self.payload = payload
         self.status_code = status_code
+        self.headers = dict(headers or {})
         self.status_error = status_error
         self.json_error = json_error
 

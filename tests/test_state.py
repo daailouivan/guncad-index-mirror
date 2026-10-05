@@ -650,6 +650,43 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(job.platform, "printables")
         self.assertEqual(job.payload_size, 4321)
 
+    def test_get_and_set_mirror_settings(self) -> None:
+        self.assertEqual(self.store.get_setting("nonexistent", default="default_val"), "default_val")
+        self.store.set_setting("github_token", "ghp_secret123")
+        self.assertEqual(self.store.get_setting("github_token"), "ghp_secret123")
+        self.store.set_setting("github_token", "ghp_updated456")
+        self.assertEqual(self.store.get_setting("github_token"), "ghp_updated456")
+
+    def test_retry_failed_jobs_by_platform(self) -> None:
+        # Create a failed github job and a failed lbry job
+        gh_raw = release_payload(b"github", release_id="github-123", sd_hash="a" * 96)
+        gh_raw["origin"]["platform"] = "github"
+        gh_rel = Release.from_api(gh_raw)
+        self.store.register(gh_rel)
+        self.store.start_attempt(gh_rel)
+        self.store.mark_failed(gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0)
+
+        lbry_raw = release_payload(b"lbry", release_id="b" * 40, sd_hash="b" * 96)
+        lbry_rel = Release.from_api(lbry_raw)
+        self.store.register(lbry_rel)
+        self.store.start_attempt(lbry_rel)
+        self.store.mark_failed(lbry_rel, RuntimeError("Stream dead"), retry_backoff=2.0)
+
+        self.assertEqual(self.store.counts(), {"failed": 2})
+
+        # Retry only github failed jobs
+        retried = self.store.retry_failed_jobs(platform="github")
+        self.assertEqual(retried, 1)
+
+        counts = self.store.counts()
+        self.assertEqual(counts["pending"], 1)
+        self.assertEqual(counts["failed"], 1)
+
+        gh_job = self.store.get("github-123", "a" * 96)
+        self.assertEqual(gh_job.state, JobState.PENDING)
+        self.assertIsNone(gh_job.last_error)
+        self.assertEqual(gh_job.attempts, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

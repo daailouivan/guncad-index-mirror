@@ -92,19 +92,47 @@ def download_url_to_file(
 
         except (requests.RequestException, OSError) as error:
             last_error = error
-            if attempt == attempts:
+            is_rate_limit = False
+            retry_after_delay: float | None = None
+
+            if isinstance(error, requests.HTTPError) and error.response is not None:
+                if error.response.status_code == 429:
+                    is_rate_limit = True
+                    resp_headers = getattr(error.response, "headers", None) or {}
+                    retry_after = resp_headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            retry_after_delay = float(retry_after)
+                        except (ValueError, TypeError):
+                            pass
+
+            max_attempts = max(attempts, 7) if is_rate_limit else attempts
+            if attempt >= max_attempts:
                 break
-            delay = backoff * (2 ** (attempt - 1))
+
+            if is_rate_limit and backoff > 0:
+                if retry_after_delay is not None:
+                    delay = max(retry_after_delay, 5.0)
+                else:
+                    delay = max(
+                        backoff * (2 ** (attempt - 1)),
+                        5.0 * (2 ** (attempt - 1)),
+                    )
+            elif backoff > 0:
+                delay = backoff * (2 ** (attempt - 1))
+            else:
+                delay = 0.0
+
             logger.warning(
                 "Download %s attempt %d/%d failed: %s; retrying in %.1fs",
                 url,
                 attempt,
-                attempts,
+                max_attempts,
                 error,
                 delay,
             )
             wait_or_cancel(stop, delay, sleep=sleep)
 
     raise DownloadError(
-        f"failed to download {url} after {attempts} attempts: {last_error}"
+        f"failed to download {url} after {max_attempts} attempts: {last_error}"
     ) from last_error

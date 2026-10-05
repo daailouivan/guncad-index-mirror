@@ -52,6 +52,7 @@ class GitHubAcquirer:
         self,
         api_url: str = GITHUB_API_URL,
         token: str | None = None,
+        token_provider: Callable[[], str | None] | None = None,
         session: requests.Session | ThreadLocalSessionPool | None = None,
         attempts: int = 5,
         backoff: float = 2.0,
@@ -61,7 +62,8 @@ class GitHubAcquirer:
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.api_url = api_url.rstrip("/")
-        self.token = token
+        self._token = token
+        self._token_provider = token_provider
         self.session = session or ThreadLocalSessionPool()
         self.attempts = attempts
         self.backoff = backoff
@@ -69,6 +71,18 @@ class GitHubAcquirer:
         self.logger = logger or logging.getLogger("guncad-mirror.github")
         self.progress = progress or NullProgressReporter()
         self.sleep = sleep
+
+    @property
+    def token(self) -> str | None:
+        if self._token_provider is not None:
+            provided = self._token_provider()
+            if provided:
+                return provided
+        return self._token
+
+    @token.setter
+    def token(self, value: str | None) -> None:
+        self._token = value
 
     def close(self) -> None:
         if hasattr(self.session, "close"):
@@ -95,9 +109,14 @@ class GitHubAcquirer:
         safe_name = safe_component(file_name, fallback=f"{repo}.zip")
         destination = output_directory / safe_name
 
+        download_headers: dict[str, str] = {"User-Agent": USER_AGENT}
+        if self.token:
+            download_headers["Authorization"] = f"Bearer {self.token}"
+
         download_url_to_file(
             download_url,
             destination,
+            headers=download_headers,
             session=self.session,
             attempts=self.attempts,
             backoff=self.backoff,

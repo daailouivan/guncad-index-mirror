@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS tracker_policy_cache (
     document BLOB NOT NULL,
     updated_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mirror_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 
@@ -312,6 +318,41 @@ class JobStore:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "SELECT value FROM mirror_settings WHERE key = ?", (key,)
+            )
+            row = cursor.fetchone()
+            return str(row["value"]) if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO mirror_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+                """,
+                (key, value, now),
+            )
+
+    def retry_failed_jobs(self, *, platform: str | None = None) -> int:
+        now = self.clock()
+        query = (
+            "UPDATE jobs SET state=?, attempts=0, next_attempt_at=0, "
+            "last_error=NULL, updated_at=? WHERE state=?"
+        )
+        params: list[Any] = [JobState.PENDING, now, JobState.FAILED]
+        if platform:
+            query += " AND platform=?"
+            params.append(platform)
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(query, tuple(params))
+            return cursor.rowcount
+
 
     def register(self, release: Release) -> Job:
         now = self.clock()

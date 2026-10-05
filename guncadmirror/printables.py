@@ -74,6 +74,7 @@ class PrintablesAcquirer:
         attempts: int = 5,
         backoff: float = 2.0,
         read_timeout: float = 60.0,
+        pacing: float = 0.5,
         logger: logging.Logger | None = None,
         progress: ProgressReporter | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -83,6 +84,7 @@ class PrintablesAcquirer:
         self.attempts = attempts
         self.backoff = backoff
         self.read_timeout = read_timeout
+        self.pacing = pacing
         self.logger = logger or logging.getLogger("guncad-mirror.printables")
         self.progress = progress or NullProgressReporter()
         self.sleep = sleep
@@ -208,7 +210,12 @@ class PrintablesAcquirer:
         }
         last_error: Exception | None = None
 
-        for attempt in range(1, self.attempts + 1):
+        if self.pacing > 0:
+            wait_or_cancel(stop, self.pacing, sleep=self.sleep)
+
+        attempt = 1
+        max_attempts = self.attempts
+        while attempt <= max_attempts:
             check_cancelled(stop)
             try:
                 response = self.session.post(
@@ -231,21 +238,52 @@ class PrintablesAcquirer:
                 return data.get("data", {})
             except (requests.RequestException, ValueError) as error:
                 last_error = error
-                if attempt == self.attempts:
+                is_rate_limit = False
+                retry_after_delay: float | None = None
+
+                if isinstance(error, requests.HTTPError) and error.response is not None:
+                    if error.response.status_code == 429:
+                        is_rate_limit = True
+                        resp_headers = getattr(error.response, "headers", None) or {}
+                        retry_after = resp_headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                retry_after_delay = float(retry_after)
+                            except (ValueError, TypeError):
+                                pass
+
+                if is_rate_limit:
+                    max_attempts = max(max_attempts, 7)
+
+                if attempt >= max_attempts:
                     break
-                delay = self.backoff * (2 ** (attempt - 1))
+
+                if is_rate_limit and self.backoff > 0:
+                    if retry_after_delay is not None:
+                        delay = max(retry_after_delay, 5.0)
+                    else:
+                        delay = max(
+                            self.backoff * (2 ** (attempt - 1)),
+                            5.0 * (2 ** (attempt - 1)),
+                        )
+                elif self.backoff > 0:
+                    delay = self.backoff * (2 ** (attempt - 1))
+                else:
+                    delay = 0.0
+
                 self.logger.warning(
                     "Printables %s attempt %d/%d failed: %s; retrying in %.1fs",
                     operation_name,
                     attempt,
-                    self.attempts,
+                    max_attempts,
                     error,
                     delay,
                 )
                 wait_or_cancel(stop, delay, sleep=self.sleep)
+                attempt += 1
 
         raise PrintablesUnavailable(
-            f"Printables {operation_name} failed after {self.attempts} attempts: {last_error}"
+            f"Printables {operation_name} failed after {max_attempts} attempts: {last_error}"
         ) from last_error
 
     def _fetch_model_files(

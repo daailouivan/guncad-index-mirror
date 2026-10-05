@@ -29,6 +29,7 @@ class Settings:
     lbry_concurrency: int = 4
     odysee_concurrency: int = 2
     printables_concurrency: int = 2
+    printables_pacing: float = 0.5
     github_concurrency: int = 2
     http_concurrency: int = 2
     torrent_concurrency: int = 2
@@ -88,6 +89,9 @@ class Settings:
             odysee_concurrency=_integer(env, "MIRROR_ODYSEE_CONCURRENCY", 2, minimum=1),
             printables_concurrency=_integer(
                 env, "MIRROR_PRINTABLES_CONCURRENCY", 2, minimum=1
+            ),
+            printables_pacing=_number(
+                env, "MIRROR_PRINTABLES_PACING", 0.5, minimum=0
             ),
             github_concurrency=_integer(env, "MIRROR_GITHUB_CONCURRENCY", 2, minimum=1),
             http_concurrency=_integer(env, "MIRROR_HTTP_CONCURRENCY", 2, minimum=1),

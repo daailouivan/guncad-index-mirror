@@ -227,10 +227,12 @@ def build_runtime(settings: Settings) -> Runtime:
     printables = PrintablesAcquirer(
         attempts=settings.retry_attempts,
         backoff=settings.retry_backoff,
+        pacing=settings.printables_pacing,
         progress=stats,
     )
     github = GitHubAcquirer(
         token=settings.github_token or None,
+        token_provider=lambda: store.get_setting("github_token") or settings.github_token,
         attempts=settings.retry_attempts,
         backoff=settings.retry_backoff,
         progress=stats,

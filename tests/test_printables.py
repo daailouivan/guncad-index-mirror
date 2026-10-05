@@ -72,7 +72,7 @@ class PrintablesAcquirerTests(unittest.TestCase):
         session = QueueSession(
             FakeResponse(files_response), FakeResponse(link_response)
         )
-        acquirer = PrintablesAcquirer(session=session)  # type: ignore[arg-type]
+        acquirer = PrintablesAcquirer(session=session, pacing=0)  # type: ignore[arg-type]
         release = make_printables_release()
 
         acquisition = acquirer.acquire(release, self.output_dir)
@@ -126,7 +126,7 @@ class PrintablesAcquirerTests(unittest.TestCase):
             FakeResponse(link_response1),
             FakeResponse(link_response2),
         )
-        acquirer = PrintablesAcquirer(session=session)  # type: ignore[arg-type]
+        acquirer = PrintablesAcquirer(session=session, pacing=0)  # type: ignore[arg-type]
         release = make_printables_release()
 
         acquisition = acquirer.acquire(release, self.output_dir)
@@ -151,7 +151,7 @@ class PrintablesAcquirerTests(unittest.TestCase):
             }
         }
         session = QueueSession(FakeResponse(files_response))
-        acquirer = PrintablesAcquirer(session=session)  # type: ignore[arg-type]
+        acquirer = PrintablesAcquirer(session=session, pacing=0)  # type: ignore[arg-type]
         release = make_printables_release()
 
         with self.assertRaises(PrintablesProtocolError):
@@ -160,8 +160,93 @@ class PrintablesAcquirerTests(unittest.TestCase):
     def test_respects_cancellation(self) -> None:
         stop = Event()
         stop.set()
-        acquirer = PrintablesAcquirer()
+        acquirer = PrintablesAcquirer(pacing=0)
         release = make_printables_release()
 
         with self.assertRaises(AcquisitionCancelled):
             acquirer.acquire(release, self.output_dir, stop=stop)
+
+    @patch("guncadmirror.printables.download_url_to_file")
+    def test_handles_429_rate_limit_with_retry_after(
+        self, mock_download: object
+    ) -> None:
+        import requests
+
+        sleep_calls: list[float] = []
+
+        # First request to ModelFiles returns 429 with Retry-After: 3
+        resp_429 = FakeResponse(
+            status_code=429,
+            headers={"Retry-After": "3"},
+            status_error=requests.HTTPError(
+                "429 Client Error",
+                response=FakeResponse(
+                    status_code=429, headers={"Retry-After": "3"}
+                ),  # type: ignore[arg-type]
+            ),
+        )
+        files_response = {
+            "data": {
+                "model": {
+                    "id": "1863745",
+                    "name": "AmmoBox 22LR",
+                    "stls": [{"id": "7787145", "name": "box.3mf", "fileSize": 500}],
+                    "gcodes": [],
+                    "slas": [],
+                    "otherFiles": [],
+                }
+            }
+        }
+        link_response = {
+            "data": {
+                "getDownloadLink": {
+                    "ok": True,
+                    "output": {"link": "https://files.printables.com/box.3mf"},
+                }
+            }
+        }
+
+        session = QueueSession(
+            resp_429,
+            FakeResponse(files_response),
+            FakeResponse(link_response),
+        )
+        acquirer = PrintablesAcquirer(
+            session=session,  # type: ignore[arg-type]
+            pacing=0,
+            sleep=lambda d: sleep_calls.append(d),
+        )
+        release = make_printables_release()
+
+        acquisition = acquirer.acquire(release, self.output_dir)
+        self.assertEqual(acquisition.path, self.output_dir / "box.3mf")
+        # Should have slept with delay >= 3.0s from Retry-After
+        self.assertTrue(any(d >= 3.0 for d in sleep_calls))
+
+    def test_respects_pacing_between_graphql_requests(self) -> None:
+        sleep_calls: list[float] = []
+        files_response = {
+            "data": {
+                "model": {
+                    "id": "1863745",
+                    "name": "Empty Model",
+                    "stls": [],
+                    "gcodes": [],
+                    "slas": [],
+                    "otherFiles": [],
+                }
+            }
+        }
+        session = QueueSession(FakeResponse(files_response))
+        acquirer = PrintablesAcquirer(
+            session=session,  # type: ignore[arg-type]
+            pacing=0.5,
+            sleep=lambda d: sleep_calls.append(d),
+        )
+        release = make_printables_release()
+
+        with self.assertRaises(PrintablesProtocolError):
+            acquirer.acquire(release, self.output_dir)
+
+        self.assertIn(0.5, sleep_calls)
+
