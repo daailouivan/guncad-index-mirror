@@ -736,10 +736,14 @@ def relocate_qbit_seeds(
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT info_hash, file_path, release_name FROM jobs WHERE file_path IS NOT NULL"
+            """
+            SELECT info_hash, file_path, torrent_path, release_name
+            FROM jobs
+            WHERE file_path IS NOT NULL AND torrent_path IS NOT NULL
+            """
         )
-        job_map: dict[str, tuple[str, str]] = {
-            row[0].lower(): (row[1], row[2]) for row in cur.fetchall() if row[0]
+        job_map: dict[str, tuple[str, str, str]] = {
+            row[0].lower(): (row[1], row[2], row[3]) for row in cur.fetchall() if row[0]
         }
 
         stats = {
@@ -758,7 +762,7 @@ def relocate_qbit_seeds(
                 stats["skipped_missing"] += 1
                 continue
 
-            file_path_str, release_name = job_map[info_hash]
+            file_path_str, torrent_path_str, release_name = job_map[info_hash]
             try:
                 file_path = Path(file_path_str)
                 rel = file_path.resolve().relative_to(settings.data_dir.resolve())
@@ -775,7 +779,7 @@ def relocate_qbit_seeds(
                     *rel.parts[:-1]
                 )
             )
-            if PurePosixPath(current_save) == PurePosixPath(canonical_save):
+            if PurePosixPath(current_save) == PurePosixPath(canonical_save) and item.get("state") != "moving":
                 stats["skipped_canonical"] += 1
                 continue
 
@@ -789,8 +793,35 @@ def relocate_qbit_seeds(
                 stats["skipped_missing"] += 1
                 continue
 
+            local_torrent = Path(torrent_path_str)
+            if not local_torrent.is_file():
+                try:
+                    t_rel = local_torrent.resolve().relative_to(settings.data_dir.resolve())
+                    local_torrent = settings.data_dir.resolve() / t_rel
+                except (ValueError, OSError):
+                    t_parts = PurePosixPath(torrent_path_str).parts
+                    if len(t_parts) > 2 and t_parts[1] == "data":
+                        local_torrent = settings.data_dir.resolve() / PurePosixPath(*t_parts[2:])
+                    else:
+                        local_torrent = settings.outbox_dir / local_torrent.name
+                if not local_torrent.is_file():
+                    logger.warning(
+                        "Torrent metainfo missing on disk for %s at %s, skipping relocation",
+                        release_name,
+                        torrent_path_str,
+                    )
+                    stats["skipped_missing"] += 1
+                    continue
+
             if not dry_run:
-                client.set_location(info_hash, canonical_save)
+                client.delete(info_hash, delete_files=False)
+                client.add(
+                    local_torrent,
+                    save_path=canonical_save,
+                    category=settings.qbittorrent_category,
+                    tag=settings.qbittorrent_tag,
+                )
+                client.force_start(info_hash)
                 cur.execute(
                     """
                     UPDATE jobs SET
@@ -799,7 +830,7 @@ def relocate_qbit_seeds(
                         seeding_next_attempt_at=0,
                         seeding_error_code=NULL,
                         seeding_error=NULL
-                    WHERE info_hash=? AND seeding_error_code='content_path_conflict'
+                    WHERE info_hash=?
                     """,
                     (info_hash,),
                 )

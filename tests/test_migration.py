@@ -365,9 +365,13 @@ class TestMigration(unittest.TestCase):
         payload.parent.mkdir(parents=True, exist_ok=True)
         payload.write_bytes(b"0123456789")
 
+        torrent_path = self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent"
+        torrent_path.parent.mkdir(parents=True, exist_ok=True)
+        torrent_path.write_bytes(b"dummy torrent")
+
         torrent = TorrentArtifact(
             file_path=Path("/data/releases/@author#1/test-123/file.zip"),
-            torrent_path=self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent",
+            torrent_path=torrent_path,
             piece_length=16384,
             piece_count=1,
             info_hash="a" * 40,
@@ -409,10 +413,14 @@ class TestMigration(unittest.TestCase):
 
         stats = relocate_qbit_seeds(settings)
         self.assertEqual(stats["relocated"], 1)
-        mock_client.set_location.assert_called_once_with(
-            "a" * 40,
-            "/downloads/releases/@author#1/test-123",
+        mock_client.delete.assert_called_once_with("a" * 40, delete_files=False)
+        mock_client.add.assert_called_once_with(
+            self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent",
+            save_path="/downloads/releases/@author#1/test-123",
+            category="guncad-mirror",
+            tag="guncad-mirror",
         )
+        mock_client.force_start.assert_called_once_with("a" * 40)
         job = store.get(release.id, release.sd_hash)
         self.assertEqual(job.seeding_state, SeedingState.PENDING)
         self.assertIsNone(job.seeding_error_code)

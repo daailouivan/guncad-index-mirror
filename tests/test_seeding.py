@@ -371,8 +371,14 @@ class SeedingSchedulerTests(unittest.TestCase):
         result = self.scheduler.run()
 
         self.assertEqual(result.green, 1)
-        self.client.set_location.assert_called_once_with(
-            self.torrent.info_hash, "/downloads/releases"
+        self.client.delete.assert_called_once_with(
+            self.torrent.info_hash, delete_files=False
+        )
+        self.client.add.assert_called_once_with(
+            self.torrent.torrent_path,
+            save_path="/downloads/releases",
+            category="guncad-mirror",
+            tag="guncad-mirror",
         )
         self.assertEqual(
             self.store.get(self.release.id, self.release.sd_hash).seeding_state,

@@ -18,7 +18,7 @@ services:
     depends_on:
       - guncad-qbittorrent
     volumes:
-      - guncad-mirror:/data:z
+      - "${MIRROR_DATA_PATH:-guncad-mirror}:/data:z"
     ports:
       # LBRY uses this port to serve rehosted content. If not exposed, you're
       # just leeching.
@@ -58,7 +58,7 @@ services:
       - /tmp
     volumes:
       - guncad-mirror-qbittorrent:/config:Z
-      - guncad-mirror:/downloads:ro,z
+      - "${MIRROR_DATA_PATH:-guncad-mirror}:/downloads:ro,z"
     ports:
       - "${MIRROR_BITTORRENT_PORT:-6881}:6881/tcp"
       - "${MIRROR_BITTORRENT_PORT:-6881}:6881/udp"

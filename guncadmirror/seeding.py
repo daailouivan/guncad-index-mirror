@@ -269,19 +269,24 @@ class SeedingScheduler:
             )
         else:
             content_path = PurePosixPath(observation.torrent.content_path)
-            if content_path not in allowed_locations and (
-                PurePosixPath(observation.torrent.save_path)
+            if (
+                content_path not in allowed_locations
+                and PurePosixPath(observation.torrent.save_path)
                 != PurePosixPath(paths.qbit_save_path)
-            ):
+            ) or observation.torrent.state == "moving":
                 self.logger.info(
-                    "Relocating qBittorrent seed %s from %s to %s",
+                    "Re-adding qBittorrent seed %s from %s to %s",
                     candidate.release.name,
                     observation.torrent.save_path,
                     paths.qbit_save_path,
                 )
-                self.client.set_location(info_hash, paths.qbit_save_path)
-                activation_required = True
-            elif observation.torrent.state == "moving":
+                self.client.delete(info_hash, delete_files=False)
+                self.client.add(
+                    paths.torrent_path,
+                    save_path=paths.qbit_save_path,
+                    category=self.settings.qbittorrent_category,
+                    tag=self.settings.qbittorrent_tag,
+                )
                 activation_required = True
             else:
                 _validate_observation(observation, paths, allowed_locations)
