@@ -8,6 +8,8 @@ coverage.xml
 *.sqlite*
 *.sqlite*journal
 docker-compose-local.yml
+docker-compose.override.yml
+docker-compose.*.override.yml
 /data-dumps
 /docker-data
 /static
