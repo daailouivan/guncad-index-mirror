@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 

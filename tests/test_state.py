@@ -651,7 +651,9 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(job.payload_size, 4321)
 
     def test_get_and_set_mirror_settings(self) -> None:
-        self.assertEqual(self.store.get_setting("nonexistent", default="default_val"), "default_val")
+        self.assertEqual(
+            self.store.get_setting("nonexistent", default="default_val"), "default_val"
+        )
         self.store.set_setting("github_token", "ghp_secret123")
         self.assertEqual(self.store.get_setting("github_token"), "ghp_secret123")
         self.store.set_setting("github_token", "ghp_updated456")
@@ -664,7 +666,9 @@ class JobStoreTests(unittest.TestCase):
         gh_rel = Release.from_api(gh_raw)
         self.store.register(gh_rel)
         self.store.start_attempt(gh_rel)
-        self.store.mark_failed(gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0)
+        self.store.mark_failed(
+            gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0
+        )
 
         lbry_raw = release_payload(b"lbry", release_id="b" * 40, sd_hash="b" * 96)
         lbry_rel = Release.from_api(lbry_raw)
@@ -690,13 +694,19 @@ class JobStoreTests(unittest.TestCase):
     def test_category_entries_and_single_job_retry(self) -> None:
         # Create jobs across different states and platforms
         rel1 = Release.from_api(
-            release_payload(b"data1", release_id="a" * 40, sd_hash="1" * 96, name="Alpha Model")
+            release_payload(
+                b"data1", release_id="a" * 40, sd_hash="1" * 96, name="Alpha Model"
+            )
         )
         self.store.register(rel1)
         self.store.start_attempt(rel1)
-        self.store.mark_failed(rel1, RuntimeError("Connection timeout"), retry_backoff=2.0)
+        self.store.mark_failed(
+            rel1, RuntimeError("Connection timeout"), retry_backoff=2.0
+        )
 
-        raw2 = release_payload(b"data2", release_id="b" * 40, sd_hash="2" * 96, name="Beta Print")
+        raw2 = release_payload(
+            b"data2", release_id="b" * 40, sd_hash="2" * 96, name="Beta Print"
+        )
         raw2["origin"]["platform"] = "printables"
         raw2["origin"]["external_id"] = "printables-2"
         rel2 = Release.from_api(raw2)
@@ -724,7 +734,9 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(entries[0]["release_id"], "b" * 40)
 
         # Query with search text
-        entries, total = self.store.get_category_entries("pipeline", "all", query="Alpha")
+        entries, total = self.store.get_category_entries(
+            "pipeline", "all", query="Alpha"
+        )
         self.assertEqual(total, 1)
         self.assertEqual(entries[0]["release_id"], "a" * 40)
 

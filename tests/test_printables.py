@@ -180,9 +180,7 @@ class PrintablesAcquirerTests(unittest.TestCase):
             headers={"Retry-After": "3"},
             status_error=requests.HTTPError(
                 "429 Client Error",
-                response=FakeResponse(
-                    status_code=429, headers={"Retry-After": "3"}
-                ),  # type: ignore[arg-type]
+                response=FakeResponse(status_code=429, headers={"Retry-After": "3"}),  # type: ignore[arg-type]
             ),
         )
         files_response = {
@@ -249,4 +247,3 @@ class PrintablesAcquirerTests(unittest.TestCase):
             acquirer.acquire(release, self.output_dir)
 
         self.assertIn(0.5, sleep_calls)
-

@@ -114,4 +114,3 @@ class GitHubAcquirerTests(unittest.TestCase):
             call_kwargs["headers"].get("Authorization"),
             "Bearer ghp_dynamic_updated",
         )
-

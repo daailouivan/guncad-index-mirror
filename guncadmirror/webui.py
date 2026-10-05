@@ -4,7 +4,16 @@ from math import ceil
 from pathlib import Path
 from threading import Thread
 
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, send_file
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+)
 from waitress import serve
 
 from .models import RELEASE_ID_RE, SHA384_RE, JobState
@@ -102,12 +111,22 @@ def create_app(collector: StatsCollector) -> Flask:
         for entry in entries:
             item = dict(entry)
             item["size_human"] = humanize_bytes(item.get("payload_size"))
-            if item.get("has_payload") and item.get("state") == JobState.AWAITING_INDEX.value:
-                item["payload_url"] = f"/archive/{item['release_id']}/{item['sd_hash']}/payload"
+            if (
+                item.get("has_payload")
+                and item.get("state") == JobState.AWAITING_INDEX.value
+            ):
+                item["payload_url"] = (
+                    f"/archive/{item['release_id']}/{item['sd_hash']}/payload"
+                )
             else:
                 item["payload_url"] = None
-            if item.get("has_torrent") and item.get("state") == JobState.AWAITING_INDEX.value:
-                item["torrent_url"] = f"/archive/{item['release_id']}/{item['sd_hash']}/torrent"
+            if (
+                item.get("has_torrent")
+                and item.get("state") == JobState.AWAITING_INDEX.value
+            ):
+                item["torrent_url"] = (
+                    f"/archive/{item['release_id']}/{item['sd_hash']}/torrent"
+                )
             else:
                 item["torrent_url"] = None
             formatted_entries.append(item)

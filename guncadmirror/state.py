@@ -353,7 +353,6 @@ class JobStore:
             cursor = connection.execute(query, tuple(params))
             return cursor.rowcount
 
-
     def register(self, release: Release) -> Job:
         now = self.clock()
         release_slug = _release_slug(release)
@@ -1248,7 +1247,9 @@ class JobStore:
                 parameters.append(SeedingState.GREEN)
             elif category in ("published",):
                 clauses.append("publication_state IN (?, ?)")
-                parameters.extend([PublicationState.PUBLISHED, PublicationState.DUPLICATE])
+                parameters.extend(
+                    [PublicationState.PUBLISHED, PublicationState.DUPLICATE]
+                )
             elif category in ("inflight", "in-flight"):
                 clauses.append("state IN (?, ?)")
                 parameters.extend([JobState.PENDING, JobState.ACQUIRING])

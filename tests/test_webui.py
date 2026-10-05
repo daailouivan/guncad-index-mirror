@@ -557,7 +557,9 @@ class WebUiTests(unittest.TestCase):
         gh_rel = Release.from_api(gh_raw)
         self.store.register(gh_rel)
         self.store.start_attempt(gh_rel)
-        self.store.mark_failed(gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0)
+        self.store.mark_failed(
+            gh_rel, RuntimeError("Rate limit hit"), retry_backoff=2.0
+        )
 
         # Post token update
         response = client.post(
@@ -568,7 +570,9 @@ class WebUiTests(unittest.TestCase):
         self.assertIn("/?token_saved=1", response.headers["Location"])
 
         # Check real store updated and failed job was reset to pending
-        self.assertEqual(self.store.get_setting("github_token"), "ghp_mocktoken12345678")
+        self.assertEqual(
+            self.store.get_setting("github_token"), "ghp_mocktoken12345678"
+        )
         job = self.store.get("github-123", "a" * 96)
         self.assertEqual(job.state, JobState.PENDING)
 
@@ -590,13 +594,15 @@ class WebUiTests(unittest.TestCase):
         index_resp = client.get("/")
         self.assertEqual(index_resp.status_code, 200)
         self.assertIn(b'id="category-modal"', index_resp.data)
-        self.assertIn(b'data-modal-trigger', index_resp.data)
+        self.assertIn(b"data-modal-trigger", index_resp.data)
 
         # Register and fail a job
         rel_id = "c" * 40
         sd_hash = "f" * 96
         rel = Release.from_api(
-            release_payload(b"model data", release_id=rel_id, sd_hash=sd_hash, name="Test Print")
+            release_payload(
+                b"model data", release_id=rel_id, sd_hash=sd_hash, name="Test Print"
+            )
         )
         self.store.register(rel)
         self.store.start_attempt(rel)
