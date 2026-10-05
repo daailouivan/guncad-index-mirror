@@ -732,7 +732,8 @@ def relocate_qbit_seeds(
     if not db_path.is_file():
         raise FileNotFoundError(f"State database not found: {db_path}")
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=rw", uri=True)
+    conn = sqlite3.connect(f"file:{db_path}?mode=rw", uri=True, timeout=60)
+    conn.execute("PRAGMA busy_timeout = 60000")
     try:
         cur = conn.cursor()
         cur.execute(
@@ -834,11 +835,10 @@ def relocate_qbit_seeds(
                     """,
                     (info_hash,),
                 )
+                conn.commit()
             stats["relocated"] += 1
             if stats["relocated"] % 500 == 0:
                 logger.info("Relocated %d torrents...", stats["relocated"])
-                if not dry_run:
-                    conn.commit()
 
         if not dry_run:
             conn.commit()
