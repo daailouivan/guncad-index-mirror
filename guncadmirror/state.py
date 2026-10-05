@@ -1149,6 +1149,225 @@ class JobStore:
             ).fetchall()
         return [_archive_entry_from_row(row) for row in rows], total
 
+    def retry_job(self, release_id: str, sd_hash: str) -> bool:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs
+                SET state=?, attempts=0, next_attempt_at=0, last_error=NULL, updated_at=?
+                WHERE release_id=? AND sd_hash=? AND state=?
+                """,
+                (JobState.PENDING, now, release_id, sd_hash, JobState.FAILED),
+            )
+            return cursor.rowcount > 0
+
+    def get_category_entries(
+        self,
+        section: str,
+        category: str = "all",
+        *,
+        platform: str | None = None,
+        query: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        if limit < 1 or limit > 200:
+            raise ValueError("category entries limit must be between 1 and 200")
+        if offset < 0:
+            raise ValueError("category entries offset cannot be negative")
+
+        section = section.strip().lower()
+        category = category.strip().lower()
+        clauses: list[str] = []
+        parameters: list[object] = []
+
+        if section == "pipeline":
+            if category == "pending":
+                clauses.append("state=?")
+                parameters.append(JobState.PENDING)
+            elif category == "acquiring":
+                clauses.append("state=?")
+                parameters.append(JobState.ACQUIRING)
+            elif category == "verified":
+                clauses.append("state=?")
+                parameters.append(JobState.VERIFIED)
+            elif category in ("awaiting_index", "staged"):
+                clauses.append("state=?")
+                parameters.append(JobState.AWAITING_INDEX)
+            elif category == "excluded":
+                clauses.append("state=?")
+                parameters.append(JobState.EXCLUDED)
+            elif category == "failed":
+                clauses.append("state=?")
+                parameters.append(JobState.FAILED)
+        elif section == "publication":
+            if category == "pending":
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.PENDING)
+            elif category == "publishing":
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.PUBLISHING)
+            elif category == "retrying":
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.RETRYING)
+            elif category in ("published", "accepted"):
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.PUBLISHED)
+            elif category in ("duplicate", "duplicates"):
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.DUPLICATE)
+            elif category == "rejected":
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.REJECTED)
+            elif category in ("conflict", "conflicts"):
+                clauses.append("publication_state=?")
+                parameters.append(PublicationState.CONFLICT)
+        elif section == "seeding":
+            if category == "pending":
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.PENDING)
+            elif category == "injecting":
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.INJECTING)
+            elif category == "retrying":
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.RETRYING)
+            elif category == "green":
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.GREEN)
+            elif category == "blocked":
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.BLOCKED)
+        elif section == "source":
+            if category in ("awaiting_index", "staged"):
+                clauses.append("state=?")
+                parameters.append(JobState.AWAITING_INDEX)
+            elif category in ("seeding_green", "green"):
+                clauses.append("seeding_state=?")
+                parameters.append(SeedingState.GREEN)
+            elif category in ("published",):
+                clauses.append("publication_state IN (?, ?)")
+                parameters.extend([PublicationState.PUBLISHED, PublicationState.DUPLICATE])
+            elif category in ("inflight", "in-flight"):
+                clauses.append("state IN (?, ?)")
+                parameters.extend([JobState.PENDING, JobState.ACQUIRING])
+            elif category == "failed":
+                clauses.append("state=?")
+                parameters.append(JobState.FAILED)
+
+        if platform:
+            clauses.append("platform=?")
+            parameters.append(platform.lower())
+
+        for term in query.split():
+            pattern = _like_pattern(term)
+            clauses.append(
+                """
+                (
+                    release_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    channel_handle LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    release_slug LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    release_id LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    last_error LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    exclusion_reason LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    publication_error LIKE ? ESCAPE '\\' COLLATE NOCASE OR
+                    seeding_error LIKE ? ESCAPE '\\' COLLATE NOCASE
+                )
+                """
+            )
+            parameters.extend([pattern] * 8)
+
+        where = " AND ".join(clauses) if clauses else "1=1"
+
+        if category in ("failed", "rejected", "conflict", "blocked"):
+            order_by = "ORDER BY updated_at DESC, release_id ASC"
+        else:
+            order_by = "ORDER BY updated_at DESC, channel_handle COLLATE NOCASE ASC, release_name COLLATE NOCASE ASC"
+
+        with closing(self._connect()) as connection:
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM jobs WHERE {where}", parameters
+            ).fetchone()[0]
+            rows = connection.execute(
+                f"""
+                SELECT
+                    release_id,
+                    sd_hash,
+                    release_name,
+                    channel_handle,
+                    release_slug,
+                    platform,
+                    payload_size,
+                    state,
+                    attempts,
+                    next_attempt_at,
+                    file_path,
+                    torrent_path,
+                    info_hash,
+                    magnet_uri,
+                    last_error,
+                    exclusion_reason,
+                    seeding_state,
+                    seeding_attempts,
+                    seeding_error_code,
+                    seeding_error,
+                    seeding_observed_state,
+                    seeding_dht_nodes,
+                    seeding_working_trackers,
+                    publication_state,
+                    publication_attempts,
+                    publication_outcome,
+                    publication_error_code,
+                    publication_error,
+                    winning_release_id,
+                    updated_at
+                FROM jobs
+                WHERE {where}
+                {order_by}
+                LIMIT ? OFFSET ?
+                """,
+                [*parameters, limit, offset],
+            ).fetchall()
+
+        entries = []
+        for row in rows:
+            entries.append(
+                {
+                    "release_id": row["release_id"],
+                    "sd_hash": row["sd_hash"],
+                    "release_name": row["release_name"],
+                    "channel_handle": row["channel_handle"],
+                    "release_slug": row["release_slug"],
+                    "platform": row["platform"] or "lbry",
+                    "payload_size": row["payload_size"],
+                    "state": row["state"],
+                    "attempts": row["attempts"],
+                    "next_attempt_at": row["next_attempt_at"],
+                    "has_payload": bool(row["file_path"]),
+                    "has_torrent": bool(row["torrent_path"]),
+                    "info_hash": row["info_hash"],
+                    "magnet_uri": row["magnet_uri"],
+                    "last_error": row["last_error"],
+                    "exclusion_reason": row["exclusion_reason"],
+                    "seeding_state": row["seeding_state"],
+                    "seeding_attempts": row["seeding_attempts"],
+                    "seeding_error_code": row["seeding_error_code"],
+                    "seeding_error": row["seeding_error"],
+                    "seeding_observed_state": row["seeding_observed_state"],
+                    "seeding_dht_nodes": row["seeding_dht_nodes"],
+                    "seeding_working_trackers": row["seeding_working_trackers"],
+                    "publication_state": row["publication_state"],
+                    "publication_attempts": row["publication_attempts"],
+                    "publication_outcome": row["publication_outcome"],
+                    "publication_error_code": row["publication_error_code"],
+                    "publication_error": row["publication_error"],
+                    "winning_release_id": row["winning_release_id"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return entries, total
+
     def load_tracker_policy_cache(
         self,
         endpoint: str,

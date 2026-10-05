@@ -687,6 +687,57 @@ class JobStoreTests(unittest.TestCase):
         self.assertIsNone(gh_job.last_error)
         self.assertEqual(gh_job.attempts, 0)
 
+    def test_category_entries_and_single_job_retry(self) -> None:
+        # Create jobs across different states and platforms
+        rel1 = Release.from_api(
+            release_payload(b"data1", release_id="a" * 40, sd_hash="1" * 96, name="Alpha Model")
+        )
+        self.store.register(rel1)
+        self.store.start_attempt(rel1)
+        self.store.mark_failed(rel1, RuntimeError("Connection timeout"), retry_backoff=2.0)
+
+        raw2 = release_payload(b"data2", release_id="b" * 40, sd_hash="2" * 96, name="Beta Print")
+        raw2["origin"]["platform"] = "printables"
+        raw2["origin"]["external_id"] = "printables-2"
+        rel2 = Release.from_api(raw2)
+        self.store.register(rel2)
+
+        # Query pipeline failed
+        entries, total = self.store.get_category_entries("pipeline", "failed")
+        self.assertEqual(total, 1)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["release_id"], "a" * 40)
+        self.assertEqual(entries[0]["state"], "failed")
+        self.assertIn("Connection timeout", entries[0]["last_error"])
+
+        # Query pipeline pending
+        entries, total = self.store.get_category_entries("pipeline", "pending")
+        self.assertEqual(total, 1)
+        self.assertEqual(entries[0]["release_id"], "b" * 40)
+        self.assertEqual(entries[0]["platform"], "printables")
+
+        # Query with platform filter
+        entries, total = self.store.get_category_entries(
+            "pipeline", "all", platform="printables"
+        )
+        self.assertEqual(total, 1)
+        self.assertEqual(entries[0]["release_id"], "b" * 40)
+
+        # Query with search text
+        entries, total = self.store.get_category_entries("pipeline", "all", query="Alpha")
+        self.assertEqual(total, 1)
+        self.assertEqual(entries[0]["release_id"], "a" * 40)
+
+        # Test retry single job
+        success = self.store.retry_job("a" * 40, "1" * 96)
+        self.assertTrue(success)
+        job = self.store.get("a" * 40, "1" * 96)
+        self.assertEqual(job.state, JobState.PENDING)
+        self.assertIsNone(job.last_error)
+
+        # Retrying a non-failed job returns False
+        self.assertFalse(self.store.retry_job("a" * 40, "1" * 96))
+
 
 if __name__ == "__main__":
     unittest.main()

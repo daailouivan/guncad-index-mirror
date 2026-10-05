@@ -582,6 +582,61 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Authenticated (5,000 req/hr)", index_resp.data)
         self.assertIn(b"ghp_...5678", index_resp.data)
 
+    def test_api_entries_and_jobs_retry_endpoints(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Check index renders modal dialog and trigger attributes
+        index_resp = client.get("/")
+        self.assertEqual(index_resp.status_code, 200)
+        self.assertIn(b'id="category-modal"', index_resp.data)
+        self.assertIn(b'data-modal-trigger', index_resp.data)
+
+        # Register and fail a job
+        rel_id = "c" * 40
+        sd_hash = "f" * 96
+        rel = Release.from_api(
+            release_payload(b"model data", release_id=rel_id, sd_hash=sd_hash, name="Test Print")
+        )
+        self.store.register(rel)
+        self.store.start_attempt(rel)
+        self.store.mark_failed(rel, RuntimeError("Server 500 error"), retry_backoff=2.0)
+
+        # Query api entries
+        resp = client.get("/api/entries?section=pipeline&category=failed")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["section"], "pipeline")
+        self.assertEqual(data["category"], "failed")
+        self.assertEqual(len(data["entries"]), 1)
+        self.assertEqual(data["entries"][0]["release_id"], rel_id)
+        self.assertIn("Server 500 error", data["entries"][0]["last_error"])
+
+        # Retry single job via POST /api/jobs/retry
+        retry_resp = client.post(
+            "/api/jobs/retry",
+            json={"release_id": rel_id, "sd_hash": sd_hash},
+        )
+        self.assertEqual(retry_resp.status_code, 200)
+        retry_data = retry_resp.get_json()
+        self.assertTrue(retry_data["ok"])
+        self.assertEqual(retry_data["retried"], 1)
+
+        # Check job is now pending
+        job = self.store.get(rel_id, sd_hash)
+        self.assertEqual(job.state, JobState.PENDING)
+
+        # Mark failed again to test bulk retry
+        self.store.start_attempt(rel)
+        self.store.mark_failed(rel, RuntimeError("Second error"), retry_backoff=2.0)
+
+        bulk_retry_resp = client.post("/api/jobs/retry", json={})
+        self.assertEqual(bulk_retry_resp.status_code, 200)
+        bulk_data = bulk_retry_resp.get_json()
+        self.assertTrue(bulk_data["ok"])
+        self.assertEqual(bulk_data["retried"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

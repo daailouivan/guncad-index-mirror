@@ -187,11 +187,18 @@
                 {% set sources = platform_breakdown or {} %}
                 <div class="job-grid source-summary-grid">
                     {% for source in sources.values() %}
-                        <div class="source-summary-card">
+                        <div class="source-summary-card clickable"
+                             data-modal-trigger
+                             data-section="source"
+                             data-platform="{{ source.platform }}"
+                             data-category="all"
+                             role="button"
+                             tabindex="0"
+                             title="View {{ source.display_name }} entries">
                             <span>{{ source.awaiting_index }} <small>/ {{ source.total }}</small></span>
                             <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
                             <strong>{{ source.display_name }}</strong>
-                            <div class="fine-print">staged / indexed</div>
+                            <div class="fine-print">staged / indexed <small class="view-pill">view list</small></div>
                         </div>
                     {% endfor %}
                 </div>
@@ -214,15 +221,71 @@
                             {% for source in sources.values() %}
                                 <tr>
                                     <th scope="row">
-                                        <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
-                                        <strong>{{ source.display_name }}</strong>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="all"
+                                                title="View all {{ source.display_name }} entries">
+                                            <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
+                                            <strong>{{ source.display_name }}</strong>
+                                        </button>
                                     </th>
-                                    <td>{{ source.total }}</td>
-                                    <td>{{ source.awaiting_index }}</td>
-                                    <td>{{ source.seeding_green }}</td>
-                                    <td>{{ source.published }}</td>
-                                    <td>{{ source.acquiring + source.pending }}</td>
-                                    <td>{{ source.failed }}</td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="all"
+                                                title="View all {{ source.display_name }} entries">{{ source.total }}</button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="awaiting_index"
+                                                title="View staged {{ source.display_name }} entries">{{ source.awaiting_index }}</button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="seeding_green"
+                                                title="View seeding {{ source.display_name }} entries">{{ source.seeding_green }}</button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="published"
+                                                title="View published {{ source.display_name }} entries">{{ source.published }}</button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="inflight"
+                                                title="View in-flight {{ source.display_name }} entries">{{ source.acquiring + source.pending }}</button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn{% if source.failed > 0 %} text-danger{% endif %}"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="failed"
+                                                title="View failed {{ source.display_name }} entries">{{ source.failed }}</button>
+                                    </td>
                                     <td>{{ source.staged_bytes | humanize_bytes }}</td>
                                     <td>
                                         <a href="{{ url_for('archive_browser', platform=source.platform) }}">Filter archive</a>
@@ -233,13 +296,58 @@
                         {% if platform_totals %}
                             <tfoot>
                                 <tr>
-                                    <th scope="row"><strong>All sources</strong></th>
-                                    <td><strong>{{ platform_totals.total }}</strong></td>
-                                    <td><strong>{{ platform_totals.awaiting_index }}</strong></td>
-                                    <td><strong>{{ platform_totals.seeding_green }}</strong></td>
-                                    <td><strong>{{ platform_totals.published }}</strong></td>
-                                    <td><strong>{{ platform_totals.acquiring + platform_totals.pending }}</strong></td>
-                                    <td><strong>{{ platform_totals.failed }}</strong></td>
+                                    <th scope="row">
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="all"
+                                                title="View all entries">
+                                            <strong>All sources</strong>
+                                        </button>
+                                    </th>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="all"><strong>{{ platform_totals.total }}</strong></button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="awaiting_index"><strong>{{ platform_totals.awaiting_index }}</strong></button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="seeding_green"><strong>{{ platform_totals.seeding_green }}</strong></button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="published"><strong>{{ platform_totals.published }}</strong></button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="inflight"><strong>{{ platform_totals.acquiring + platform_totals.pending }}</strong></button>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="cell-link-btn{% if platform_totals.failed > 0 %} text-danger{% endif %}"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="failed"><strong>{{ platform_totals.failed }}</strong></button>
+                                    </td>
                                     <td><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
                                     <td><a href="{{ url_for('archive_browser') }}">Browse all</a></td>
                                 </tr>
@@ -248,7 +356,7 @@
                     </table>
                 </div>
                 <p class="fine-print">
-                    File counts reflect upstream catalog releases discovered from each ingestion source versus locally assembled, verified payloads with generated torrents. Staged volume reflects completed plaintext payload bytes on disk.
+                    File counts reflect upstream catalog releases discovered from each ingestion source versus locally assembled, verified payloads with generated torrents. Staged volume reflects completed plaintext payload bytes on disk. Click any count to open entry details.
                 </p>
             </section>
             <section class="panel" data-testid="github-token-configuration">
@@ -283,17 +391,17 @@
                     </form>
                 </div>
             </section>
-            <section class="panel">
+            <section class="panel" data-testid="seeding-panel">
                 <h2>qBittorrent seeding</h2>
                 <div class="job-grid">
-                    <div><span>{{ seeding_pending }}</span> pending injection</div>
-                    <div><span>{{ seeding_injecting }}</span> injecting</div>
-                    <div><span>{{ seeding_retrying }}</span> retrying</div>
-                    <div><span>{{ seeding_green }}</span> green</div>
-                    <div><span>{{ seeding_blocked }}</span> blocked</div>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="pending" title="View seeding pending injection"><span>{{ seeding_pending }}</span> pending injection</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="injecting" title="View injecting torrents"><span>{{ seeding_injecting }}</span> injecting</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="retrying" title="View retrying torrents"><span>{{ seeding_retrying }}</span> retrying</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="green" title="View green seeders"><span>{{ seeding_green }}</span> green</button>
+                    <button type="button" class="job-stat-card{% if seeding_blocked > 0 %} stat-error{% endif %}" data-modal-trigger data-section="seeding" data-category="blocked" title="View blocked seeders"><span>{{ seeding_blocked }}</span> blocked</button>
                 </div>
                 <p class="fine-print">
-                    Green means qBittorrent has the exact BTIH at the assembled file's mounted path, reports 100% complete in forced upload mode, & can reach DHT or a working tracker. Mirror rechecks green torrents every {{ mirror_qbittorrent_recheck_interval | humanize_seconds }}.
+                    Green means qBittorrent has the exact BTIH at the assembled file's mounted path, reports 100% complete in forced upload mode, &amp; can reach DHT or a working tracker. Mirror rechecks green torrents every {{ mirror_qbittorrent_recheck_interval | humanize_seconds }}. Click any status to inspect entries.
                 </p>
             </section>
             <section class="panel" data-testid="tracker-policy-status">
@@ -323,33 +431,33 @@
                     {% endif %}
                 </p>
             </section>
-            <section class="panel">
+            <section class="panel" data-testid="publication-panel">
                 <h2>Index publication</h2>
                 <div class="job-grid">
-                    <div><span>{{ publication_pending }}</span> pending</div>
-                    <div><span>{{ publication_publishing }}</span> publishing</div>
-                    <div><span>{{ publication_retrying }}</span> retrying</div>
-                    <div><span>{{ publication_published }}</span> accepted</div>
-                    <div><span>{{ publication_duplicates }}</span> canonical duplicates</div>
-                    <div><span>{{ publication_rejected }}</span> rejected</div>
-                    <div><span>{{ publication_conflicts }}</span> evidence conflicts</div>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="pending" title="View pending publications"><span>{{ publication_pending }}</span> pending</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="publishing" title="View in-flight publications"><span>{{ publication_publishing }}</span> publishing</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="retrying" title="View retrying publications"><span>{{ publication_retrying }}</span> retrying</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="published" title="View accepted publications"><span>{{ publication_published }}</span> accepted</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="duplicate" title="View canonical duplicates"><span>{{ publication_duplicates }}</span> canonical duplicates</button>
+                    <button type="button" class="job-stat-card{% if publication_rejected > 0 %} stat-error{% endif %}" data-modal-trigger data-section="publication" data-category="rejected" title="View rejected publications"><span>{{ publication_rejected }}</span> rejected</button>
+                    <button type="button" class="job-stat-card{% if publication_conflicts > 0 %} stat-error{% endif %}" data-modal-trigger data-section="publication" data-category="conflict" title="View evidence conflicts"><span>{{ publication_conflicts }}</span> evidence conflicts</button>
                 </div>
                 <p class="fine-print">
-                    Publication state is separate from acquisition state. A rejected POST does not discard its verified local payload or torrent.
+                    Publication state is separate from acquisition state. A rejected POST does not discard its verified local payload or torrent. Click any status to inspect entries.
                 </p>
             </section>
-            <section class="panel">
+            <section class="panel" data-testid="pipeline-panel">
                 <h2>Pipeline jobs</h2>
                 <div class="job-grid">
-                    <div><span>{{ pending }}</span> pending</div>
-                    <div><span>{{ acquiring }}</span> acquiring</div>
-                    <div><span>{{ verified }}</span> verified</div>
-                    <div><span>{{ awaiting_index }}</span> awaiting Index</div>
-                    <div><span>{{ excluded }}</span> excluded by policy</div>
-                    <div><span>{{ failed }}</span> failed</div>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="pending" title="View pending pipeline jobs"><span>{{ pending }}</span> pending</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="acquiring" title="View acquiring jobs"><span>{{ acquiring }}</span> acquiring</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="verified" title="View verified jobs"><span>{{ verified }}</span> verified</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="awaiting_index" title="View awaiting index (staged) jobs"><span>{{ awaiting_index }}</span> awaiting Index</button>
+                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="excluded" title="View excluded jobs"><span>{{ excluded }}</span> excluded by policy</button>
+                    <button type="button" class="job-stat-card{% if failed > 0 %} stat-error{% endif %}" data-modal-trigger data-section="pipeline" data-category="failed" title="View failed jobs"><span>{{ failed }}</span> failed</button>
                 </div>
                 <p class="fine-print">
-                    Jobs are keyed by the Index release ID and LBRY stream descriptor hash. State is stored in <code>{{ mirror_data_dir }}/mirror-state.sqlite3</code>.
+                    Jobs are keyed by the Index release ID and LBRY stream descriptor hash. State is stored in <code>{{ mirror_data_dir }}/mirror-state.sqlite3</code>. Click any status to inspect entries, diagnose errors, or trigger retries.
                 </p>
             </section>
             <section class="panel">
@@ -616,5 +724,388 @@
     rel="noreferrer">Matrix support</a>
             </p>
         </footer>
+
+        <!-- Category Entries Modal Dialog -->
+        <dialog id="category-modal" class="category-modal" closedby="any" aria-labelledby="modal-title" aria-modal="true">
+            <div class="modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span id="modal-badge" class="source-badge">PIPELINE</span>
+                        <h2 id="modal-title">Subcategory Entries</h2>
+                        <span id="modal-count-badge" class="modal-count-pill">0 items</span>
+                    </div>
+                    <div class="modal-header-actions">
+                        <button type="button" id="modal-retry-all-btn" class="button button-sm button-warning" style="display: none;">
+                            ⟳ Retry All Failed
+                        </button>
+                        <button type="button" id="modal-close-btn" class="modal-close-btn" aria-label="Close dialog">✕</button>
+                    </div>
+                </header>
+                <div class="modal-toolbar">
+                    <div class="modal-search-box">
+                        <input type="search" id="modal-search" placeholder="Filter by name, channel, id, or error..." autocomplete="off">
+                    </div>
+                    <div class="modal-toolbar-filters">
+                        <select id="modal-platform-filter" class="archive-select" aria-label="Filter by platform">
+                            <option value="">All platforms</option>
+                            <option value="lbry">LBRY / Odysee</option>
+                            <option value="printables">Printables</option>
+                            <option value="github">GitHub</option>
+                            <option value="http">Direct HTTP</option>
+                            <option value="torrent">BitTorrent Swarm</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="modal-body" class="modal-body" role="region" aria-live="polite">
+                    <!-- Dynamic entries rendered by JS -->
+                </div>
+                <footer class="modal-footer">
+                    <div class="modal-pagination">
+                        <button type="button" id="modal-prev-btn" class="button button-secondary button-sm" disabled>Previous</button>
+                        <span id="modal-page-info" class="fine-print">Page 1 of 1</span>
+                        <button type="button" id="modal-next-btn" class="button button-secondary button-sm" disabled>Next</button>
+                    </div>
+                    <div class="modal-footer-stats">
+                        <span id="modal-range-info" class="fine-print">Showing 0 entries</span>
+                    </div>
+                </footer>
+            </div>
+        </dialog>
+
+        <script>
+        (function() {
+            const modal = document.getElementById("category-modal");
+            if (!modal) return;
+
+            const titleEl = document.getElementById("modal-title");
+            const badgeEl = document.getElementById("modal-badge");
+            const countBadgeEl = document.getElementById("modal-count-badge");
+            const bodyEl = document.getElementById("modal-body");
+            const searchInput = document.getElementById("modal-search");
+            const platformFilter = document.getElementById("modal-platform-filter");
+            const retryAllBtn = document.getElementById("modal-retry-all-btn");
+            const closeBtn = document.getElementById("modal-close-btn");
+            const prevBtn = document.getElementById("modal-prev-btn");
+            const nextBtn = document.getElementById("modal-next-btn");
+            const pageInfo = document.getElementById("modal-page-info");
+            const rangeInfo = document.getElementById("modal-range-info");
+
+            let currentSection = "pipeline";
+            let currentCategory = "failed";
+            let currentPlatform = "";
+            let currentQuery = "";
+            let currentPage = 1;
+            let totalEntries = 0;
+            let pageCount = 1;
+            let searchDebounceTimer = null;
+
+            // Auto-refresh suspension when modal is open
+            let autoRefreshTimer = null;
+            function resetAutoRefresh() {
+                clearTimeout(autoRefreshTimer);
+                autoRefreshTimer = setTimeout(() => {
+                    if (!modal.open) {
+                        window.location.reload();
+                    } else {
+                        resetAutoRefresh();
+                    }
+                }, 10000);
+            }
+            resetAutoRefresh();
+
+            // Light-dismiss fallback for browsers without 'closedBy' in HTMLDialogElement.prototype
+            if (!('closedBy' in HTMLDialogElement.prototype)) {
+                modal.addEventListener('click', (event) => {
+                    if (event.target !== modal) return;
+                    const rect = modal.getBoundingClientRect();
+                    const isInside = (
+                        rect.top <= event.clientY &&
+                        event.clientY <= rect.top + rect.height &&
+                        rect.left <= event.clientX &&
+                        event.clientX <= rect.left + rect.width
+                    );
+                    if (!isInside) {
+                        modal.close();
+                    }
+                });
+            }
+
+            closeBtn.addEventListener("click", () => modal.close());
+            modal.addEventListener("close", () => {
+                resetAutoRefresh();
+            });
+
+            const SECTION_LABELS = {
+                pipeline: "Pipeline Jobs",
+                publication: "Index Publication",
+                seeding: "qBittorrent Seeding",
+                source: "Ingestion Source"
+            };
+
+            const CATEGORY_LABELS = {
+                all: "All Entries",
+                pending: "Pending",
+                acquiring: "Acquiring",
+                verified: "Verified",
+                awaiting_index: "Awaiting Index (Staged)",
+                staged: "Staged / Verified",
+                excluded: "Excluded by Policy",
+                failed: "Failed",
+                publishing: "Publishing",
+                retrying: "Retrying",
+                published: "Accepted",
+                duplicate: "Canonical Duplicates",
+                rejected: "Rejected",
+                conflict: "Evidence Conflicts",
+                injecting: "Injecting",
+                green: "Green Seeders",
+                seeding_green: "qB Seeding",
+                blocked: "Blocked Seeders",
+                inflight: "In-Flight"
+            };
+
+            function escapeHtml(str) {
+                if (!str) return "";
+                return String(str)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+
+            function formatDate(ts) {
+                if (!ts) return "—";
+                const d = new Date(ts * 1000);
+                return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            }
+
+            async function loadEntries() {
+                bodyEl.innerHTML = '<div class="modal-loading"><span class="spinner"></span> Loading entries...</div>';
+
+                const params = new URLSearchParams({
+                    section: currentSection,
+                    category: currentCategory,
+                    page: currentPage,
+                    limit: 50
+                });
+                if (currentPlatform) params.set("platform", currentPlatform);
+                if (currentQuery) params.set("q", currentQuery);
+
+                try {
+                    const resp = await fetch("/api/entries?" + params.toString());
+                    if (!resp.ok) throw new Error("Server returned HTTP " + resp.status);
+                    const data = await resp.json();
+
+                    totalEntries = data.total;
+                    currentPage = data.page;
+                    pageCount = data.page_count;
+
+                    updateHeader(data);
+                    renderEntries(data.entries);
+                    updatePagination();
+                } catch (err) {
+                    bodyEl.innerHTML = `<div class="modal-error"><strong>Error loading entries:</strong> ${escapeHtml(err.message)}</div>`;
+                }
+            }
+
+            function updateHeader(data) {
+                const badgeText = (currentPlatform || currentSection).toUpperCase();
+                badgeEl.textContent = badgeText;
+                badgeEl.className = "source-badge" + (currentPlatform ? " source-badge-" + currentPlatform : "");
+
+                const secName = SECTION_LABELS[currentSection] || currentSection;
+                const catName = CATEGORY_LABELS[currentCategory] || currentCategory;
+                titleEl.textContent = `${secName} — ${catName}`;
+                countBadgeEl.textContent = `${totalEntries} ${totalEntries === 1 ? 'entry' : 'entries'}`;
+
+                if (currentCategory === "failed" && totalEntries > 0) {
+                    retryAllBtn.style.display = "inline-flex";
+                    retryAllBtn.textContent = `⟳ Retry All Failed (${totalEntries})`;
+                } else {
+                    retryAllBtn.style.display = "none";
+                }
+            }
+
+            function renderEntries(entries) {
+                if (!entries || entries.length === 0) {
+                    bodyEl.innerHTML = '<div class="modal-empty"><p>No entries found matching this status or filter.</p></div>';
+                    return;
+                }
+
+                let html = '<div class="entry-list">';
+                entries.forEach(entry => {
+                    const platform = entry.platform || "lbry";
+                    const isFailed = entry.state === "failed" || entry.publication_state === "rejected" || entry.publication_state === "conflict" || entry.seeding_state === "blocked";
+
+                    html += `<article class="entry-card ${isFailed ? 'entry-card-failed' : ''}">
+                        <div class="entry-header">
+                            <div class="entry-title-area">
+                                <span class="source-badge source-badge-${escapeHtml(platform)}">${escapeHtml(platform)}</span>
+                                <strong class="entry-name">${escapeHtml(entry.release_name || entry.release_slug || entry.release_id)}</strong>
+                                <span class="entry-channel fine-print">${escapeHtml(entry.channel_handle)}</span>
+                            </div>
+                            <div class="entry-tags">
+                                <span class="status-tag status-tag-${escapeHtml(entry.state)}">${escapeHtml(entry.state)}</span>
+                                ${entry.payload_size ? `<span class="size-tag fine-print">${escapeHtml(entry.size_human)}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="entry-meta fine-print breakable">
+                            <span><strong>ID:</strong> <code>${escapeHtml(entry.release_id)}</code></span>
+                            <span><strong>Descriptor:</strong> <code>${escapeHtml(entry.sd_hash ? entry.sd_hash.slice(0, 16) : '')}…</code></span>
+                            <span><strong>Attempts:</strong> ${entry.attempts}</span>
+                            <span><strong>Updated:</strong> ${formatDate(entry.updated_at)}</span>
+                        </div>`;
+
+                    if (entry.last_error) {
+                        html += `<div class="entry-diagnostic entry-diagnostic-error">
+                            <span class="diagnostic-label">Error:</span>
+                            <pre class="diagnostic-text">${escapeHtml(entry.last_error)}</pre>
+                        </div>`;
+                    }
+                    if (entry.exclusion_reason) {
+                        html += `<div class="entry-diagnostic entry-diagnostic-warn">
+                            <span class="diagnostic-label">Excluded:</span>
+                            <span class="diagnostic-text">${escapeHtml(entry.exclusion_reason)}</span>
+                        </div>`;
+                    }
+                    if (entry.publication_error) {
+                        html += `<div class="entry-diagnostic entry-diagnostic-error">
+                            <span class="diagnostic-label">Publication Error [${escapeHtml(entry.publication_error_code || 'rejection')}]:</span>
+                            <pre class="diagnostic-text">${escapeHtml(entry.publication_error)}</pre>
+                        </div>`;
+                    }
+                    if (entry.seeding_error) {
+                        html += `<div class="entry-diagnostic entry-diagnostic-error">
+                            <span class="diagnostic-label">Seeding Error [${escapeHtml(entry.seeding_error_code || 'error')}]:</span>
+                            <span class="diagnostic-text">${escapeHtml(entry.seeding_error)}</span>
+                        </div>`;
+                    }
+
+                    html += `<div class="entry-actions">`;
+                    if (entry.state === "failed") {
+                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Retry Job</button>`;
+                    }
+                    if (entry.payload_url) {
+                        html += `<a href="${entry.payload_url}" class="button button-sm button-secondary" download>Download Payload</a>`;
+                    }
+                    if (entry.torrent_url) {
+                        html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
+                    }
+                    html += `<a href="/archive?q=${encodeURIComponent(entry.release_name || entry.release_id)}" class="button button-sm button-secondary" target="_blank" rel="noopener">Find in Archive</a>`;
+                    html += `</div></article>`;
+                });
+                html += '</div>';
+
+                bodyEl.innerHTML = html;
+
+                bodyEl.querySelectorAll(".retry-single-btn").forEach(btn => {
+                    btn.addEventListener("click", async () => {
+                        const id = btn.getAttribute("data-id");
+                        const sd = btn.getAttribute("data-sd");
+                        btn.disabled = true;
+                        btn.textContent = "Retrying...";
+                        try {
+                            const resp = await fetch("/api/jobs/retry", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ release_id: id, sd_hash: sd })
+                            });
+                            const res = await resp.json();
+                            if (res.ok) {
+                                btn.textContent = "✓ Queued";
+                                setTimeout(() => loadEntries(), 800);
+                            } else {
+                                btn.textContent = "Failed";
+                                btn.disabled = false;
+                            }
+                        } catch (e) {
+                            btn.textContent = "Error";
+                            btn.disabled = false;
+                        }
+                    });
+                });
+            }
+
+            function updatePagination() {
+                prevBtn.disabled = currentPage <= 1;
+                nextBtn.disabled = currentPage >= pageCount;
+                pageInfo.textContent = `Page ${currentPage} of ${pageCount}`;
+
+                const startIdx = totalEntries === 0 ? 0 : (currentPage - 1) * 50 + 1;
+                const endIdx = Math.min(currentPage * 50, totalEntries);
+                rangeInfo.textContent = totalEntries > 0 ? `Showing ${startIdx}–${endIdx} of ${totalEntries} entries` : `0 entries`;
+            }
+
+            prevBtn.addEventListener("click", () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    loadEntries();
+                }
+            });
+
+            nextBtn.addEventListener("click", () => {
+                if (currentPage < pageCount) {
+                    currentPage++;
+                    loadEntries();
+                }
+            });
+
+            searchInput.addEventListener("input", () => {
+                clearTimeout(searchDebounceTimer);
+                searchDebounceTimer = setTimeout(() => {
+                    currentQuery = searchInput.value.trim();
+                    currentPage = 1;
+                    loadEntries();
+                }, 300);
+            });
+
+            platformFilter.addEventListener("change", () => {
+                currentPlatform = platformFilter.value;
+                currentPage = 1;
+                loadEntries();
+            });
+
+            retryAllBtn.addEventListener("click", async () => {
+                retryAllBtn.disabled = true;
+                retryAllBtn.textContent = "⟳ Queuing...";
+                try {
+                    const resp = await fetch("/api/jobs/retry", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ platform: currentPlatform || null })
+                    });
+                    const data = await resp.json();
+                    if (data.ok) {
+                        retryAllBtn.textContent = `✓ Queued ${data.retried}`;
+                        setTimeout(() => loadEntries(), 1000);
+                    } else {
+                        retryAllBtn.disabled = false;
+                        retryAllBtn.textContent = "Retry Failed";
+                    }
+                } catch (e) {
+                    retryAllBtn.disabled = false;
+                    retryAllBtn.textContent = "Error";
+                }
+            });
+
+            document.querySelectorAll("[data-modal-trigger]").forEach(trigger => {
+                trigger.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    currentSection = trigger.getAttribute("data-section") || "pipeline";
+                    currentCategory = trigger.getAttribute("data-category") || "all";
+                    currentPlatform = trigger.getAttribute("data-platform") || "";
+                    currentQuery = "";
+                    currentPage = 1;
+
+                    searchInput.value = "";
+                    platformFilter.value = currentPlatform;
+
+                    loadEntries();
+                    modal.showModal();
+                });
+            });
+        })();
+        </script>
     </body>
 </html>

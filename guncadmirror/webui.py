@@ -4,7 +4,7 @@ from math import ceil
 from pathlib import Path
 from threading import Thread
 
-from flask import Flask, Response, abort, redirect, render_template, request, send_file
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, send_file
 from waitress import serve
 
 from .models import RELEASE_ID_RE, SHA384_RE, JobState
@@ -15,9 +15,45 @@ ARCHIVE_PAGE_SIZE = 50
 MAX_ARCHIVE_QUERY_LENGTH = 200
 
 
+def humanize_bytes(num: float | None) -> str:
+    if num is None:
+        return "0.0 B"
+    try:
+        val = float(num)
+    except (ValueError, TypeError):
+        return "0.0 B"
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(val) < 1024.0:
+            return f"{val:3.1f} {unit}B"
+        val /= 1024.0
+    return f"{val:.1f} YiB"
+
+
+def humanize_seconds(num: float | None) -> str:
+    if num is None:
+        return "0.0 seconds"
+    try:
+        val = float(num)
+    except (ValueError, TypeError):
+        return "0.0 seconds"
+    for unit, factor in [
+        ("seconds", 60),
+        ("minutes", 60),
+        ("hours", 24),
+        ("days", 7),
+        ("weeks", 52),
+    ]:
+        if abs(val) < factor:
+            return f"{val:3.1f} {unit}"
+        val /= factor
+    return f"{val:.1f} years"
+
+
 def create_app(collector: StatsCollector) -> Flask:
     app = Flask(__name__)
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
+    app.template_filter("humanize_bytes")(humanize_bytes)
+    app.template_filter("humanize_seconds")(humanize_seconds)
 
     @app.route("/")
     def mirror_statistics() -> str:
@@ -37,6 +73,82 @@ def create_app(collector: StatsCollector) -> Flask:
                 )
         collector.collect()
         return redirect("/?token_saved=1")
+
+    @app.route("/api/entries")
+    def api_category_entries() -> Response:
+        section = request.args.get("section", "pipeline").strip().lower()
+        category = request.args.get("category", "all").strip().lower()
+        platform_filter = request.args.get("platform", "").strip().lower() or None
+        query = request.args.get("q", "").strip()
+        if len(query) > MAX_ARCHIVE_QUERY_LENGTH:
+            abort(400, "query is too long")
+        limit = request.args.get("limit", default=50, type=int) or 50
+        limit = max(1, min(limit, 200))
+        page = request.args.get("page", default=1, type=int) or 1
+        page = max(1, page)
+        offset = (page - 1) * limit
+
+        entries, total = collector.store.get_category_entries(
+            section=section,
+            category=category,
+            platform=platform_filter,
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
+        page_count = max(1, ceil(total / limit)) if total > 0 else 1
+
+        formatted_entries = []
+        for entry in entries:
+            item = dict(entry)
+            item["size_human"] = humanize_bytes(item.get("payload_size"))
+            if item.get("has_payload") and item.get("state") == JobState.AWAITING_INDEX.value:
+                item["payload_url"] = f"/archive/{item['release_id']}/{item['sd_hash']}/payload"
+            else:
+                item["payload_url"] = None
+            if item.get("has_torrent") and item.get("state") == JobState.AWAITING_INDEX.value:
+                item["torrent_url"] = f"/archive/{item['release_id']}/{item['sd_hash']}/torrent"
+            else:
+                item["torrent_url"] = None
+            formatted_entries.append(item)
+
+        return jsonify(
+            {
+                "section": section,
+                "category": category,
+                "platform": platform_filter,
+                "query": query,
+                "total": total,
+                "page": page,
+                "page_count": page_count,
+                "limit": limit,
+                "entries": formatted_entries,
+            }
+        )
+
+    @app.route("/api/jobs/retry", methods=["POST"])
+    def api_retry_jobs() -> Response:
+        data = request.get_json(silent=True) or request.form
+        release_id = data.get("release_id", "").strip()
+        sd_hash = data.get("sd_hash", "").strip()
+        platform_filter = data.get("platform", "").strip().lower() or None
+
+        if release_id and sd_hash:
+            success = collector.store.retry_job(release_id, sd_hash)
+            retried = 1 if success else 0
+            if success:
+                collector.events.append(
+                    f"Reset failed job {release_id} ({sd_hash[:12]}) for retry"
+                )
+        else:
+            retried = collector.store.retry_failed_jobs(platform=platform_filter)
+            if retried > 0:
+                target = f"{platform_filter} " if platform_filter else ""
+                collector.events.append(
+                    f"Reset {retried} failed {target}jobs for immediate retry"
+                )
+        collector.collect()
+        return jsonify({"ok": True, "retried": retried})
 
     @app.route("/archive")
     def archive_browser() -> str:
@@ -94,40 +206,6 @@ def create_app(collector: StatsCollector) -> Flask:
             root=collector.settings.outbox_dir,
             mimetype="application/x-bittorrent",
         )
-
-    @app.template_filter()
-    def humanize_bytes(num: float | None) -> str:
-        if num is None:
-            return "0.0 B"
-        try:
-            val = float(num)
-        except (ValueError, TypeError):
-            return "0.0 B"
-        for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
-            if abs(val) < 1024.0:
-                return f"{val:3.1f} {unit}B"
-            val /= 1024.0
-        return f"{val:.1f} YiB"
-
-    @app.template_filter()
-    def humanize_seconds(num: float | None) -> str:
-        if num is None:
-            return "0.0 seconds"
-        try:
-            val = float(num)
-        except (ValueError, TypeError):
-            return "0.0 seconds"
-        for unit, factor in [
-            ("seconds", 60),
-            ("minutes", 60),
-            ("hours", 24),
-            ("days", 7),
-            ("weeks", 52),
-        ]:
-            if abs(val) < factor:
-                return f"{val:3.1f} {unit}"
-            val /= factor
-        return f"{val:.1f} years"
 
     return app
 
