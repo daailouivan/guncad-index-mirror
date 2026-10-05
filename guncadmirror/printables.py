@@ -8,7 +8,7 @@ import zipfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock
 from typing import Any
 
 import requests
@@ -40,11 +40,23 @@ PRINTABLES_API_HEADERS = {
     "Referer": "https://www.printables.com/",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
 }
 PRINTABLES_DOWNLOAD_HEADERS = {
     "User-Agent": PRINTABLES_USER_AGENT,
     "Referer": "https://www.printables.com/",
     "Accept": "*/*",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
 }
 
 
@@ -74,7 +86,7 @@ class PrintablesAcquirer:
         attempts: int = 5,
         backoff: float = 2.0,
         read_timeout: float = 60.0,
-        pacing: float = 0.5,
+        pacing: float = 2.0,
         logger: logging.Logger | None = None,
         progress: ProgressReporter | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -88,6 +100,51 @@ class PrintablesAcquirer:
         self.logger = logger or logging.getLogger("guncad-mirror.printables")
         self.progress = progress or NullProgressReporter()
         self.sleep = sleep
+        self._rate_limit_lock = Lock()
+        self._next_allowed_request_time: float = 0.0
+
+    def _schedule_request_slot(
+        self,
+        *,
+        stop: Event | None = None,
+    ) -> None:
+        if self.pacing <= 0:
+            with self._rate_limit_lock:
+                now = time.monotonic()
+                if self._next_allowed_request_time <= now:
+                    return
+                wait_time = self._next_allowed_request_time - now
+            wait_or_cancel(stop, wait_time, sleep=self.sleep)
+            return
+
+        with self._rate_limit_lock:
+            now = time.monotonic()
+            scheduled_time = max(now, self._next_allowed_request_time)
+            wait_time = scheduled_time - now
+            if self._next_allowed_request_time == 0.0:
+                wait_time = max(wait_time, self.pacing)
+                scheduled_time = now + wait_time
+            self._next_allowed_request_time = scheduled_time + self.pacing
+
+        if wait_time > 0:
+            wait_or_cancel(stop, wait_time, sleep=self.sleep)
+
+    def _apply_rate_limit_cooldown(
+        self,
+        cooldown: float,
+        *,
+        stop: Event | None = None,
+    ) -> None:
+        with self._rate_limit_lock:
+            now = time.monotonic()
+            self._next_allowed_request_time = max(
+                self._next_allowed_request_time,
+                now + cooldown,
+            )
+        wait_or_cancel(stop, cooldown, sleep=self.sleep)
+        with self._rate_limit_lock:
+            now = time.monotonic()
+            self._next_allowed_request_time = now
 
     def close(self) -> None:
         if hasattr(self.session, "close"):
@@ -139,6 +196,7 @@ class PrintablesAcquirer:
         temp_dir = output_directory / f".tmp_{model_id}"
         temp_dir.mkdir(parents=True, exist_ok=True)
         downloaded_entries: list[tuple[str, Path]] = []
+        seen_names: dict[str, int] = {}
         primary_link: str | None = None
 
         try:
@@ -149,9 +207,16 @@ class PrintablesAcquirer:
                 )
                 if primary_link is None:
                     primary_link = link
-                file_dest_name = safe_component(
+                raw_name = safe_component(
                     file_meta["name"], fallback=f"file_{idx}.stl"
                 )
+                count = seen_names.get(raw_name, 0)
+                seen_names[raw_name] = count + 1
+                if count > 0:
+                    p = Path(raw_name)
+                    file_dest_name = f"{p.stem}_{count}{p.suffix}"
+                else:
+                    file_dest_name = raw_name
                 file_dest = temp_dir / file_dest_name
                 download_url_to_file(
                     link,
@@ -210,13 +275,11 @@ class PrintablesAcquirer:
         }
         last_error: Exception | None = None
 
-        if self.pacing > 0:
-            wait_or_cancel(stop, self.pacing, sleep=self.sleep)
-
         attempt = 1
         max_attempts = self.attempts
         while attempt <= max_attempts:
             check_cancelled(stop)
+            self._schedule_request_slot(stop=stop)
             try:
                 response = self.session.post(
                     self.api_url,
@@ -262,10 +325,7 @@ class PrintablesAcquirer:
                     if retry_after_delay is not None:
                         delay = max(retry_after_delay, 5.0)
                     else:
-                        delay = max(
-                            self.backoff * (2 ** (attempt - 1)),
-                            5.0 * (2 ** (attempt - 1)),
-                        )
+                        delay = max(60.0, 60.0 * (2 ** (attempt - 1)))
                 elif self.backoff > 0:
                     delay = self.backoff * (2 ** (attempt - 1))
                 else:
@@ -279,7 +339,10 @@ class PrintablesAcquirer:
                     error,
                     delay,
                 )
-                wait_or_cancel(stop, delay, sleep=self.sleep)
+                if is_rate_limit and delay > 0:
+                    self._apply_rate_limit_cooldown(delay, stop=stop)
+                elif delay > 0:
+                    wait_or_cancel(stop, delay, sleep=self.sleep)
                 attempt += 1
 
         raise PrintablesUnavailable(
