@@ -21,10 +21,10 @@
             }
         </style>
         <link rel="stylesheet"
-              href="{{ url_for('static', filename='styles.css') }}?v={{ version }}" />
+              href="{{ url_for('static', filename='styles.css') }}{{ cachebuster }}" />
         <link rel="icon"
               type="image/x-icon"
-              href="{{ url_for('static', filename='favicon.png') }}?v={{ version }}" />
+              href="{{ url_for('static', filename='favicon.png') }}{{ cachebuster }}" />
         <title>GunCAD Mirror Archive {{ version }}</title>
     </head>
     <body>

@@ -64,6 +64,13 @@ def create_app(collector: StatsCollector) -> Flask:
     app.template_filter("humanize_bytes")(humanize_bytes)
     app.template_filter("humanize_seconds")(humanize_seconds)
 
+    @app.context_processor
+    def inject_cachebuster() -> dict[str, str]:
+        css_path = Path(app.static_folder or "") / "styles.css"
+        if css_path.exists():
+            return {"cachebuster": f"?v={int(css_path.stat().st_mtime)}"}
+        return {"cachebuster": ""}
+
     @app.route("/")
     def mirror_statistics() -> str:
         context = collector.snapshot()
