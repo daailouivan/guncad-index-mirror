@@ -309,12 +309,14 @@ class JobStore:
                 f"{self.path.resolve().as_uri()}?nolock=1", uri=True, timeout=60
             )
             connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA busy_timeout = 60000")
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
             return connection
 
         connection = sqlite3.connect(self.path, timeout=60)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 60000")
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
