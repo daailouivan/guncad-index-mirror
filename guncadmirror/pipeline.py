@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -203,22 +204,73 @@ class MirrorPipeline:
                 thread_name_prefix="mirror-finalize",
             ),
         }
+        stage_limits = {
+            "lbry": self.settings.lbry_concurrency,
+            "odysee": self.settings.odysee_concurrency,
+            "printables": self.settings.printables_concurrency,
+            "github": self.settings.github_concurrency,
+            "http": self.settings.http_concurrency,
+            "torrent": self.settings.torrent_concurrency,
+            "finalize": self.settings.finalize_concurrency,
+        }
+        stage_operations = {
+            "lbry": self._acquire_lbry,
+            "odysee": self._acquire_odysee,
+            "printables": self._acquire_printables,
+            "github": self._acquire_github,
+            "http": self._acquire_http,
+            "torrent": self._acquire_torrent,
+            "finalize": self._finalize,
+        }
+        initial_stages = ("lbry", "printables", "github", "http", "torrent")
+        stage_capacity = {s: max(stage_limits[s] * 2, 8) for s in stage_limits}
+
+        stage_queues: dict[str, deque[Any]] = {s: deque() for s in stage_limits}
+        stage_in_flight: dict[str, int] = {s: 0 for s in stage_limits}
         futures: dict[Future[Any], tuple[str, _PreparedJob]] = {}
+        active_keys: set[tuple[str, str]] = set()
         seen: set[tuple[str, str]] = set()
         exhausted = False
         deferred: Release | None = None
         enumeration_error: Exception | None = None
-        max_in_flight = (
-            self.settings.lbry_concurrency
-            + self.settings.odysee_concurrency
-            + self.settings.printables_concurrency
-            + self.settings.github_concurrency
-            + self.settings.http_concurrency
-            + self.settings.torrent_concurrency
-            + self.settings.finalize_concurrency
-        )
+
+        def _platform_stage(platform: str) -> str:
+            if platform in {"printables", "github", "http", "torrent"}:
+                return platform
+            return "lbry"
+
+        def _dispatch_stage(stage: str) -> None:
+            while stage_queues[stage] and stage_in_flight[stage] < stage_limits[stage]:
+                item = stage_queues[stage].popleft()
+                if stage == "finalize":
+                    prepared = item.prepared
+                    future = executors["finalize"].submit(
+                        self._finalize, item, stop=stop
+                    )
+                elif stage == "odysee":
+                    prepared = item.prepared
+                    future = executors["odysee"].submit(
+                        self._acquire_odysee, item, stop=stop
+                    )
+                else:
+                    prepared = item
+                    future = executors[stage].submit(
+                        stage_operations[stage], prepared, stop=stop
+                    )
+                futures[future] = (stage, prepared)
+                stage_in_flight[stage] += 1
+
         try:
-            while not exhausted or futures or deferred is not None:
+            while (
+                not exhausted
+                or futures
+                or any(stage_queues.values())
+                or deferred is not None
+                or any(
+                    self.store.pending_releases(platform=s, limit=1)
+                    for s in initial_stages
+                )
+            ):
                 if stop is not None and stop.is_set():
                     exhausted = True
                     if deferred is not None:
@@ -227,12 +279,69 @@ class MirrorPipeline:
                     for future, (_stage, prepared) in tuple(futures.items()):
                         if future.cancel():
                             del futures[future]
+                            stage_in_flight[_stage] -= 1
+                            active_keys.discard(
+                                (prepared.release.id, prepared.release.sd_hash)
+                            )
                             result = result.add(self._finish_stopped(prepared))
+                    for _stage, queue in stage_queues.items():
+                        while queue:
+                            item = queue.popleft()
+                            prep = item.prepared if hasattr(item, "prepared") else item
+                            active_keys.discard(
+                                (prep.release.id, prep.release.sd_hash)
+                            )
+                            result = result.add(self._finish_stopped(prep))
+                    if not futures:
+                        break
 
-                while not exhausted and len(futures) < max_in_flight:
+                # 1. Dispatch queued tasks
+                for s in stage_limits:
+                    _dispatch_stage(s)
+
+                # 2. Refill idle initial stages from stored pending releases
+                for s in initial_stages:
+                    room = stage_capacity[s] - (stage_in_flight[s] + len(stage_queues[s]))
+                    if room > 0:
+                        pending_items = self.store.pending_releases(platform=s, limit=room)
+                        for rel in pending_items:
+                            key = (rel.id, rel.sd_hash)
+                            if key in active_keys:
+                                continue
+                            try:
+                                prep = self._prepare(rel, stop=stop)
+                            except Exception as prep_error:
+                                enumeration_error = prep_error
+                                exhausted = True
+                                break
+                            if isinstance(prep, _PreparedJob):
+                                active_keys.add(key)
+                                stage_queues[s].append(prep)
+                                _dispatch_stage(s)
+                            elif isinstance(prep, _DeferredJob):
+                                deferred = rel
+                                break
+                            elif isinstance(prep, str):
+                                result = result.add(prep)
+                                if prep == "stopped":
+                                    exhausted = True
+                                    break
+
+                # 3. Stream from Index releases if any stage can accept work
+                intake_budget = 32
+                while (
+                    not exhausted
+                    and intake_budget > 0
+                    and any(
+                        stage_in_flight[s] + len(stage_queues[s]) < stage_capacity[s]
+                        for s in initial_stages
+                    )
+                ):
+                    intake_budget -= 1
                     if stop is not None and stop.is_set():
                         exhausted = True
                         break
+
                     if deferred is None:
                         try:
                             release = next(releases)
@@ -269,6 +378,39 @@ class MirrorPipeline:
                         seen.add(key)
                     else:
                         release = deferred
+                        key = (release.id, release.sd_hash)
+
+                    target_stage = _platform_stage(release.platform)
+                    stage_full = (
+                        stage_in_flight[target_stage] + len(stage_queues[target_stage])
+                        >= stage_capacity[target_stage]
+                    )
+
+                    if stage_full and deferred is None:
+                        exclusion = self._policy_exclusion(release)
+                        if exclusion is not None:
+                            self.store.exclude(release, exclusion)
+                            result = result.add("skipped")
+                            continue
+                        try:
+                            job = self.store.register(release)
+                        except Exception as error:
+                            enumeration_error = error
+                            exhausted = True
+                            break
+                        if job.state is JobState.AWAITING_INDEX and self._ready_artifacts_exist(
+                            job, release
+                        ):
+                            result = result.add("skipped")
+                            continue
+                        if job.state is JobState.EXCLUDED:
+                            result = result.add("skipped")
+                            continue
+                        if job.state is JobState.FAILED and not self.store.ready_for_attempt(job):
+                            result = result.add("skipped")
+                            continue
+                        continue
+
                     try:
                         prepared = self._prepare(release, stop=stop)
                     except Exception as error:
@@ -284,31 +426,28 @@ class MirrorPipeline:
                         if prepared == "stopped":
                             exhausted = True
                         continue
-                    if prepared.release.platform == "printables":
-                        stage = "printables"
-                        operation = self._acquire_printables
-                    elif prepared.release.platform == "github":
-                        stage = "github"
-                        operation = self._acquire_github
-                    elif prepared.release.platform == "http":
-                        stage = "http"
-                        operation = self._acquire_http
-                    elif prepared.release.platform == "torrent":
-                        stage = "torrent"
-                        operation = self._acquire_torrent
-                    else:
-                        stage = "lbry"
-                        operation = self._acquire_lbry
 
-                    future = executors[stage].submit(
-                        operation,
-                        prepared,
-                        stop=stop,
-                    )
-                    futures[future] = (stage, prepared)
+                    active_keys.add(key)
+                    stage_queues[target_stage].append(prepared)
+                    _dispatch_stage(target_stage)
+
+                # 4. Dispatch any newly queued items
+                for s in stage_limits:
+                    _dispatch_stage(s)
 
                 if not futures:
+                    if (
+                        exhausted
+                        and not any(stage_queues.values())
+                        and deferred is None
+                        and not any(
+                            self.store.pending_releases(platform=s, limit=1)
+                            for s in initial_stages
+                        )
+                    ):
+                        break
                     continue
+
                 completed, _pending = wait(
                     futures,
                     timeout=0.25,
@@ -316,36 +455,44 @@ class MirrorPipeline:
                 )
                 for future in completed:
                     stage, prepared = futures.pop(future)
+                    stage_in_flight[stage] -= 1
+                    key = (prepared.release.id, prepared.release.sd_hash)
+
                     if future.cancelled():
+                        active_keys.discard(key)
                         result = result.add(self._finish_stopped(prepared))
+                        _dispatch_stage(stage)
                         continue
                     try:
                         phase_result = future.result()
                     except AcquisitionCancelled:
+                        active_keys.discard(key)
                         result = result.add(self._finish_stopped(prepared))
+                        _dispatch_stage(stage)
                         continue
                     except Exception as error:
+                        active_keys.discard(key)
                         result = result.add(self._finish_failed(prepared, error))
+                        _dispatch_stage(stage)
                         continue
 
                     if stage == "finalize":
+                        active_keys.discard(key)
                         result = result.add(self._finish_ready(prepared, phase_result))
+                        _dispatch_stage("finalize")
                         continue
                     if stop is not None and stop.is_set():
+                        active_keys.discard(key)
                         result = result.add(self._finish_stopped(prepared))
+                        _dispatch_stage(stage)
                         continue
                     if stage == "lbry" and isinstance(phase_result, _FallbackJob):
-                        next_stage = "odysee"
-                        operation = self._acquire_odysee
+                        stage_queues["odysee"].append(phase_result)
+                        _dispatch_stage("odysee")
                     else:
-                        next_stage = "finalize"
-                        operation = self._finalize
-                    next_future = executors[next_stage].submit(
-                        operation,
-                        phase_result,
-                        stop=stop,
-                    )
-                    futures[next_future] = (next_stage, prepared)
+                        stage_queues["finalize"].append(phase_result)
+                        _dispatch_stage("finalize")
+                    _dispatch_stage(stage)
 
             if enumeration_error is not None:
                 raise enumeration_error
@@ -800,7 +947,7 @@ class MirrorPipeline:
             not file_path
             or not torrent_path
             or not sha384
-            or (release.sha384 is not None and sha384 != release.sha384)
+            or (release.platform == "lbry" and release.sha384 is not None and sha384 != release.sha384)
             or not sha256
             or not info_hash
             or not magnet_uri
@@ -816,11 +963,16 @@ class MirrorPipeline:
             if (
                 not safe_file.is_file()
                 or actual_size == 0
-                or (release.size is not None and actual_size != release.size)
                 or not safe_torrent.is_file()
                 or safe_torrent.stat().st_size == 0
             ):
                 return False
+            if release.platform == "lbry":
+                if release.size is not None and actual_size != release.size:
+                    return False
+            else:
+                if job.payload_size is not None and actual_size != job.payload_size:
+                    return False
             document = json.loads(manifest.read_text(encoding="utf-8"))
             parsed_torrent = parse_torrent(safe_torrent.read_bytes())
             if not isinstance(document, dict):
@@ -929,11 +1081,20 @@ def _valid_acquisition_document(value: object) -> bool:
     lbry_failure = value.get("lbry_failure")
     if transport == AcquisitionTransport.LBRY:
         return source_url is None and lbry_failure is None
-    if transport != AcquisitionTransport.ODYSEE_CDN:
-        return False
-    return (
-        isinstance(source_url, str)
-        and source_url.startswith("https://player.odycdn.com/")
-        and isinstance(lbry_failure, str)
-        and bool(lbry_failure)
-    )
+    if transport == AcquisitionTransport.ODYSEE_CDN:
+        return (
+            isinstance(source_url, str)
+            and source_url.startswith("https://player.odycdn.com/")
+            and isinstance(lbry_failure, str)
+            and bool(lbry_failure)
+        )
+    if transport in {
+        AcquisitionTransport.PRINTABLES,
+        AcquisitionTransport.GITHUB,
+        AcquisitionTransport.HTTP,
+        AcquisitionTransport.TORRENT,
+    }:
+        return (
+            source_url is None or isinstance(source_url, str)
+        ) and lbry_failure is None
+    return False

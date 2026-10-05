@@ -643,6 +643,34 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(bulk_data["ok"])
         self.assertEqual(bulk_data["retried"], 1)
 
+        # Test live activity details attached to pending/active entries
+        self.collector.get_activities.return_value = {
+            (rel_id, sd_hash): {
+                "release_id": rel_id,
+                "sd_hash": sd_hash,
+                "release_name": "Test Print",
+                "channel_handle": "channel",
+                "phase": "download",
+                "transport": "github",
+                "completed_bytes": 500,
+                "total_bytes": 1000,
+                "bytes_per_second": 100.0,
+                "blobs_remaining": None,
+            }
+        }
+        active_resp = client.get("/api/entries?section=pipeline&category=pending")
+        self.assertEqual(active_resp.status_code, 200)
+        active_data = active_resp.get_json()
+        self.assertEqual(len(active_data["entries"]), 1)
+        act = active_data["entries"][0]["activity"]
+        self.assertIsNotNone(act)
+        self.assertEqual(act["phase"], "download")
+        self.assertEqual(act["progress_pct"], 50.0)
+        self.assertEqual(act["completed_human"], "500.0 B")
+        self.assertEqual(act["total_human"], "1000.0 B")
+        self.assertEqual(act["speed_human"], "100.0 B/s")
+        self.assertEqual(act["eta_human"], "5.0 seconds")
+
     def test_api_exclude_and_reinclude_job(self) -> None:
         app = create_app(self.collector)
         client = app.test_client()

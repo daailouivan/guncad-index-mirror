@@ -458,7 +458,7 @@ class TestMigration(unittest.TestCase):
         release_dir.mkdir(parents=True, exist_ok=True)
         payload_file = release_dir / "test.zip"
         payload_file.write_bytes(b"content")
-        hashes = compute_hashes(payload_file)
+        _ = compute_hashes(payload_file)
 
         rel_id = "5" * 40
         sd_hash = "6" * 96

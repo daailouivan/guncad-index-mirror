@@ -372,7 +372,7 @@ class JobStore:
                     channel_handle=excluded.channel_handle,
                     release_slug=excluded.release_slug,
                     platform=excluded.platform,
-                    payload_size=COALESCE(excluded.payload_size, jobs.payload_size),
+                    payload_size=COALESCE(jobs.payload_size, excluded.payload_size),
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -410,6 +410,37 @@ class JobStore:
             job.state not in {JobState.AWAITING_INDEX}
             and job.next_attempt_at <= self.clock()
         )
+
+    def pending_releases(
+        self,
+        platform: str | None = None,
+        limit: int = 50,
+    ) -> list[Release]:
+        now = self.clock()
+        clauses = ["state = ?", "next_attempt_at <= ?"]
+        parameters: list[Any] = [JobState.PENDING, now]
+        if platform:
+            clauses.append("platform = ?")
+            parameters.append(platform.lower())
+        where = " AND ".join(clauses)
+        parameters.append(max(1, limit))
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT release_json FROM jobs
+                WHERE {where}
+                ORDER BY updated_at ASC, release_id ASC
+                LIMIT ?
+                """,
+                tuple(parameters),
+            ).fetchall()
+        releases: list[Release] = []
+        for row in rows:
+            try:
+                releases.append(Release.from_api(json.loads(row["release_json"])))
+            except Exception:
+                continue
+        return releases
 
 
 
@@ -1283,6 +1314,8 @@ class JobStore:
                 clauses.append("state=?")
                 parameters.append(JobState.AWAITING_INDEX)
             elif category in ("seeding_green", "green"):
+                clauses.append("state=?")
+                parameters.append(JobState.AWAITING_INDEX)
                 clauses.append("seeding_state=?")
                 parameters.append(SeedingState.GREEN)
             elif category in ("published",):

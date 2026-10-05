@@ -855,6 +855,7 @@
 
             closeBtn.addEventListener("click", () => modal.close());
             modal.addEventListener("close", () => {
+                clearTimeout(modalLiveTimer);
                 startAutoRefresh();
                 try {
                     history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -907,8 +908,25 @@
                 return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             }
 
-            async function loadEntries() {
-                bodyEl.innerHTML = '<div class="modal-loading"><span class="spinner"></span> Loading entries...</div>';
+            let modalLiveTimer = null;
+            function scheduleModalLiveRefresh() {
+                clearTimeout(modalLiveTimer);
+                if (!modal.open) return;
+                const isLiveCategory = ["inflight", "in-flight", "acquiring"].includes(currentCategory);
+                if (isLiveCategory) {
+                    modalLiveTimer = setTimeout(async () => {
+                        if (modal.open && ["inflight", "in-flight", "acquiring"].includes(currentCategory)) {
+                            await loadEntries(true);
+                            scheduleModalLiveRefresh();
+                        }
+                    }, 2500);
+                }
+            }
+
+            async function loadEntries(silent = false) {
+                if (!silent) {
+                    bodyEl.innerHTML = '<div class="modal-loading"><span class="spinner"></span> Loading entries...</div>';
+                }
 
                 const params = new URLSearchParams({
                     section: currentSection,
@@ -932,7 +950,9 @@
                     renderEntries(data.entries);
                     updatePagination();
                 } catch (err) {
-                    bodyEl.innerHTML = `<div class="modal-error"><strong>Error loading entries:</strong> ${escapeHtml(err.message)}</div>`;
+                    if (!silent) {
+                        bodyEl.innerHTML = `<div class="modal-error"><strong>Error loading entries:</strong> ${escapeHtml(err.message)}</div>`;
+                    }
                 }
             }
 
@@ -983,6 +1003,33 @@
                             <span><strong>Attempts:</strong> ${entry.attempts}</span>
                             <span><strong>Updated:</strong> ${formatDate(entry.updated_at)}</span>
                         </div>`;
+
+                    if (entry.activity) {
+                        const act = entry.activity;
+                        html += `<div class="entry-activity-bar">
+                            <div class="activity-meta fine-print">
+                                <span class="activity-phase-badge">${escapeHtml(act.phase || 'active')}</span>
+                                ${act.transport ? `<span class="source-badge source-badge-${escapeHtml(act.transport)}">${escapeHtml(act.transport)}</span>` : ''}
+                                ${act.speed_human ? `<span class="activity-speed">⚡ ${escapeHtml(act.speed_human)}</span>` : ''}
+                                ${act.eta_human ? `<span class="activity-eta">⏳ ${escapeHtml(act.eta_human)} left</span>` : ''}
+                            </div>`;
+                        if (act.completed_bytes != null && act.total_bytes) {
+                            html += `<progress class="entry-progress" value="${act.completed_bytes}" max="${act.total_bytes}">${act.progress_pct}%</progress>
+                            <div class="activity-progress-detail fine-print">
+                                <span>${escapeHtml(act.completed_human || '')} / ${escapeHtml(act.total_human || '')} (${act.progress_pct}%)</span>
+                                ${act.speed_human ? `<span>${escapeHtml(act.speed_human)}</span>` : ''}
+                            </div>`;
+                        } else if (act.blobs_remaining != null) {
+                            html += `<div class="activity-progress-detail fine-print">
+                                <span>${act.blobs_remaining} LBRY blobs remaining</span>
+                            </div>`;
+                        } else if (act.total_human) {
+                            html += `<div class="activity-progress-detail fine-print">
+                                <span>Total size: ${escapeHtml(act.total_human)}</span>
+                            </div>`;
+                        }
+                        html += `</div>`;
+                    }
 
                     if (entry.last_error) {
                         html += `<div class="entry-diagnostic entry-diagnostic-error">
@@ -1163,6 +1210,7 @@
 
                 stopAutoRefresh();
                 loadEntries();
+                scheduleModalLiveRefresh();
                 if (!modal.open) {
                     modal.showModal();
                 }

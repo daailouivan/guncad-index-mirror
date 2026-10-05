@@ -361,17 +361,28 @@ def _audit_artifact(
             actual_size = file_path.stat().st_size
             if actual_size == 0:
                 errors.append("payload is empty")
-            if release is not None and release.size is not None:
+            if release is not None and release.platform == "lbry" and release.size is not None:
                 _expect(
                     errors,
                     actual_size == release.size,
                     f"payload size {actual_size} != claimed {release.size}",
                 )
+            elif (
+                release is not None
+                and release.platform != "lbry"
+                and "payload_size" in row.keys()
+                and row["payload_size"] is not None
+            ):
+                _expect(
+                    errors,
+                    actual_size == row["payload_size"],
+                    f"payload size {actual_size} != recorded {row['payload_size']}",
+                )
             if rehash_payloads:
                 hashes = hash_file(file_path)
                 _expect(errors, hashes.sha384 == row["sha384"], "SHA-384 mismatch")
                 _expect(errors, hashes.sha256 == row["sha256"], "SHA-256 mismatch")
-                if release is not None and release.sha384 is not None:
+                if release is not None and release.platform == "lbry" and release.sha384 is not None:
                     _expect(
                         errors,
                         hashes.sha384 == release.sha384,

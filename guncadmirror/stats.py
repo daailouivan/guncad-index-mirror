@@ -217,6 +217,10 @@ class StatsCollector:
             self._snapshot["activities"] = activities
             self._snapshot["activity"] = activities[-1] if activities else None
 
+    def get_activities(self) -> dict[tuple[str, str], dict[str, Any]]:
+        with self._lock:
+            return {key: dict(val) for key, val in self._activities.items()}
+
     def log(self, message: str, *, stdout: bool = False) -> None:
         if stdout:
             logging.getLogger("guncad-mirror").info(message)

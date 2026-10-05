@@ -310,3 +310,136 @@ class PipelineMultiSourceTests(unittest.TestCase):
         )
         self.assertIn("magnet:?xt=urn:btih:", manifest["acquisition"]["source_url"])
         self.assertEqual(manifest["artifact"]["size"], 120)
+
+    def test_printables_size_mismatch_with_index_estimate_is_marked_already_prepared(self) -> None:
+        payload = {
+            "id": "printables-9999",
+            "name": "Model Size Mismatch",
+            "channel": {"handle": "designer_123"},
+            "origin": {
+                "platform": "printables",
+                "external_id": "9999",
+                "size": 5000,  # Uncompressed estimate from GunCAD Index
+                "links": [{"name": "Printables", "url": "https://printables.com/model/9999"}],
+            },
+        }
+        release = Release.from_api(payload)
+        mock_printables = MagicMock(spec=PrintablesAcquirer)
+
+        def fake_acquire(rel: Release, output_dir: Path, **kwargs: object) -> PrintablesAcquisition:
+            dest = output_dir / "model.3mf"
+            dest.write_bytes(b"Z" * 1500)  # Actual downloaded file size is 1500 != 5000
+            return PrintablesAcquisition(
+                path=dest, source_url="https://files.printables.com/model.3mf"
+            )
+
+        mock_printables.acquire.side_effect = fake_acquire
+
+        pipeline = MirrorPipeline(
+            self.settings,
+            self.index_client,
+            self.lbry_acquirer,
+            self.store,
+            self.publisher,
+            printables_acquirer=mock_printables,
+        )
+
+        outcome = pipeline.process(release)
+        self.assertEqual(outcome, "ready")
+
+        job = self.store.get(release.id, release.sd_hash)
+        self.assertEqual(job.state, JobState.AWAITING_INDEX)
+        self.assertEqual(job.payload_size, 1500)
+
+        # Re-running process() on the same release must recognize it as already prepared
+        outcome2 = pipeline.process(release)
+        self.assertEqual(outcome2, "skipped")
+
+        # Job must stay awaiting_index and not be demoted to acquiring!
+        job_after = self.store.get(release.id, release.sd_hash)
+        self.assertEqual(job_after.state, JobState.AWAITING_INDEX)
+
+    def test_per_source_concurrency_allows_github_while_printables_is_saturated(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        p1 = Release.from_api({
+            "id": "printables-block-1",
+            "name": "Printables Block 1",
+            "channel": {"handle": "maker1"},
+            "origin": {"platform": "printables", "external_id": "p1", "links": []},
+        })
+        p2 = Release.from_api({
+            "id": "printables-block-2",
+            "name": "Printables Block 2",
+            "channel": {"handle": "maker2"},
+            "origin": {"platform": "printables", "external_id": "p2", "links": []},
+        })
+        gh = Release.from_api({
+            "id": "github-repo-fast",
+            "name": "Fast GitHub Project",
+            "channel": {"handle": "dev1"},
+            "origin": {"platform": "github", "external_id": "dev1/fast", "links": []},
+        })
+
+        printables_gate = Event()
+        printables_started = Event()
+        github_done = Event()
+
+        mock_printables = MagicMock(spec=PrintablesAcquirer)
+        def blocking_acquire(rel: Release, output_dir: Path, **kwargs: object) -> PrintablesAcquisition:
+            printables_started.set()
+            printables_gate.wait(5)
+            dest = output_dir / "p.zip"
+            dest.write_bytes(b"P" * 10)
+            return PrintablesAcquisition(dest, "https://example.com/p.zip")
+
+        mock_printables.acquire.side_effect = blocking_acquire
+
+        mock_github = MagicMock(spec=GitHubAcquirer)
+        def fast_gh_acquire(rel: Release, output_dir: Path, **kwargs: object) -> GitHubAcquisition:
+            dest = output_dir / "repo.zip"
+            dest.write_bytes(b"G" * 20)
+            github_done.set()
+            return GitHubAcquisition(dest, "https://github.com/dev1/fast/zipball")
+
+        mock_github.acquire.side_effect = fast_gh_acquire
+
+        pipeline_settings = Settings(
+            endpoint=self.settings.endpoint,
+            data_dir=self.root,
+            min_free_space=0,
+            printables_concurrency=2,
+            github_concurrency=2,
+            torrent_piece_length=16 * 1024,
+        )
+        pipeline = MirrorPipeline(
+            pipeline_settings,
+            MagicMock(),
+            self.lbry_acquirer,
+            self.store,
+            self.publisher,
+            printables_acquirer=mock_printables,
+            github_acquirer=mock_github,
+        )
+
+        class MultiIndex:
+            def releases(self, **kwargs: object):
+                return iter([p1, p2, gh])
+
+        pipeline.index_client = MultiIndex()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cycle = executor.submit(pipeline.run_cycle)
+            try:
+                # Wait for printables to start
+                self.assertTrue(printables_started.wait(3))
+                # GitHub must complete even while Printables is blocked on its gate!
+                self.assertTrue(github_done.wait(3))
+            finally:
+                printables_gate.set()
+            res = cycle.result(timeout=10)
+
+        self.assertEqual(res.ready, 3)
+        gh_job = self.store.get(gh.id, gh.sd_hash)
+        self.assertEqual(gh_job.state, JobState.AWAITING_INDEX)

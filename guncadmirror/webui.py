@@ -114,10 +114,56 @@ def create_app(collector: StatsCollector) -> Flask:
         )
         page_count = max(1, ceil(total / limit)) if total > 0 else 1
 
+        activities_map = collector.get_activities()
         formatted_entries = []
         for entry in entries:
             item = dict(entry)
             item["size_human"] = humanize_bytes(item.get("payload_size"))
+            rel_id = item.get("release_id")
+            sd_h = item.get("sd_hash")
+            act = activities_map.get((rel_id, sd_h))
+            if act:
+                completed = act.get("completed_bytes")
+                total_b = act.get("total_bytes")
+                rate = act.get("bytes_per_second")
+                pct = None
+                try:
+                    if completed is not None and total_b is not None and float(total_b) > 0:
+                        pct = round((float(completed) / float(total_b)) * 100, 1)
+                except (TypeError, ValueError):
+                    pct = None
+                eta_sec = None
+                try:
+                    if (
+                        rate
+                        and float(rate) > 0
+                        and total_b is not None
+                        and completed is not None
+                        and float(total_b) > float(completed)
+                    ):
+                        eta_sec = (float(total_b) - float(completed)) / float(rate)
+                except (TypeError, ValueError):
+                    eta_sec = None
+
+                completed_h = humanize_bytes(completed) if isinstance(completed, (int, float)) else None
+                total_h = humanize_bytes(total_b) if isinstance(total_b, (int, float)) else None
+                speed_h = f"{humanize_bytes(rate)}/s" if isinstance(rate, (int, float)) else None
+                eta_h = humanize_seconds(eta_sec) if isinstance(eta_sec, (int, float)) else None
+
+                item["activity"] = {
+                    "phase": act.get("phase") if isinstance(act.get("phase"), str) else None,
+                    "transport": act.get("transport") if isinstance(act.get("transport"), str) else None,
+                    "progress_pct": pct,
+                    "completed_bytes": completed if isinstance(completed, (int, float)) else None,
+                    "total_bytes": total_b if isinstance(total_b, (int, float)) else None,
+                    "completed_human": completed_h,
+                    "total_human": total_h,
+                    "speed_human": speed_h,
+                    "eta_human": eta_h,
+                    "blobs_remaining": act.get("blobs_remaining") if isinstance(act.get("blobs_remaining"), int) else None,
+                }
+            else:
+                item["activity"] = None
             if (
                 item.get("has_payload")
                 and item.get("state") == JobState.AWAITING_INDEX.value
