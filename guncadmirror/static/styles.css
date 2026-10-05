@@ -355,12 +355,44 @@ progress {
 	font: inherit;
 	font-weight: 700;
 	cursor: pointer;
+	text-align: left;
+	display: inline-block;
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 
 .cell-link-btn:hover {
 	color: #fff;
+}
+
+.cell-link-btn.platform-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.65rem;
+	text-decoration: none;
+	color: inherit;
+	white-space: nowrap;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.cell-link-btn.platform-btn strong {
+	color: var(--text);
+	transition: color 0.15s ease;
+	font-weight: 700;
+}
+
+.cell-link-btn.platform-btn:hover strong {
+	color: var(--link);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.cell-link-btn.platform-btn .source-badge {
+	min-width: 6.8rem;
+	text-align: center;
+	flex-shrink: 0;
+	margin-right: 0;
 }
 
 .cell-link-btn.text-danger {
@@ -721,11 +753,17 @@ td {
 	padding: 0.65rem;
 	border-bottom: 1px solid var(--border);
 	text-align: left;
-	vertical-align: top;
+	vertical-align: middle;
 }
 
 thead th {
 	background: var(--background);
+	white-space: nowrap;
+}
+
+th[scope="row"] {
+	white-space: nowrap;
+	font-weight: normal;
 }
 
 td ul {
