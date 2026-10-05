@@ -208,6 +208,9 @@ class GitHubAcquirer:
             )
 
         # Fallback to repo zipball archive
-        ref = tag or "main"
-        archive_url = f"{self.api_url}/repos/{owner}/{repo}/zipball/{ref}"
-        return archive_url, f"{repo}-{ref}.zip"
+        if tag:
+            archive_url = f"{self.api_url}/repos/{owner}/{repo}/zipball/{tag}"
+            return archive_url, f"{repo}-{tag}.zip"
+        archive_url = f"{self.api_url}/repos/{owner}/{repo}/zipball"
+        return archive_url, f"{repo}.zip"
+

@@ -445,10 +445,22 @@ class MirrorPipeline:
             self.logger.debug("Already prepared %s", release.name)
             reservation.release()
             return "skipped"
+        if job.state is JobState.EXCLUDED and (
+            job.exclusion_reason
+            and "matches configured blacklist" not in job.exclusion_reason
+            and "exceeds configured maximum" not in job.exclusion_reason
+        ):
+            self.logger.debug(
+                "Manually excluded %s (%s)", release.name, job.exclusion_reason
+            )
+            reservation.release()
+            return "skipped"
+
         if not self.store.ready_for_attempt(job) and job.state is JobState.FAILED:
             self.logger.debug("Backoff still active for %s", release.name)
             reservation.release()
             return "skipped"
+
 
         try:
             self.store.start_attempt(release)

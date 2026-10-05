@@ -411,6 +411,8 @@ class JobStore:
             and job.next_attempt_at <= self.clock()
         )
 
+
+
     def start_attempt(self, release: Release) -> Job:
         now = self.clock()
         with closing(self._connect()) as connection, connection:
@@ -1160,12 +1162,44 @@ class JobStore:
             cursor = connection.execute(
                 """
                 UPDATE jobs
-                SET state=?, attempts=0, next_attempt_at=0, last_error=NULL, updated_at=?
-                WHERE release_id=? AND sd_hash=? AND state=?
+                SET state=?, attempts=0, next_attempt_at=0, last_error=NULL, exclusion_reason=NULL, updated_at=?
+                WHERE release_id=? AND sd_hash=? AND state IN (?, ?)
                 """,
-                (JobState.PENDING, now, release_id, sd_hash, JobState.FAILED),
+                (
+                    JobState.PENDING,
+                    now,
+                    release_id,
+                    sd_hash,
+                    JobState.FAILED,
+                    JobState.EXCLUDED,
+                ),
             )
             return cursor.rowcount > 0
+
+    def exclude_job(
+        self,
+        release_id: str,
+        sd_hash: str,
+        reason: str = "Non-model software",
+    ) -> bool:
+        now = self.clock()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs
+                SET state=?, exclusion_reason=?, last_error=NULL, updated_at=?
+                WHERE release_id=? AND sd_hash=?
+                """,
+                (
+                    JobState.EXCLUDED,
+                    reason.strip() or "Non-model software",
+                    now,
+                    release_id,
+                    sd_hash,
+                ),
+            )
+            return cursor.rowcount > 0
+
 
     def get_category_entries(
         self,
@@ -1262,6 +1296,10 @@ class JobStore:
             elif category == "failed":
                 clauses.append("state=?")
                 parameters.append(JobState.FAILED)
+            elif category == "excluded":
+                clauses.append("state=?")
+                parameters.append(JobState.EXCLUDED)
+
 
         if platform:
             clauses.append("platform=?")

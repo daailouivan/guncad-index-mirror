@@ -211,6 +211,7 @@
                                 <th scope="col" class="num-col">Index<br><span class="th-sub">published</span></th>
                                 <th scope="col" class="num-col">In-flight</th>
                                 <th scope="col" class="num-col">Failed</th>
+                                <th scope="col" class="num-col">Excluded<br><span class="th-sub">by policy</span></th>
                                 <th scope="col" class="num-col">Payload<br><span class="th-sub">volume</span></th>
                                 <th scope="col" class="action-col">Archive</th>
                             </tr>
@@ -284,7 +285,17 @@
                                                 data-category="failed"
                                                 title="View failed {{ source.display_name }} entries">{{ source.failed }}</button>
                                     </td>
+                                    <td class="num-col">
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-platform="{{ source.platform }}"
+                                                data-category="excluded"
+                                                title="View excluded {{ source.display_name }} entries">{{ source.excluded }}</button>
+                                    </td>
                                     <td class="num-col">{{ source.staged_bytes | humanize_bytes }}</td>
+
                                     <td class="action-col">
                                         <a href="{{ url_for('archive_browser', platform=source.platform) }}" class="archive-filter-btn" title="Filter archive for {{ source.display_name }}">Filter archive</a>
                                     </td>
@@ -347,9 +358,17 @@
                                                 data-section="source"
                                                 data-category="failed"><strong>{{ platform_totals.failed }}</strong></button>
                                     </td>
+                                    <td class="num-col">
+                                        <button type="button"
+                                                class="cell-link-btn"
+                                                data-modal-trigger
+                                                data-section="source"
+                                                data-category="excluded"><strong>{{ platform_totals.excluded }}</strong></button>
+                                    </td>
                                     <td class="num-col"><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
                                     <td class="action-col"><a href="{{ url_for('archive_browser') }}" class="archive-filter-btn" title="Browse all entries in archive">Browse all</a></td>
                                 </tr>
+
                             </tfoot>
                         {% endif %}
                     </table>
@@ -856,8 +875,9 @@
                 verified: "Verified",
                 awaiting_index: "Awaiting Index (Staged)",
                 staged: "Staged / Verified",
-                excluded: "Excluded by Policy",
+                excluded: "Excluded (Non-Model / Policy)",
                 failed: "Failed",
+
                 publishing: "Publishing",
                 retrying: "Retrying",
                 published: "Accepted",
@@ -993,6 +1013,11 @@
                     if (entry.state === "failed") {
                         html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Retry Job</button>`;
                     }
+                    if (entry.state === "excluded") {
+                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Re-include (Retry)</button>`;
+                    } else if (entry.state !== "awaiting_index" && entry.state !== "verified") {
+                        html += `<button type="button" class="button button-sm button-secondary exclude-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">🚫 Exclude (Non-model)</button>`;
+                    }
                     if (entry.payload_url) {
                         html += `<a href="${entry.payload_url}" class="button button-sm button-secondary" download>Download Payload</a>`;
                     }
@@ -1032,6 +1057,36 @@
                         }
                     });
                 });
+
+                bodyEl.querySelectorAll(".exclude-single-btn").forEach(btn => {
+                    btn.addEventListener("click", async () => {
+                        const id = btn.getAttribute("data-id");
+                        const sd = btn.getAttribute("data-sd");
+                        const reason = prompt("Enter exclusion reason (e.g. Non-model software, documentation):", "Non-model software");
+                        if (reason === null) return;
+                        btn.disabled = true;
+                        btn.textContent = "Excluding...";
+                        try {
+                            const resp = await fetch("/api/jobs/exclude", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ release_id: id, sd_hash: sd, reason: reason.trim() || "Non-model software" })
+                            });
+                            const res = await resp.json();
+                            if (res.ok) {
+                                btn.textContent = "✓ Excluded";
+                                setTimeout(() => loadEntries(), 800);
+                            } else {
+                                btn.textContent = "Failed";
+                                btn.disabled = false;
+                            }
+                        } catch (e) {
+                            btn.textContent = "Error";
+                            btn.disabled = false;
+                        }
+                    });
+                });
+
             }
 
             function updatePagination() {

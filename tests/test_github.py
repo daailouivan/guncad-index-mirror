@@ -84,6 +84,45 @@ class GitHubAcquirerTests(unittest.TestCase):
             "https://api.github.com/repos/owner/repo/zipball/v1.0",
         )
 
+    @patch("guncadmirror.github.download_url_to_file")
+    def test_falls_back_to_tag_zipball_when_release_endpoint_404(
+        self, mock_download: object
+    ) -> None:
+        session = QueueSession(FakeResponse({}, status_code=404))
+        acquirer = GitHubAcquirer(session=session)  # type: ignore[arg-type]
+        release = make_github_release(
+            url="https://github.com/owner/repo/releases/tag/v2.5",
+            external_id="owner/repo/v2.5",
+        )
+
+        acquisition = acquirer.acquire(release, self.output_dir)
+
+        self.assertEqual(acquisition.path, self.output_dir / "repo-v2.5.zip")
+        self.assertEqual(
+            acquisition.source_url,
+            "https://api.github.com/repos/owner/repo/zipball/v2.5",
+        )
+
+    @patch("guncadmirror.github.download_url_to_file")
+    def test_falls_back_to_default_branch_zipball_when_no_tag(
+        self, mock_download: object
+    ) -> None:
+        session = QueueSession(FakeResponse({}, status_code=404))
+        acquirer = GitHubAcquirer(session=session)  # type: ignore[arg-type]
+        release = make_github_release(
+            url="https://github.com/owner/repo",
+            external_id="owner/repo",
+        )
+
+        acquisition = acquirer.acquire(release, self.output_dir)
+
+        self.assertEqual(acquisition.path, self.output_dir / "repo.zip")
+        self.assertEqual(
+            acquisition.source_url,
+            "https://api.github.com/repos/owner/repo/zipball",
+        )
+
+
     def test_respects_cancellation(self) -> None:
         stop = Event()
         stop.set()

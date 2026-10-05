@@ -643,6 +643,73 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(bulk_data["ok"])
         self.assertEqual(bulk_data["retried"], 1)
 
+    def test_api_exclude_and_reinclude_job(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        payload = release_payload(
+            b"test",
+            release_id="gh-tool",
+            sd_hash="a" * 96,
+            name="Utility Software",
+        )
+        payload["origin"]["platform"] = "github"
+        rel = Release.from_api(payload)
+        self.store.register(rel)
+        rel_id = rel.id
+        sd_hash = rel.sd_hash
+
+
+        # Exclude job via API
+        resp = client.post(
+            "/api/jobs/exclude",
+            json={
+                "release_id": rel_id,
+                "sd_hash": sd_hash,
+                "reason": "Non-model utility software",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["excluded"], 1)
+
+        # Check job in database
+        job = self.store.get(rel_id, sd_hash)
+        self.assertEqual(job.state, JobState.EXCLUDED)
+        self.assertEqual(job.exclusion_reason, "Non-model utility software")
+
+        # Verify it shows up in category entries for pipeline and source
+        pipe_resp = client.get("/api/entries?section=pipeline&category=excluded")
+        self.assertEqual(pipe_resp.status_code, 200)
+        pipe_data = pipe_resp.get_json()
+        self.assertEqual(pipe_data["total"], 1)
+        self.assertEqual(pipe_data["entries"][0]["release_id"], rel_id)
+
+        source_resp = client.get("/api/entries?section=source&category=excluded&platform=github")
+        self.assertEqual(source_resp.status_code, 200)
+        source_data = source_resp.get_json()
+        self.assertEqual(source_data["total"], 1)
+        self.assertEqual(source_data["entries"][0]["release_id"], rel_id)
+
+        # Re-include / retry job
+        retry_resp = client.post(
+            "/api/jobs/retry",
+            json={"release_id": rel_id, "sd_hash": sd_hash},
+        )
+        self.assertEqual(retry_resp.status_code, 200)
+        self.assertTrue(retry_resp.get_json()["ok"])
+
+        # Check job is back to pending and exclusion_reason is cleared
+        job_after = self.store.get(rel_id, sd_hash)
+        self.assertEqual(job_after.state, JobState.PENDING)
+        self.assertIsNone(job_after.exclusion_reason)
+
+        # Test error handling on missing parameters
+        bad_resp = client.post("/api/jobs/exclude", json={})
+        self.assertEqual(bad_resp.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
+

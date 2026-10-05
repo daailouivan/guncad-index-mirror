@@ -164,7 +164,7 @@ def create_app(collector: StatsCollector) -> Flask:
             retried = 1 if success else 0
             if success:
                 collector.events.append(
-                    f"Reset failed job {release_id} ({sd_hash[:12]}) for retry"
+                    f"Reset job {release_id} ({sd_hash[:12]}) for retry"
                 )
         else:
             retried = collector.store.retry_failed_jobs(platform=platform_filter)
@@ -175,6 +175,25 @@ def create_app(collector: StatsCollector) -> Flask:
                 )
         collector.collect()
         return jsonify({"ok": True, "retried": retried})
+
+    @app.route("/api/jobs/exclude", methods=["POST"])
+    def api_exclude_job() -> Response:
+        data = request.get_json(silent=True) or request.form
+        release_id = data.get("release_id", "").strip()
+        sd_hash = data.get("sd_hash", "").strip()
+        reason = (data.get("reason", "") or "").strip() or "Non-model software"
+
+        if not release_id or not sd_hash:
+            abort(400, "release_id and sd_hash are required")
+
+        success = collector.store.exclude_job(release_id, sd_hash, reason=reason)
+        if success:
+            collector.events.append(
+                f"Excluded {release_id} ({sd_hash[:12]}): {reason}"
+            )
+            collector.collect()
+        return jsonify({"ok": success, "excluded": 1 if success else 0})
+
 
     @app.route("/archive")
     def archive_browser() -> str:

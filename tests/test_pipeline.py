@@ -465,7 +465,34 @@ class MirrorPipelineTests(unittest.TestCase):
         )
         self.assertEqual(self.store.counts(), {"excluded": 1, "failed": 1})
 
+    def test_manual_exclusion_is_skipped_by_pipeline_without_acquiring(self) -> None:
+        release = make_release(content=b"test-content", release_id="f" * 40)
+
+        payload = self.root / "manual.zip"
+        payload.write_bytes(b"test-content")
+        acquirer = Mock()
+        acquirer.acquire.return_value = payload
+        pipeline = self._pipeline([release], acquirer)
+
+        self.store.register(release)
+        self.store.exclude_job(release.id, release.sd_hash, "Non-model utility software")
+
+        # Process should skip without acquiring
+        self.assertEqual(pipeline.process(release), "skipped")
+        acquirer.acquire.assert_not_called()
+        job = self.store.get(release.id, release.sd_hash)
+        self.assertEqual(job.state, JobState.EXCLUDED)
+        self.assertEqual(job.exclusion_reason, "Non-model utility software")
+
+        # Unexclude via retry
+        self.assertTrue(self.store.retry_job(release.id, release.sd_hash))
+        self.assertEqual(pipeline.process(release), "ready")
+        self.assertEqual(acquirer.acquire.call_count, 1)
+        job_after = self.store.get(release.id, release.sd_hash)
+        self.assertEqual(job_after.state, JobState.AWAITING_INDEX)
+
     def test_new_size_policy_does_not_demote_a_completed_job(self) -> None:
+
         release = make_release(content=b"12345678")
         payload = self.root / "completed.zip"
         payload.write_bytes(b"12345678")
