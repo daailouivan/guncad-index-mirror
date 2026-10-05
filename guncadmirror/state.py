@@ -1271,6 +1271,9 @@ class JobStore:
             elif category == "failed":
                 clauses.append("state=?")
                 parameters.append(JobState.FAILED)
+            elif category in ("inflight", "in-flight"):
+                clauses.append("state IN (?, ?)")
+                parameters.extend([JobState.PENDING, JobState.ACQUIRING])
         elif section == "publication":
             if category == "pending":
                 clauses.append("publication_state=?")
