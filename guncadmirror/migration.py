@@ -25,6 +25,7 @@ from .models import (
     Release,
     TorrentArtifact,
 )
+from .paths import release_directory
 from .publisher import OutboxPublisher
 from .qbittorrent import QBitClient
 from .settings import Settings
@@ -46,6 +47,7 @@ class MigrationConfig:
     generate_missing_torrents: bool = True
     max_items: int | None = None
     detect_faulty_folders: bool = True
+    relocate_releases: bool = True
     sqlite_nolock: bool = False
     staging_db: bool = True
     logger: logging.Logger = logger
@@ -58,6 +60,7 @@ class MigrationStats:
     delisted_or_unindexed: int = 0
     torrents_extracted: int = 0
     torrents_generated: int = 0
+    payloads_relocated: int = 0
     skipped_existing: int = 0
     missing_files: int = 0
     faulty_stubs_ignored: int = 0
@@ -73,6 +76,7 @@ class MigrationStats:
             "delisted_or_unindexed": self.delisted_or_unindexed,
             "torrents_extracted": self.torrents_extracted,
             "torrents_generated": self.torrents_generated,
+            "payloads_relocated": self.payloads_relocated,
             "skipped_existing": self.skipped_existing,
             "missing_files": self.missing_files,
             "faulty_stubs_ignored": self.faulty_stubs_ignored,
@@ -497,6 +501,35 @@ class V1MigrationRunner:
                 btih = meta_json["torrent"].get("btih")
                 magnet_uri = meta_json["torrent"].get("magnet_uri")
 
+        if not release_id or not channel_handle:
+            self.stats.errors += 1
+            self.stats.issues.append(f"No release ID or channel for sd_hash {sd_hash}")
+            return
+
+        if self.config.relocate_releases:
+            canonical_local_dir = release_directory(
+                self.releases_dir, channel_handle, release_name, sd_hash
+            )
+            canonical_local_payload = canonical_local_dir / file_name
+            canonical_target_dir = release_directory(
+                self.target_prefix / "releases", channel_handle, release_name, sd_hash
+            )
+            canonical_target_payload = canonical_target_dir / file_name
+        else:
+            canonical_local_dir = None
+            canonical_local_payload = local_payload_path
+            canonical_target_dir = None
+            canonical_target_payload = self.target_prefix / rel_subpath / file_name
+
+        target_payload_path = canonical_target_payload
+
+        active_payload_path = (
+            canonical_local_payload
+            if (self.config.relocate_releases and canonical_local_payload.is_file())
+            else local_payload_path
+        )
+
+        if meta_json and not matched_bootstrap:
             self.stats.delisted_releases.append(
                 {
                     "release_id": release_id,
@@ -510,25 +543,108 @@ class V1MigrationRunner:
                 }
             )
 
-        if not release_id or not channel_handle:
-            self.stats.errors += 1
-            self.stats.issues.append(f"No release ID or channel for sd_hash {sd_hash}")
-            return
-
         # Check existing job in state db
         if db_conn is not None:
             cursor = db_conn.execute(
-                "SELECT state FROM jobs WHERE release_id=? AND sd_hash=?",
+                "SELECT state, file_path FROM jobs WHERE release_id=? AND sd_hash=?",
                 (release_id, sd_hash),
             )
             row = cursor.fetchone()
             if row is not None and row[0] == JobState.AWAITING_INDEX.value:
+                existing_fp = row[1]
+                if (
+                    self.config.relocate_releases
+                    and canonical_local_dir is not None
+                    and (
+                        not existing_fp
+                        or PurePosixPath(str(existing_fp))
+                        != PurePosixPath(str(canonical_target_payload))
+                    )
+                ):
+                    if not self.config.dry_run:
+                        canonical_local_dir.mkdir(parents=True, exist_ok=True)
+                        if (
+                            not canonical_local_payload.is_file()
+                            and local_payload_path.is_file()
+                        ):
+                            try:
+                                os.link(local_payload_path, canonical_local_payload)
+                            except OSError:
+                                shutil.copy2(local_payload_path, canonical_local_payload)
+                        canonical_rel_json = canonical_local_dir / "release.json"
+                        if not canonical_rel_json.is_file():
+                            v2_raw = synthesize_v2_payload(
+                                release_id=release_id,
+                                name=release_name,
+                                channel_handle=channel_handle,
+                                sd_hash=sd_hash,
+                                size=payload_size,
+                                checksum=sha384,
+                                url=meta_json.get("url") if meta_json else None,
+                                url_lbry=meta_json.get("url_lbry") if meta_json else None,
+                            )
+                            atomic_write(
+                                canonical_rel_json,
+                                (
+                                    json.dumps(v2_raw, indent=2)
+                                    + "\n"
+                                ).encode("utf-8"),
+                            )
+                        db_conn.execute(
+                            "UPDATE jobs SET file_path=? WHERE release_id=? AND sd_hash=?",
+                            (str(canonical_target_payload), release_id, sd_hash),
+                        )
+                    self.stats.payloads_relocated += 1
                 self.stats.skipped_existing += 1
                 return
         elif self.store is not None:
             try:
                 existing_job = self.store.get(release_id, sd_hash)
                 if existing_job.state is JobState.AWAITING_INDEX:
+                    if (
+                        self.config.relocate_releases
+                        and canonical_local_dir is not None
+                        and (
+                            not existing_job.file_path
+                            or PurePosixPath(str(existing_job.file_path))
+                            != PurePosixPath(str(canonical_target_payload))
+                        )
+                    ):
+                        if not self.config.dry_run:
+                            canonical_local_dir.mkdir(parents=True, exist_ok=True)
+                            if (
+                                not canonical_local_payload.is_file()
+                                and local_payload_path.is_file()
+                            ):
+                                try:
+                                    os.link(local_payload_path, canonical_local_payload)
+                                except OSError:
+                                    shutil.copy2(local_payload_path, canonical_local_payload)
+                            canonical_rel_json = canonical_local_dir / "release.json"
+                            if not canonical_rel_json.is_file():
+                                v2_raw = synthesize_v2_payload(
+                                    release_id=release_id,
+                                    name=release_name,
+                                    channel_handle=channel_handle,
+                                    sd_hash=sd_hash,
+                                    size=payload_size,
+                                    checksum=sha384,
+                                    url=meta_json.get("url") if meta_json else None,
+                                    url_lbry=meta_json.get("url_lbry") if meta_json else None,
+                                )
+                                atomic_write(
+                                    canonical_rel_json,
+                                    (
+                                        json.dumps(v2_raw, indent=2)
+                                        + "\n"
+                                    ).encode("utf-8"),
+                                )
+                            with self.store._connect() as conn:
+                                conn.execute(
+                                    "UPDATE jobs SET file_path=? WHERE release_id=? AND sd_hash=?",
+                                    (str(canonical_target_payload), release_id, sd_hash),
+                                )
+                        self.stats.payloads_relocated += 1
                     self.stats.skipped_existing += 1
                     return
             except KeyError:
@@ -568,12 +684,12 @@ class V1MigrationRunner:
                     size=payload_size, sha384=sha384, sha256=manifest_sha256
                 )
             else:
-                hashes = compute_hashes(local_payload_path)
+                hashes = compute_hashes(active_payload_path)
         elif self.config.verify_hashes or not sha384:
-            hashes = compute_hashes(local_payload_path)
+            hashes = compute_hashes(active_payload_path)
             if sha384 and hashes.sha384 != sha384:
                 raise ValueError(
-                    f"SHA-384 mismatch for {local_payload_path}: claimed {sha384}, got {hashes.sha384}"
+                    f"SHA-384 mismatch for {active_payload_path}: claimed {sha384}, got {hashes.sha384}"
                 )
             sha384 = hashes.sha384
         else:
@@ -581,7 +697,7 @@ class V1MigrationRunner:
                 size=payload_size,
                 sha384=sha384,
                 sha256=hashlib.sha256(
-                    open(local_payload_path, "rb").read(1024 * 1024)
+                    open(active_payload_path, "rb").read(1024 * 1024)
                 ).hexdigest(),
             )
 
@@ -615,7 +731,7 @@ class V1MigrationRunner:
             if torrent_bytes is not None:
                 parsed = parse_torrent(torrent_bytes)
                 if (
-                    parsed.file_name != local_payload_path.name
+                    parsed.file_name != active_payload_path.name
                     or parsed.file_length != payload_size
                 ):
                     torrent_bytes = None
@@ -637,7 +753,7 @@ class V1MigrationRunner:
             elif self.config.generate_missing_torrents:
                 if not self.config.dry_run:
                     generated = create_torrent(
-                        local_payload_path,
+                        active_payload_path,
                         local_torrent_path,
                         piece_length=1048576,
                     )
@@ -682,6 +798,24 @@ class V1MigrationRunner:
             url_lbry=meta_json.get("url_lbry") if meta_json else None,
         )
         release_obj = Release.from_api(v2_raw)
+
+        if self.config.relocate_releases and canonical_local_dir is not None:
+            if not self.config.dry_run:
+                canonical_local_dir.mkdir(parents=True, exist_ok=True)
+                if not canonical_local_payload.is_file() and local_payload_path.is_file():
+                    try:
+                        os.link(local_payload_path, canonical_local_payload)
+                    except OSError:
+                        shutil.copy2(local_payload_path, canonical_local_payload)
+                canonical_rel_json = canonical_local_dir / "release.json"
+                if not canonical_rel_json.is_file():
+                    atomic_write(
+                        canonical_rel_json,
+                        (
+                            json.dumps(release_obj.raw, indent=2) + "\n"
+                        ).encode("utf-8"),
+                    )
+            self.stats.payloads_relocated += 1
 
         if not self.config.dry_run and self.store is not None:
             if not has_existing_outbox:
@@ -914,6 +1048,11 @@ def main() -> None:
         help="Write directly to target database rather than using a local staging SQLite file",
     )
     parser.add_argument(
+        "--no-relocate-releases",
+        action="store_true",
+        help="Do not relocate payloads to canonical /data/releases/ hierarchy",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -957,6 +1096,7 @@ def main() -> None:
         verify_hashes=args.verify_hashes,
         generate_missing_torrents=not args.no_generate_missing,
         detect_faulty_folders=not args.no_detect_faulty,
+        relocate_releases=not args.no_relocate_releases,
         sqlite_nolock=args.nolock,
         staging_db=not args.no_staging_db,
         max_items=args.max_items,

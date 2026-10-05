@@ -327,21 +327,45 @@ class TestMigration(unittest.TestCase):
         self.assertTrue(outbox_torrent2.is_file())
         self.assertTrue(outbox_manifest2.is_file())
 
-        # Verify JobStore has BOTH jobs in AWAITING_INDEX
+        # Verify JobStore has BOTH jobs in AWAITING_INDEX with canonical releases paths
+        canonical_p1 = (
+            self.data_dir
+            / "releases"
+            / "@Author#a"
+            / f"Release-B-{sd_hash1[:12]}"
+            / "test1.zip"
+        )
+        canonical_p2 = (
+            self.data_dir
+            / "releases"
+            / "@Author#a"
+            / f"Delisted-Rare-Part-{sd_hash2[:12]}"
+            / "rare_model.step"
+        )
+        self.assertTrue(canonical_p1.is_file())
+        self.assertTrue((canonical_p1.parent / "release.json").is_file())
+        self.assertTrue(canonical_p2.is_file())
+        self.assertTrue((canonical_p2.parent / "release.json").is_file())
+
         job1 = store.get(release_id1, sd_hash1)
         self.assertEqual(job1.state, JobState.AWAITING_INDEX)
         self.assertEqual(job1.seeding_state, SeedingState.PENDING)
         self.assertEqual(
-            job1.file_path, Path("/data/mirror/Author#a/Release#b/test1.zip")
+            job1.file_path,
+            Path(f"/data/releases/@Author#a/Release-B-{sd_hash1[:12]}/test1.zip"),
         )
 
         job2 = store.get(release_id2, sd_hash2)
         self.assertEqual(job2.state, JobState.AWAITING_INDEX)
         self.assertEqual(job2.seeding_state, SeedingState.PENDING)
         self.assertEqual(
-            job2.file_path, Path("/data/mirror/Author#a/Delisted#c/rare_model.step")
+            job2.file_path,
+            Path(
+                f"/data/releases/@Author#a/Delisted-Rare-Part-{sd_hash2[:12]}/rare_model.step"
+            ),
         )
         self.assertEqual(job2.sha384, hashes2.sha384)
+        self.assertEqual(live_stats.payloads_relocated, 2)
 
         # Verify idempotency on second run
         idempotent_stats = runner.run()
@@ -424,3 +448,134 @@ class TestMigration(unittest.TestCase):
         job = store.get(release.id, release.sd_hash)
         self.assertEqual(job.seeding_state, SeedingState.PENDING)
         self.assertIsNone(job.seeding_error_code)
+
+    def test_migration_no_relocate_releases(self) -> None:
+        lbry_dir = self.data_dir / "lbry" / "lbrynet"
+        lbry_dir.mkdir(parents=True, exist_ok=True)
+        db_path = lbry_dir / "lbrynet.sqlite"
+
+        release_dir = self.data_dir / "mirror" / "Author#a" / "Release#b"
+        release_dir.mkdir(parents=True, exist_ok=True)
+        payload_file = release_dir / "test.zip"
+        payload_file.write_bytes(b"content")
+        hashes = compute_hashes(payload_file)
+
+        rel_id = "5" * 40
+        sd_hash = "6" * 96
+        (release_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "id": rel_id,
+                    "name": "No Relocate",
+                    "channel": {"handle": "@Author:a"},
+                    "sd_hash": sd_hash,
+                }
+            )
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)")
+        conn.execute("CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)")
+        fn_hex = "test.zip".encode().hex()
+        dd_hex = "/data/mirror/Author#a/Release#b".encode().hex()
+        conn.execute("INSERT INTO stream VALUES ('s1', ?, 'test.zip')", (sd_hash,))
+        conn.execute(f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)")
+        conn.commit()
+        conn.close()
+
+        config = MigrationConfig(
+            data_dir=self.data_dir,
+            relocate_releases=False,
+            dry_run=False,
+        )
+        runner = V1MigrationRunner(config)
+        stats = runner.run()
+
+        self.assertEqual(stats.payloads_relocated, 0)
+        store = JobStore(self.data_dir / "mirror-state.sqlite3")
+        job = store.get(rel_id, sd_hash)
+        self.assertEqual(job.file_path, Path("/data/mirror/Author#a/Release#b/test.zip"))
+        self.assertFalse((self.data_dir / "releases").exists())
+
+    def test_migration_upgrades_legacy_job_path(self) -> None:
+        lbry_dir = self.data_dir / "lbry" / "lbrynet"
+        lbry_dir.mkdir(parents=True, exist_ok=True)
+        db_path = lbry_dir / "lbrynet.sqlite"
+
+        release_dir = self.data_dir / "mirror" / "Author#a" / "Release#c"
+        release_dir.mkdir(parents=True, exist_ok=True)
+        payload_file = release_dir / "upgrade.zip"
+        payload_file.write_bytes(b"upgrade payload")
+
+        rel_id = "7" * 40
+        sd_hash = "8" * 96
+        (release_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "id": rel_id,
+                    "name": "Upgrade Release",
+                    "channel": {"handle": "@Author:a"},
+                    "sd_hash": sd_hash,
+                }
+            )
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)")
+        conn.execute("CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)")
+        fn_hex = "upgrade.zip".encode().hex()
+        dd_hex = "/data/mirror/Author#a/Release#c".encode().hex()
+        conn.execute("INSERT INTO stream VALUES ('s1', ?, 'upgrade.zip')", (sd_hash,))
+        conn.execute(f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)")
+        conn.commit()
+        conn.close()
+
+        # Pre-seed the JobStore with an existing legacy record
+        store = JobStore(self.data_dir / "mirror-state.sqlite3")
+        rel_obj = Release.from_api(
+            synthesize_v2_payload(
+                release_id=rel_id,
+                name="Upgrade Release",
+                channel_handle="@Author:a",
+                sd_hash=sd_hash,
+                size=15,
+                checksum="a" * 96,
+            )
+        )
+        dummy_torrent = TorrentArtifact(
+            file_path=Path("/data/mirror/Author#a/Release#c/upgrade.zip"),
+            torrent_path=self.data_dir / "outbox" / rel_id / sd_hash / "test.torrent",
+            piece_length=1048576,
+            piece_count=1,
+            info_hash="b" * 40,
+            torrent_sha256="c" * 64,
+            magnet_uri="",
+            trackers=(),
+        )
+        store.record_migrated(
+            rel_obj,
+            file_path=Path("/data/mirror/Author#a/Release#c/upgrade.zip"),
+            sha384="a" * 96,
+            sha256="d" * 64,
+            torrent=dummy_torrent,
+        )
+
+        # Now run migration with relocate_releases=True (default)
+        config = MigrationConfig(
+            data_dir=self.data_dir,
+            relocate_releases=True,
+            staging_db=False,
+            dry_run=False,
+        )
+        runner = V1MigrationRunner(config)
+        stats = runner.run()
+
+        self.assertEqual(stats.payloads_relocated, 1)
+        self.assertEqual(stats.skipped_existing, 1)
+
+        # Verify DB updated and canonical files exist
+        job = store.get(rel_id, sd_hash)
+        expected_path = Path(f"/data/releases/@Author#a/Upgrade-Release-{sd_hash[:12]}/upgrade.zip")
+        self.assertEqual(job.file_path, expected_path)
+        self.assertTrue((self.data_dir / "releases" / "@Author#a" / f"Upgrade-Release-{sd_hash[:12]}" / "upgrade.zip").is_file())
+        self.assertTrue((self.data_dir / "releases" / "@Author#a" / f"Upgrade-Release-{sd_hash[:12]}" / "release.json").is_file())
