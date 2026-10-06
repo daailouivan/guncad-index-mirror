@@ -22,50 +22,14 @@ jobs:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
           CLEAN_TOKEN=$(echo -n "${GITLAB_TOKEN}" | tr -d '\r\n[:space:]')
-          echo "Token length: ${#CLEAN_TOKEN}"
-          echo "First 7 chars: ${CLEAN_TOKEN:0:7}"
-          echo "Has export: $(echo "$CLEAN_TOKEN" | grep -q "export" && echo YES || echo NO)"
-          echo "Has equal: $(echo "$CLEAN_TOKEN" | grep -q "=" && echo YES || echo NO)"
-          echo "Has quote: $(echo "$CLEAN_TOKEN" | grep -q -E "[\"']" && echo YES || echo NO)"
           if [ -z "${CLEAN_TOKEN}" ]; then
             echo "::error::GITLAB_TOKEN secret is empty"
             exit 1
           fi
-          echo "Testing GitLab API /user endpoint with token..."
-          curl -s -i -H "PRIVATE-TOKEN: ${CLEAN_TOKEN}" "https://gitlab.com/api/v4/user" | head -n 20 || true
-          curl -s -i -H "Authorization: Bearer ${CLEAN_TOKEN}" "https://gitlab.com/api/v4/user" | head -n 20 || true
-
           git remote add gitlab "https://oauth2:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
           if ! git push gitlab "HEAD:v2-multisource"; then
             echo "::notice::oauth2 auth failed, trying with username daailouivan..."
             git remote set-url gitlab "https://daailouivan:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
-            git push gitlab "HEAD:v2-multisource" || true
+            git push gitlab "HEAD:v2-multisource"
           fi
-
-          echo "Configuring GitLab project daailouivan/mirror..."
-          AUTH_HEADER="PRIVATE-TOKEN: ${CLEAN_TOKEN}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "${AUTH_HEADER}" "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror")
-          if [ "$STATUS" = "401" ]; then
-            AUTH_HEADER="Authorization: Bearer ${CLEAN_TOKEN}"
-          fi
-
-          # Set default branch to v2-multisource
-          echo "Setting default_branch to v2-multisource..."
-          curl -s -X PUT \
-            -H "${AUTH_HEADER}" \
-            --data-urlencode "default_branch=v2-multisource" \
-            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror" | jq '{name, default_branch}'
-
-          # Unprotect old v2-migration branch if protected
-          echo "Unprotecting v2-migration if protected..."
-          curl -s -X DELETE \
-            -H "${AUTH_HEADER}" \
-            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror/protected_branches/v2-migration" || true
-
-          # Delete stale v2-migration branch
-          echo "Deleting stale v2-migration branch..."
-          git push gitlab --delete v2-migration || \
-          curl -s -X DELETE \
-            -H "${AUTH_HEADER}" \
-            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror/repository/branches/v2-migration" || true
 
