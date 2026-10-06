@@ -1,0 +1,30 @@
+name: Sync to GitLab
+
+on:
+  push:
+    branches:
+      - v2-multisource
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Push v2-multisource to GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          CLEAN_TOKEN=$(echo -n "${GITLAB_TOKEN}" | tr -d '\r\n[:space:]')
+          git remote add gitlab "https://oauth2:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
+          if ! git push gitlab "HEAD:v2-multisource"; then
+            echo "::notice::oauth2 auth failed, trying with username daailouivan..."
+            git remote set-url gitlab "https://daailouivan:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
+            git push gitlab "HEAD:v2-multisource"
+          fi
