@@ -1,5 +1,6 @@
 # Unreleased
 
+* Remove build-only pip from the runtime image, require urllib3 >= 2.8.0, apply Alpine security updates to the qBittorrent image, and scan the qBittorrent OCI archive the same way as the main image
 * Replaced the legacy reflection loop with a durable LBRY-to-BitTorrent evacuation pipeline
 * Added strict GunCAD Index API v2 parsing, bounded same-origin pagination, and clean handling of non-LBRY origins
 * Added a pinned lbry-sdk patch for direct stream-descriptor acquisition without normal claim resolution

@@ -140,9 +140,11 @@ Scan qBittorrent Container:
   stage: Scan
   allow_failure: true
   retry: 0
-  before_script: []
+  before_script:
+    - mkdir qbittorrent-container
+    - tar xf $QBITTORRENT_IMAGE_TARBALL -C qbittorrent-container
   script:
-    - trivy image --input $QBITTORRENT_IMAGE_TARBALL --platform linux/amd64 --scanners
+    - trivy image --input qbittorrent-container --platform linux/amd64 --scanners
       vuln,secret,misconfig --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
 Publish SHA:
   image:

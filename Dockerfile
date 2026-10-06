@@ -70,8 +70,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN mkdir /app
 WORKDIR /app
 COPY requirements.txt /app/
+# pip is only needed at build time. Its vendored dependencies (msgpack,
+# setuptools/pkg_resources, urllib3, ...) lag behind upstream security fixes and
+# get flagged by Trivy, so uninstall it from the venv once requirements are in.
 RUN	pip install --upgrade pip && \
-	pip install --no-cache-dir -r requirements.txt
+	pip install --no-cache-dir -r requirements.txt && \
+	pip uninstall -y pip
 COPY ./ /app/
 
 # STAGE 3: Prod build
@@ -80,11 +84,15 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV GUNCAD_IN_DOCKER=True
 ENV PATH="/opt/venv/bin:$PATH"
+# The base image ships a system pip whose vendored msgpack, setuptools
+# (pkg_resources) and urllib3 carry HIGH CVEs with no fixed pip release yet.
+# Nothing in the runtime image uses pip, so remove it instead of shipping it.
 RUN	apt-get update && \
 	apt-get upgrade -y && \
 	apt-get install -y --no-install-recommends curl logrotate tini && \
 	rm -rf /var/lib/apt/lists/* && \
-	rm -rf /var/cache/apt/archives/*
+	rm -rf /var/cache/apt/archives/* && \
+	PIP_ROOT_USER_ACTION=ignore /usr/local/bin/python -m pip uninstall -y pip
 RUN	adduser --disabled-password --gecos "" --uid 1000 mirror && \
 	mkdir /app /data && \
 	chown -R mirror: /app /data
