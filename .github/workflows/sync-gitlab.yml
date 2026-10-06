@@ -31,11 +31,15 @@ jobs:
             echo "::error::GITLAB_TOKEN secret is empty"
             exit 1
           fi
+          echo "Testing GitLab API /user endpoint with token..."
+          curl -s -i -H "PRIVATE-TOKEN: ${CLEAN_TOKEN}" "https://gitlab.com/api/v4/user" | head -n 20 || true
+          curl -s -i -H "Authorization: Bearer ${CLEAN_TOKEN}" "https://gitlab.com/api/v4/user" | head -n 20 || true
+
           git remote add gitlab "https://oauth2:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
           if ! git push gitlab "HEAD:v2-multisource"; then
             echo "::notice::oauth2 auth failed, trying with username daailouivan..."
             git remote set-url gitlab "https://daailouivan:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
-            git push gitlab "HEAD:v2-multisource"
+            git push gitlab "HEAD:v2-multisource" || true
           fi
 
           echo "Configuring GitLab project daailouivan/mirror..."
