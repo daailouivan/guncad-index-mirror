@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Push v2-multisource to GitLab
+      - name: Push v2-multisource and update default branch on GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
@@ -28,3 +28,31 @@ jobs:
             git remote set-url gitlab "https://daailouivan:${CLEAN_TOKEN}@gitlab.com/daailouivan/mirror.git"
             git push gitlab "HEAD:v2-multisource"
           fi
+
+          echo "Configuring GitLab project daailouivan/mirror..."
+          AUTH_HEADER="PRIVATE-TOKEN: ${CLEAN_TOKEN}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "${AUTH_HEADER}" "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror")
+          if [ "$STATUS" = "401" ]; then
+            AUTH_HEADER="Authorization: Bearer ${CLEAN_TOKEN}"
+          fi
+
+          # Set default branch to v2-multisource
+          echo "Setting default_branch to v2-multisource..."
+          curl -s -X PUT \
+            -H "${AUTH_HEADER}" \
+            --data-urlencode "default_branch=v2-multisource" \
+            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror" | jq '{name, default_branch}'
+
+          # Unprotect old v2-migration branch if protected
+          echo "Unprotecting v2-migration if protected..."
+          curl -s -X DELETE \
+            -H "${AUTH_HEADER}" \
+            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror/protected_branches/v2-migration" || true
+
+          # Delete stale v2-migration branch
+          echo "Deleting stale v2-migration branch..."
+          git push gitlab --delete v2-migration || \
+          curl -s -X DELETE \
+            -H "${AUTH_HEADER}" \
+            "https://gitlab.com/api/v4/projects/daailouivan%2Fmirror/repository/branches/v2-migration" || true
+
