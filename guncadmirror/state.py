@@ -1277,6 +1277,8 @@ class JobStore:
                 clauses.append("state IN (?, ?)")
                 parameters.extend([JobState.PENDING, JobState.ACQUIRING])
         elif section == "publication":
+            clauses.append("state=?")
+            parameters.append(JobState.AWAITING_INDEX)
             if category == "pending":
                 clauses.append("publication_state=?")
                 parameters.append(PublicationState.PENDING)
@@ -1299,6 +1301,8 @@ class JobStore:
                 clauses.append("publication_state=?")
                 parameters.append(PublicationState.CONFLICT)
         elif section == "seeding":
+            clauses.append("state=?")
+            parameters.append(JobState.AWAITING_INDEX)
             if category == "pending":
                 clauses.append("seeding_state=?")
                 parameters.append(SeedingState.PENDING)

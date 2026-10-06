@@ -648,7 +648,12 @@
             <section class="panel">
                 <h2>Configuration</h2>
                 <div class="table-wrap">
-                    <table>
+                    <table class="config-table">
+                        <colgroup>
+                            <col class="config-col-setting" />
+                            <col class="config-col-val" />
+                            <col class="config-col-effect" />
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th scope="col">Setting</th>
@@ -657,177 +662,98 @@
                             </tr>
                         </thead>
                         <tbody>
+                            <tr class="config-section-header">
+                                <th colspan="3" scope="colgroup">Core Index &amp; Timing</th>
+                            </tr>
                             <tr>
                                 <th scope="row">Index API v2 endpoint</th>
-                                <td class="breakable">{{ mirror_api_endpoint }}</td>
-                                <td>Defines which Index releases enter this mirror.</td>
+                                <td class="config-val breakable">{{ mirror_api_endpoint }}</td>
+                                <td class="config-effect">Defines which Index releases enter this mirror.</td>
                             </tr>
                             <tr>
                                 <th scope="row">API page limit</th>
-                                <td>{{ mirror_api_max_pages }}</td>
-                                <td>Stops a bad or unexpectedly large pagination walk.</td>
+                                <td class="config-val">{{ mirror_api_max_pages }}</td>
+                                <td class="config-effect">Stops a bad or unexpectedly large pagination walk.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Per-cycle release cap</th>
-                                <td>{{ mirror_max_releases_per_run or 'No cap' }}</td>
-                                <td>Bounds work without changing the configured search.</td>
+                                <td class="config-val">{{ mirror_max_releases_per_run or 'No cap' }}</td>
+                                <td class="config-effect">Bounds work without changing the configured search.</td>
                             </tr>
                             <tr>
-                                <th scope="row">qBittorrent seed gate</th>
-                                <td>{{ 'Enabled' if mirror_qbittorrent_enabled else 'Disabled' }}</td>
-                                <td>Blocks Index publication until the generated torrent is active against the verified local payload.</td>
-                            </tr>
-                            {% if mirror_qbittorrent_enabled %}
-                                <tr>
-                                    <th scope="row">qBittorrent Web API</th>
-                                    <td class="breakable">{{ mirror_qbittorrent_url }}</td>
-                                    <td>Private control endpoint. Its credentials are never displayed.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">qBittorrent archive mount</th>
-                                    <td class="breakable">{{ mirror_qbittorrent_data_dir }}</td>
-                                    <td>Read-only qBittorrent path corresponding to Mirror's data directory.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Seed activation timeout</th>
-                                    <td>{{ mirror_qbittorrent_ready_timeout | humanize_seconds }}</td>
-                                    <td>Maximum wait for qBittorrent to report upload mode & peer discovery.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Tracker policy endpoint</th>
-                                    <td class="breakable">{{ mirror_tracker_policy_url or 'Disabled' }}</td>
-                                    <td>Supplies enabled, disabled, & blacklisted qBittorrent tracker hints. A failed refresh retains endpoint-matched cached policy.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Tracker policy timeout</th>
-                                    <td>{{ mirror_tracker_policy_timeout | humanize_seconds }}</td>
-                                    <td>Read timeout for one conditional policy request.</td>
-                                </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">Index publication</th>
-                                <td>{{ 'Enabled' if mirror_publish_enabled else 'Disabled' }}</td>
-                                <td>Authenticated upload of verified manifests and torrent metainfo. The bearer token is never displayed.</td>
-                            </tr>
-                            {% if mirror_publish_enabled %}
-                                <tr>
-                                    <th scope="row">Publication endpoint</th>
-                                    <td class="breakable">{{ mirror_publish_url }}</td>
-                                    <td>Receives the two-part publication request.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Publication workers</th>
-                                    <td>{{ mirror_publish_concurrency }}</td>
-                                    <td>Maximum simultaneous SHA-384 groups; candidates within one payload group remain popularity ordered.</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Publication timeout</th>
-                                    <td>{{ mirror_publish_timeout | humanize_seconds }}</td>
-                                    <td>Read timeout for one Index POST attempt.</td>
-                                </tr>
-                            {% endif %}
-                            <tr>
-                                <th scope="row">LBRY RPC</th>
-                                <td class="breakable">{{ mirror_lbry_url }}</td>
-                                <td>Daemon used for direct stream-descriptor acquisition.</td>
+                                <th scope="row">Cycle interval</th>
+                                <td class="config-val">{{ mirror_loop_interval | humanize_seconds }}</td>
+                                <td class="config-effect">Time between completed Index scans.</td>
                             </tr>
                             <tr>
-                                <th scope="row">LBRY acquisition workers</th>
-                                <td>{{ mirror_lbry_concurrency }}</td>
-                                <td>Maximum simultaneous descriptor acquisitions.</td>
+                                <th scope="row">Failed-cycle retry</th>
+                                <td class="config-val">{{ mirror_cycle_error_interval | humanize_seconds }}</td>
+                                <td class="config-effect">Delay before retrying a scan aborted by an operational error.</td>
                             </tr>
                             <tr>
-                                <th scope="row">Odysee fallback workers</th>
-                                <td>{{ mirror_odysee_concurrency }}</td>
-                                <td>Maximum simultaneous independently verified CDN recoveries.</td>
+                                <th scope="row">Download stall timeout</th>
+                                <td class="config-val">{{ mirror_download_timeout | humanize_seconds }}</td>
+                                <td class="config-effect">Stops a stream only after this long without blob progress.</td>
                             </tr>
                             <tr>
-                                <th scope="row">Printables acquisition workers</th>
-                                <td>{{ mirror_printables_concurrency }}</td>
-                                <td>Maximum simultaneous Printables asset downloads.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">GitHub acquisition workers</th>
-                                <td>{{ mirror_github_concurrency }}</td>
-                                <td>Maximum simultaneous GitHub release asset downloads.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Direct HTTP acquisition workers</th>
-                                <td>{{ mirror_http_concurrency }}</td>
-                                <td>Maximum simultaneous direct HTTP/HTTPS payload downloads.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">BitTorrent intake workers</th>
-                                <td>{{ mirror_torrent_concurrency }}</td>
-                                <td>Maximum simultaneous external magnet/torrent swarm intakes.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">BitTorrent intake category</th>
-                                <td><code>{{ mirror_torrent_intake_category }}</code></td>
-                                <td>qBittorrent category used for external downloads in progress.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">BitTorrent intake download timeout</th>
-                                <td>{{ mirror_torrent_download_timeout | humanize_seconds }}</td>
-                                <td>Maximum duration to complete external torrent download before timing out.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Finalization workers</th>
-                                <td>{{ mirror_finalize_concurrency }}</td>
-                                <td>Maximum simultaneous verification and torrent-hashing jobs.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Blacklisted channels</th>
-                                <td>
-                                    {% if mirror_blacklisted_handles %}
-                                        <ul>
-                                            {% for channel in mirror_blacklisted_handles %}<li>{{ channel }}</li>{% endfor %}
-                                        </ul>
-                                    {% else %}
-                                        None
-                                    {% endif %}
-                                </td>
-                                <td>Matching channel-handle prefixes are durably excluded before acquisition.</td>
+                                <th scope="row">Free-space reserve</th>
+                                <td class="config-val">{{ mirror_min_free_space | humanize_bytes }}</td>
+                                <td class="config-effect">Kept free after budgeting for both LBRY blobs and plaintext.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Maximum payload size</th>
-                                <td>
+                                <td class="config-val">
                                     {% if mirror_release_max_size %}
                                         {{ mirror_release_max_size | humanize_bytes }}
                                     {% else %}
                                         Disabled
                                     {% endif %}
                                 </td>
-                                <td>Rejects larger Index releases before acquisition.</td>
+                                <td class="config-effect">Rejects larger Index releases before acquisition.</td>
+                            </tr>
+                            <tr class="config-section-header">
+                                <th colspan="3" scope="colgroup">qBittorrent Seeding &amp; Trackers</th>
                             </tr>
                             <tr>
-                                <th scope="row">Free-space reserve</th>
-                                <td>{{ mirror_min_free_space | humanize_bytes }}</td>
-                                <td>Kept free after budgeting for both LBRY blobs and plaintext.</td>
+                                <th scope="row">qBittorrent seed gate</th>
+                                <td class="config-val">{{ 'Enabled' if mirror_qbittorrent_enabled else 'Disabled' }}</td>
+                                <td class="config-effect">Blocks Index publication until the generated torrent is active against the verified local payload.</td>
                             </tr>
-                            <tr>
-                                <th scope="row">Cycle interval</th>
-                                <td>{{ mirror_loop_interval | humanize_seconds }}</td>
-                                <td>Time between completed Index scans.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Failed-cycle retry</th>
-                                <td>{{ mirror_cycle_error_interval | humanize_seconds }}</td>
-                                <td>Delay before retrying a scan aborted by an operational error.</td>
-                            </tr>
-                            <tr>
-                                <th scope="row">Download stall timeout</th>
-                                <td>{{ mirror_download_timeout | humanize_seconds }}</td>
-                                <td>Stops a stream only after this long without blob progress.</td>
-                            </tr>
+                            {% if mirror_qbittorrent_enabled %}
+                                <tr>
+                                    <th scope="row">qBittorrent Web API</th>
+                                    <td class="config-val breakable">{{ mirror_qbittorrent_url }}</td>
+                                    <td class="config-effect">Private control endpoint. Its credentials are never displayed.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">qBittorrent archive mount</th>
+                                    <td class="config-val breakable">{{ mirror_qbittorrent_data_dir }}</td>
+                                    <td class="config-effect">Read-only qBittorrent path corresponding to Mirror's data directory.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Seed activation timeout</th>
+                                    <td class="config-val">{{ mirror_qbittorrent_ready_timeout | humanize_seconds }}</td>
+                                    <td class="config-effect">Maximum wait for qBittorrent to report upload mode &amp; peer discovery.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Tracker policy endpoint</th>
+                                    <td class="config-val breakable">{{ mirror_tracker_policy_url or 'Disabled' }}</td>
+                                    <td class="config-effect">Supplies enabled, disabled, &amp; blacklisted qBittorrent tracker hints. A failed refresh retains endpoint-matched cached policy.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Tracker policy timeout</th>
+                                    <td class="config-val">{{ mirror_tracker_policy_timeout | humanize_seconds }}</td>
+                                    <td class="config-effect">Read timeout for one conditional policy request.</td>
+                                </tr>
+                            {% endif %}
                             <tr>
                                 <th scope="row">Torrent piece length</th>
-                                <td>{{ mirror_torrent_piece_length | humanize_bytes }}</td>
-                                <td>Fixed v1 torrent piece size.</td>
+                                <td class="config-val">{{ mirror_torrent_piece_length | humanize_bytes }}</td>
+                                <td class="config-effect">Fixed v1 torrent piece size.</td>
                             </tr>
                             <tr>
                                 <th scope="row">Operator tracker hints</th>
-                                <td>
+                                <td class="config-val">
                                     {% if mirror_torrent_trackers %}
                                         <ul>
                                             {% for tracker in mirror_torrent_trackers %}<li class="breakable">{{ tracker }}</li>{% endfor %}
@@ -836,7 +762,98 @@
                                         None
                                     {% endif %}
                                 </td>
-                                <td>Persistent local additions to Mirror-owned qBittorrent entries. Index blacklisting wins; torrent metainfo stays trackerless.</td>
+                                <td class="config-effect">Persistent local additions to Mirror-owned qBittorrent entries. Index blacklisting wins; torrent metainfo stays trackerless.</td>
+                            </tr>
+                            <tr class="config-section-header">
+                                <th colspan="3" scope="colgroup">Index Publication</th>
+                            </tr>
+                            <tr>
+                                <th scope="row">Index publication</th>
+                                <td class="config-val">{{ 'Enabled' if mirror_publish_enabled else 'Disabled' }}</td>
+                                <td class="config-effect">Authenticated upload of verified manifests and torrent metainfo. The bearer token is never displayed.</td>
+                            </tr>
+                            {% if mirror_publish_enabled %}
+                                <tr>
+                                    <th scope="row">Publication endpoint</th>
+                                    <td class="config-val breakable">{{ mirror_publish_url }}</td>
+                                    <td class="config-effect">Receives the two-part publication request.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Publication workers</th>
+                                    <td class="config-val">{{ mirror_publish_concurrency }}</td>
+                                    <td class="config-effect">Maximum simultaneous SHA-384 groups; candidates within one payload group remain popularity ordered.</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Publication timeout</th>
+                                    <td class="config-val">{{ mirror_publish_timeout | humanize_seconds }}</td>
+                                    <td class="config-effect">Read timeout for one Index POST attempt.</td>
+                                </tr>
+                            {% endif %}
+                            <tr class="config-section-header">
+                                <th colspan="3" scope="colgroup">Ingestion Workers &amp; Concurrency</th>
+                            </tr>
+                            <tr>
+                                <th scope="row">LBRY RPC</th>
+                                <td class="config-val breakable">{{ mirror_lbry_url }}</td>
+                                <td class="config-effect">Daemon used for direct stream-descriptor acquisition.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">LBRY acquisition workers</th>
+                                <td class="config-val">{{ mirror_lbry_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous descriptor acquisitions.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Odysee fallback workers</th>
+                                <td class="config-val">{{ mirror_odysee_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous independently verified CDN recoveries.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Printables acquisition workers</th>
+                                <td class="config-val">{{ mirror_printables_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous Printables asset downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">GitHub acquisition workers</th>
+                                <td class="config-val">{{ mirror_github_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous GitHub release asset downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Direct HTTP acquisition workers</th>
+                                <td class="config-val">{{ mirror_http_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous direct HTTP/HTTPS payload downloads.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake workers</th>
+                                <td class="config-val">{{ mirror_torrent_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous external magnet/torrent swarm intakes.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake category</th>
+                                <td class="config-val"><code>{{ mirror_torrent_intake_category }}</code></td>
+                                <td class="config-effect">qBittorrent category used for external downloads in progress.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">BitTorrent intake download timeout</th>
+                                <td class="config-val">{{ mirror_torrent_download_timeout | humanize_seconds }}</td>
+                                <td class="config-effect">Maximum duration to complete external torrent download before timing out.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Finalization workers</th>
+                                <td class="config-val">{{ mirror_finalize_concurrency }}</td>
+                                <td class="config-effect">Maximum simultaneous verification and torrent-hashing jobs.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Blacklisted channels</th>
+                                <td class="config-val">
+                                    {% if mirror_blacklisted_handles %}
+                                        <ul>
+                                            {% for channel in mirror_blacklisted_handles %}<li>{{ channel }}</li>{% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        None
+                                    {% endif %}
+                                </td>
+                                <td class="config-effect">Matching channel-handle prefixes are durably excluded before acquisition.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1276,8 +1293,8 @@
                     if (entry.torrent_url) {
                         html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
                     }
-                    if (entry.state === "awaiting_index") {
-                        html += `<a href="/archive?q=${encodeURIComponent(entry.release_id)}" class="button button-sm button-secondary" target="_blank" rel="noopener" title="View exact verified record in archive">View in Archive</a>`;
+                    if (entry.magnet_uri) {
+                        html += `<button type="button" class="button button-sm button-secondary copy-magnet-btn" data-magnet="${escapeHtml(entry.magnet_uri)}" title="Copy magnet URI to clipboard">📋 Copy Magnet</button>`;
                     }
                     html += `</div></article>`;
                 });
@@ -1337,6 +1354,33 @@
                         } catch (e) {
                             btn.textContent = "Error";
                             btn.disabled = false;
+                        }
+                    });
+                });
+
+                bodyEl.querySelectorAll(".copy-magnet-btn").forEach(btn => {
+                    btn.addEventListener("click", async () => {
+                        const magnet = btn.getAttribute("data-magnet");
+                        if (!magnet) return;
+                        const origText = btn.textContent;
+                        try {
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                await navigator.clipboard.writeText(magnet);
+                            } else {
+                                const ta = document.createElement("textarea");
+                                ta.value = magnet;
+                                ta.style.position = "fixed";
+                                ta.style.opacity = "0";
+                                document.body.appendChild(ta);
+                                ta.select();
+                                document.execCommand("copy");
+                                document.body.removeChild(ta);
+                            }
+                            btn.textContent = "✓ Copied!";
+                            setTimeout(() => { btn.textContent = origText; }, 2000);
+                        } catch (err) {
+                            btn.textContent = "Copy Failed";
+                            setTimeout(() => { btn.textContent = origText; }, 2000);
                         }
                     });
                 });

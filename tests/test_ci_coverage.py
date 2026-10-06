@@ -125,7 +125,7 @@ class StateGapTests(unittest.TestCase):
         )
 
     def test_category_filters_limits_and_nolock_reads(self) -> None:
-        releases = [self._release(index) for index in range(1, 9)]
+        releases = [self._release(index) for index in range(1, 13)]
         for release in releases:
             self.store.register(release)
 
@@ -158,11 +158,17 @@ class StateGapTests(unittest.TestCase):
             publication_state=PublicationState.PUBLISHED,
             seeding_state=SeedingState.GREEN,
         )
+        for idx in (5, 6, 7, 8, 9, 10, 11):
+            self.store.mark_awaiting_index(releases[idx], torrent)
+
         self.store._update(releases[5], publication_state=PublicationState.PUBLISHING)
         self.store._update(releases[6], publication_state=PublicationState.RETRYING)
         self.store._update(releases[7], publication_state=PublicationState.REJECTED)
-        self.store._update(releases[0], seeding_state=SeedingState.INJECTING)
-        self.store._update(releases[1], seeding_state=SeedingState.BLOCKED)
+        self.store._update(releases[8], publication_state=PublicationState.PENDING)
+
+        self.store._update(releases[9], seeding_state=SeedingState.INJECTING)
+        self.store._update(releases[10], seeding_state=SeedingState.BLOCKED)
+        self.store._update(releases[11], seeding_state=SeedingState.PENDING)
 
         cases = (
             ("pipeline", "acquiring", releases[0].id),
@@ -173,11 +179,11 @@ class StateGapTests(unittest.TestCase):
             ("publication", "publishing", releases[5].id),
             ("publication", "retrying", releases[6].id),
             ("publication", "rejected", releases[7].id),
-            ("publication", "pending", releases[0].id),
+            ("publication", "pending", releases[8].id),
             ("seeding", "green", releases[2].id),
-            ("seeding", "injecting", releases[0].id),
-            ("seeding", "blocked", releases[1].id),
-            ("seeding", "pending", releases[3].id),
+            ("seeding", "injecting", releases[9].id),
+            ("seeding", "blocked", releases[10].id),
+            ("seeding", "pending", releases[11].id),
             ("source", "published", releases[2].id),
             ("source", "green", releases[2].id),
             ("source", "inflight", releases[0].id),
@@ -190,9 +196,21 @@ class StateGapTests(unittest.TestCase):
                 self.assertGreaterEqual(total, 1)
                 self.assertIn(release_id, {entry["release_id"] for entry in entries})
 
+        pending_seeding, _ = self.store.get_category_entries("seeding", "pending")
+        pending_seeding_ids = {entry["release_id"] for entry in pending_seeding}
+        self.assertNotIn(releases[0].id, pending_seeding_ids)
+        self.assertNotIn(releases[3].id, pending_seeding_ids)
+        self.assertNotIn(releases[4].id, pending_seeding_ids)
+
+        pending_pub, _ = self.store.get_category_entries("publication", "pending")
+        pending_pub_ids = {entry["release_id"] for entry in pending_pub}
+        self.assertNotIn(releases[0].id, pending_pub_ids)
+        self.assertNotIn(releases[3].id, pending_pub_ids)
+        self.assertNotIn(releases[4].id, pending_pub_ids)
+
         duplicate = make_release(
-            release_id=f"{9:040x}",
-            sd_hash=f"{9:096x}",
+            release_id=f"{25:040x}",
+            sd_hash=f"{25:096x}",
             name="Dup",
         )
         self.store.register(duplicate)
@@ -230,7 +248,7 @@ class StateGapTests(unittest.TestCase):
         self.assertEqual(locked.get_setting("github_token"), "token-value")
 
     def test_migrated_rows_unknown_platform_and_json_fallbacks(self) -> None:
-        release = self._release(11)
+        release = self._release(99)
         torrent = TorrentArtifact(
             file_path=self.root / "gone.bin",
             torrent_path=self.root / "gone.torrent",

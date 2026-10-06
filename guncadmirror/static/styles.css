@@ -590,29 +590,27 @@ dialog.category-modal::backdrop {
 }
 
 .entry-title-row {
-	display: block;
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
 	min-width: 0;
 	line-height: 1.4;
-	word-break: break-word;
-	overflow-wrap: break-word;
 }
 
 .entry-title-row .source-badge {
-	display: inline-block;
-	vertical-align: middle;
-	margin-right: 0.45rem;
-	margin-bottom: 0.15rem;
+	flex-shrink: 0;
+	margin-top: 0.15rem;
 }
 
 .entry-name {
-	display: inline;
-	vertical-align: middle;
+	flex: 1 1 auto;
+	min-width: 0;
 	font-size: 1.05rem;
 	font-weight: 700;
 	color: #fff;
 	line-height: 1.4;
+	overflow-wrap: anywhere;
 	word-break: break-word;
-	overflow-wrap: break-word;
 }
 
 .entry-sub-row {
@@ -966,6 +964,72 @@ thead th {
 	text-decoration: none;
 }
 
+.config-table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+}
+
+.config-col-setting {
+	width: 28%;
+}
+
+.config-col-val {
+	width: 32%;
+}
+
+.config-col-effect {
+	width: 40%;
+}
+
+.config-table th,
+.config-table td {
+	padding: 0.38rem 0.6rem;
+	font-size: 0.86rem;
+	vertical-align: top;
+	line-height: 1.4;
+	border-bottom: 1px solid var(--border);
+}
+
+.config-table th[scope="row"] {
+	white-space: normal;
+	font-weight: 600;
+	color: var(--text);
+	overflow-wrap: break-word;
+}
+
+.config-table .config-val {
+	font-family: var(--font-mono, monospace);
+	font-size: 0.82rem;
+	color: #e6edf3;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.config-table .config-val ul {
+	margin: 0;
+	padding-left: 1.2rem;
+}
+
+.config-table .config-effect {
+	color: var(--muted);
+	font-size: 0.82rem;
+	overflow-wrap: break-word;
+}
+
+.config-section-header th {
+	background: rgba(255, 255, 255, 0.04);
+	color: #8b949e;
+	font-size: 0.74rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	padding: 0.55rem 0.6rem 0.35rem;
+	border-top: 1px solid var(--border);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	white-space: nowrap;
+}
+
 th[scope="row"] {
 	white-space: nowrap;
 	font-weight: normal;
@@ -1119,5 +1183,15 @@ tfoot td {
 
 	.archive-actions .button {
 		flex: 1 1 100%;
+	}
+
+	.config-table {
+		table-layout: auto;
+	}
+
+	.config-col-setting,
+	.config-col-val,
+	.config-col-effect {
+		width: auto;
 	}
 }
