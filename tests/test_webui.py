@@ -431,8 +431,9 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Printables Frame", response.data)
         self.assertNotIn(b"LBRY Part", response.data)
         self.assertNotIn(b"GitHub Receiver", response.data)
-        self.assertIn(
-            b'<option value="printables" selected>Printables</option>', response.data
+        self.assertRegex(
+            response.data.decode("utf-8"),
+            r'<option value="printables"\s+selected>Printables</option>',
         )
 
         # Non-LBRY artifact downloads (Printables)
@@ -687,7 +688,6 @@ class WebUiTests(unittest.TestCase):
         rel_id = rel.id
         sd_hash = rel.sd_hash
 
-
         # Exclude job via API
         resp = client.post(
             "/api/jobs/exclude",
@@ -714,7 +714,9 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(pipe_data["total"], 1)
         self.assertEqual(pipe_data["entries"][0]["release_id"], rel_id)
 
-        source_resp = client.get("/api/entries?section=source&category=excluded&platform=github")
+        source_resp = client.get(
+            "/api/entries?section=source&category=excluded&platform=github"
+        )
         self.assertEqual(source_resp.status_code, 200)
         source_data = source_resp.get_json()
         self.assertEqual(source_data["total"], 1)
@@ -740,4 +742,3 @@ class WebUiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -510,7 +510,10 @@ class SeedingSchedulerTests(unittest.TestCase):
         payload2.write_bytes(b"payload2")
         torrent2 = create_torrent(
             payload2,
-            self.settings.outbox_dir / release2.id / release2.sd_hash / "payload2.torrent",
+            self.settings.outbox_dir
+            / release2.id
+            / release2.sd_hash
+            / "payload2.torrent",
             piece_length=16 * 1024,
         )
         self.store.register(release2)

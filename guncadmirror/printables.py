@@ -207,9 +207,7 @@ class PrintablesAcquirer:
                 )
                 if primary_link is None:
                     primary_link = link
-                raw_name = safe_component(
-                    file_meta["name"], fallback=f"file_{idx}.stl"
-                )
+                raw_name = safe_component(file_meta["name"], fallback=f"file_{idx}.stl")
                 count = seen_names.get(raw_name, 0)
                 seen_names[raw_name] = count + 1
                 if count > 0:

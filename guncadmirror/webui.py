@@ -128,7 +128,11 @@ def create_app(collector: StatsCollector) -> Flask:
                 rate = act.get("bytes_per_second")
                 pct = None
                 try:
-                    if completed is not None and total_b is not None and float(total_b) > 0:
+                    if (
+                        completed is not None
+                        and total_b is not None
+                        and float(total_b) > 0
+                    ):
                         pct = round((float(completed) / float(total_b)) * 100, 1)
                 except (TypeError, ValueError):
                     pct = None
@@ -145,22 +149,48 @@ def create_app(collector: StatsCollector) -> Flask:
                 except (TypeError, ValueError):
                     eta_sec = None
 
-                completed_h = humanize_bytes(completed) if isinstance(completed, (int, float)) else None
-                total_h = humanize_bytes(total_b) if isinstance(total_b, (int, float)) else None
-                speed_h = f"{humanize_bytes(rate)}/s" if isinstance(rate, (int, float)) else None
-                eta_h = humanize_seconds(eta_sec) if isinstance(eta_sec, (int, float)) else None
+                completed_h = (
+                    humanize_bytes(completed)
+                    if isinstance(completed, (int, float))
+                    else None
+                )
+                total_h = (
+                    humanize_bytes(total_b)
+                    if isinstance(total_b, (int, float))
+                    else None
+                )
+                speed_h = (
+                    f"{humanize_bytes(rate)}/s"
+                    if isinstance(rate, (int, float))
+                    else None
+                )
+                eta_h = (
+                    humanize_seconds(eta_sec)
+                    if isinstance(eta_sec, (int, float))
+                    else None
+                )
 
                 item["activity"] = {
-                    "phase": act.get("phase") if isinstance(act.get("phase"), str) else None,
-                    "transport": act.get("transport") if isinstance(act.get("transport"), str) else None,
+                    "phase": act.get("phase")
+                    if isinstance(act.get("phase"), str)
+                    else None,
+                    "transport": act.get("transport")
+                    if isinstance(act.get("transport"), str)
+                    else None,
                     "progress_pct": pct,
-                    "completed_bytes": completed if isinstance(completed, (int, float)) else None,
-                    "total_bytes": total_b if isinstance(total_b, (int, float)) else None,
+                    "completed_bytes": completed
+                    if isinstance(completed, (int, float))
+                    else None,
+                    "total_bytes": total_b
+                    if isinstance(total_b, (int, float))
+                    else None,
                     "completed_human": completed_h,
                     "total_human": total_h,
                     "speed_human": speed_h,
                     "eta_human": eta_h,
-                    "blobs_remaining": act.get("blobs_remaining") if isinstance(act.get("blobs_remaining"), int) else None,
+                    "blobs_remaining": act.get("blobs_remaining")
+                    if isinstance(act.get("blobs_remaining"), int)
+                    else None,
                 }
             else:
                 item["activity"] = None
@@ -234,12 +264,9 @@ def create_app(collector: StatsCollector) -> Flask:
 
         success = collector.store.exclude_job(release_id, sd_hash, reason=reason)
         if success:
-            collector.events.append(
-                f"Excluded {release_id} ({sd_hash[:12]}): {reason}"
-            )
+            collector.events.append(f"Excluded {release_id} ({sd_hash[:12]}): {reason}")
             collector.collect()
         return jsonify({"ok": success, "excluded": 1 if success else 0})
-
 
     @app.route("/archive")
     def archive_browser() -> str:

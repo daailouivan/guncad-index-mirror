@@ -442,8 +442,6 @@ class JobStore:
                 continue
         return releases
 
-
-
     def start_attempt(self, release: Release) -> Job:
         now = self.clock()
         with closing(self._connect()) as connection, connection:
@@ -1149,7 +1147,9 @@ class JobStore:
                 )
                 """
             )
-            parameters.extend((pattern, pattern, pattern, pattern, pattern, pattern, pattern))
+            parameters.extend(
+                (pattern, pattern, pattern, pattern, pattern, pattern, pattern)
+            )
         where = " AND ".join(clauses)
 
         with closing(self._connect()) as connection:
@@ -1233,7 +1233,6 @@ class JobStore:
                 ),
             )
             return cursor.rowcount > 0
-
 
     def get_category_entries(
         self,
@@ -1338,7 +1337,6 @@ class JobStore:
             elif category == "excluded":
                 clauses.append("state=?")
                 parameters.append(JobState.EXCLUDED)
-
 
         if platform:
             clauses.append("platform=?")

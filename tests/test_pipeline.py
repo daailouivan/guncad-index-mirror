@@ -475,7 +475,9 @@ class MirrorPipelineTests(unittest.TestCase):
         pipeline = self._pipeline([release], acquirer)
 
         self.store.register(release)
-        self.store.exclude_job(release.id, release.sd_hash, "Non-model utility software")
+        self.store.exclude_job(
+            release.id, release.sd_hash, "Non-model utility software"
+        )
 
         # Process should skip without acquiring
         self.assertEqual(pipeline.process(release), "skipped")

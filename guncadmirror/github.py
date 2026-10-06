@@ -213,4 +213,3 @@ class GitHubAcquirer:
             return archive_url, f"{repo}-{tag}.zip"
         archive_url = f"{self.api_url}/repos/{owner}/{repo}/zipball"
         return archive_url, f"{repo}.zip"
-

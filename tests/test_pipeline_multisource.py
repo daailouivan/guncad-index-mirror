@@ -311,7 +311,9 @@ class PipelineMultiSourceTests(unittest.TestCase):
         self.assertIn("magnet:?xt=urn:btih:", manifest["acquisition"]["source_url"])
         self.assertEqual(manifest["artifact"]["size"], 120)
 
-    def test_printables_size_mismatch_with_index_estimate_is_marked_already_prepared(self) -> None:
+    def test_printables_size_mismatch_with_index_estimate_is_marked_already_prepared(
+        self,
+    ) -> None:
         payload = {
             "id": "printables-9999",
             "name": "Model Size Mismatch",
@@ -320,13 +322,17 @@ class PipelineMultiSourceTests(unittest.TestCase):
                 "platform": "printables",
                 "external_id": "9999",
                 "size": 5000,  # Uncompressed estimate from GunCAD Index
-                "links": [{"name": "Printables", "url": "https://printables.com/model/9999"}],
+                "links": [
+                    {"name": "Printables", "url": "https://printables.com/model/9999"}
+                ],
             },
         }
         release = Release.from_api(payload)
         mock_printables = MagicMock(spec=PrintablesAcquirer)
 
-        def fake_acquire(rel: Release, output_dir: Path, **kwargs: object) -> PrintablesAcquisition:
+        def fake_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> PrintablesAcquisition:
             dest = output_dir / "model.3mf"
             dest.write_bytes(b"Z" * 1500)  # Actual downloaded file size is 1500 != 5000
             return PrintablesAcquisition(
@@ -359,35 +365,50 @@ class PipelineMultiSourceTests(unittest.TestCase):
         job_after = self.store.get(release.id, release.sd_hash)
         self.assertEqual(job_after.state, JobState.AWAITING_INDEX)
 
-    def test_per_source_concurrency_allows_github_while_printables_is_saturated(self) -> None:
+    def test_per_source_concurrency_allows_github_while_printables_is_saturated(
+        self,
+    ) -> None:
         from concurrent.futures import ThreadPoolExecutor
         from threading import Event
 
-        p1 = Release.from_api({
-            "id": "printables-block-1",
-            "name": "Printables Block 1",
-            "channel": {"handle": "maker1"},
-            "origin": {"platform": "printables", "external_id": "p1", "links": []},
-        })
-        p2 = Release.from_api({
-            "id": "printables-block-2",
-            "name": "Printables Block 2",
-            "channel": {"handle": "maker2"},
-            "origin": {"platform": "printables", "external_id": "p2", "links": []},
-        })
-        gh = Release.from_api({
-            "id": "github-repo-fast",
-            "name": "Fast GitHub Project",
-            "channel": {"handle": "dev1"},
-            "origin": {"platform": "github", "external_id": "dev1/fast", "links": []},
-        })
+        p1 = Release.from_api(
+            {
+                "id": "printables-block-1",
+                "name": "Printables Block 1",
+                "channel": {"handle": "maker1"},
+                "origin": {"platform": "printables", "external_id": "p1", "links": []},
+            }
+        )
+        p2 = Release.from_api(
+            {
+                "id": "printables-block-2",
+                "name": "Printables Block 2",
+                "channel": {"handle": "maker2"},
+                "origin": {"platform": "printables", "external_id": "p2", "links": []},
+            }
+        )
+        gh = Release.from_api(
+            {
+                "id": "github-repo-fast",
+                "name": "Fast GitHub Project",
+                "channel": {"handle": "dev1"},
+                "origin": {
+                    "platform": "github",
+                    "external_id": "dev1/fast",
+                    "links": [],
+                },
+            }
+        )
 
         printables_gate = Event()
         printables_started = Event()
         github_done = Event()
 
         mock_printables = MagicMock(spec=PrintablesAcquirer)
-        def blocking_acquire(rel: Release, output_dir: Path, **kwargs: object) -> PrintablesAcquisition:
+
+        def blocking_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> PrintablesAcquisition:
             printables_started.set()
             printables_gate.wait(5)
             dest = output_dir / "p.zip"
@@ -397,7 +418,10 @@ class PipelineMultiSourceTests(unittest.TestCase):
         mock_printables.acquire.side_effect = blocking_acquire
 
         mock_github = MagicMock(spec=GitHubAcquirer)
-        def fast_gh_acquire(rel: Release, output_dir: Path, **kwargs: object) -> GitHubAcquisition:
+
+        def fast_gh_acquire(
+            rel: Release, output_dir: Path, **kwargs: object
+        ) -> GitHubAcquisition:
             dest = output_dir / "repo.zip"
             dest.write_bytes(b"G" * 20)
             github_done.set()

@@ -288,9 +288,7 @@ class MirrorPipeline:
                         while queue:
                             item = queue.popleft()
                             prep = item.prepared if hasattr(item, "prepared") else item
-                            active_keys.discard(
-                                (prep.release.id, prep.release.sd_hash)
-                            )
+                            active_keys.discard((prep.release.id, prep.release.sd_hash))
                             result = result.add(self._finish_stopped(prep))
                     if not futures:
                         break
@@ -301,9 +299,13 @@ class MirrorPipeline:
 
                 # 2. Refill idle initial stages from stored pending releases
                 for s in initial_stages:
-                    room = stage_capacity[s] - (stage_in_flight[s] + len(stage_queues[s]))
+                    room = stage_capacity[s] - (
+                        stage_in_flight[s] + len(stage_queues[s])
+                    )
                     if room > 0:
-                        pending_items = self.store.pending_releases(platform=s, limit=room)
+                        pending_items = self.store.pending_releases(
+                            platform=s, limit=room
+                        )
                         for rel in pending_items:
                             key = (rel.id, rel.sd_hash)
                             if key in active_keys:
@@ -398,15 +400,19 @@ class MirrorPipeline:
                             enumeration_error = error
                             exhausted = True
                             break
-                        if job.state is JobState.AWAITING_INDEX and self._ready_artifacts_exist(
-                            job, release
+                        if (
+                            job.state is JobState.AWAITING_INDEX
+                            and self._ready_artifacts_exist(job, release)
                         ):
                             result = result.add("skipped")
                             continue
                         if job.state is JobState.EXCLUDED:
                             result = result.add("skipped")
                             continue
-                        if job.state is JobState.FAILED and not self.store.ready_for_attempt(job):
+                        if (
+                            job.state is JobState.FAILED
+                            and not self.store.ready_for_attempt(job)
+                        ):
                             result = result.add("skipped")
                             continue
                         continue
@@ -607,7 +613,6 @@ class MirrorPipeline:
             self.logger.debug("Backoff still active for %s", release.name)
             reservation.release()
             return "skipped"
-
 
         try:
             self.store.start_attempt(release)
@@ -947,7 +952,11 @@ class MirrorPipeline:
             not file_path
             or not torrent_path
             or not sha384
-            or (release.platform == "lbry" and release.sha384 is not None and sha384 != release.sha384)
+            or (
+                release.platform == "lbry"
+                and release.sha384 is not None
+                and sha384 != release.sha384
+            )
             or not sha256
             or not info_hash
             or not magnet_uri

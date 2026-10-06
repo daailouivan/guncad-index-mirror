@@ -389,7 +389,9 @@ class TestMigration(unittest.TestCase):
         payload.parent.mkdir(parents=True, exist_ok=True)
         payload.write_bytes(b"0123456789")
 
-        torrent_path = self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent"
+        torrent_path = (
+            self.data_dir / "outbox" / ("0" * 40) / ("1" * 96) / "test.torrent"
+        )
         torrent_path.parent.mkdir(parents=True, exist_ok=True)
         torrent_path.write_bytes(b"dummy torrent")
 
@@ -474,12 +476,18 @@ class TestMigration(unittest.TestCase):
         )
 
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)")
-        conn.execute("CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)")
+        conn.execute(
+            "CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)"
+        )
+        conn.execute(
+            "CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)"
+        )
         fn_hex = "test.zip".encode().hex()
         dd_hex = "/data/mirror/Author#a/Release#b".encode().hex()
         conn.execute("INSERT INTO stream VALUES ('s1', ?, 'test.zip')", (sd_hash,))
-        conn.execute(f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)")
+        conn.execute(
+            f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)"
+        )
         conn.commit()
         conn.close()
 
@@ -494,7 +502,9 @@ class TestMigration(unittest.TestCase):
         self.assertEqual(stats.payloads_relocated, 0)
         store = JobStore(self.data_dir / "mirror-state.sqlite3")
         job = store.get(rel_id, sd_hash)
-        self.assertEqual(job.file_path, Path("/data/mirror/Author#a/Release#b/test.zip"))
+        self.assertEqual(
+            job.file_path, Path("/data/mirror/Author#a/Release#b/test.zip")
+        )
         self.assertFalse((self.data_dir / "releases").exists())
 
     def test_migration_upgrades_legacy_job_path(self) -> None:
@@ -521,12 +531,18 @@ class TestMigration(unittest.TestCase):
         )
 
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)")
-        conn.execute("CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)")
+        conn.execute(
+            "CREATE TABLE file (stream_hash text, file_name text, download_directory text, status text, saved_file int)"
+        )
+        conn.execute(
+            "CREATE TABLE stream (stream_hash text, sd_hash text, suggested_filename text)"
+        )
         fn_hex = "upgrade.zip".encode().hex()
         dd_hex = "/data/mirror/Author#a/Release#c".encode().hex()
         conn.execute("INSERT INTO stream VALUES ('s1', ?, 'upgrade.zip')", (sd_hash,))
-        conn.execute(f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)")
+        conn.execute(
+            f"INSERT INTO file VALUES ('s1', '{fn_hex}', '{dd_hex}', 'stopped', 1)"
+        )
         conn.commit()
         conn.close()
 
@@ -575,7 +591,25 @@ class TestMigration(unittest.TestCase):
 
         # Verify DB updated and canonical files exist
         job = store.get(rel_id, sd_hash)
-        expected_path = Path(f"/data/releases/@Author#a/Upgrade-Release-{sd_hash[:12]}/upgrade.zip")
+        expected_path = Path(
+            f"/data/releases/@Author#a/Upgrade-Release-{sd_hash[:12]}/upgrade.zip"
+        )
         self.assertEqual(job.file_path, expected_path)
-        self.assertTrue((self.data_dir / "releases" / "@Author#a" / f"Upgrade-Release-{sd_hash[:12]}" / "upgrade.zip").is_file())
-        self.assertTrue((self.data_dir / "releases" / "@Author#a" / f"Upgrade-Release-{sd_hash[:12]}" / "release.json").is_file())
+        self.assertTrue(
+            (
+                self.data_dir
+                / "releases"
+                / "@Author#a"
+                / f"Upgrade-Release-{sd_hash[:12]}"
+                / "upgrade.zip"
+            ).is_file()
+        )
+        self.assertTrue(
+            (
+                self.data_dir
+                / "releases"
+                / "@Author#a"
+                / f"Upgrade-Release-{sd_hash[:12]}"
+                / "release.json"
+            ).is_file()
+        )

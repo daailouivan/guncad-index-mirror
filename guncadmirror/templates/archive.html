@@ -60,15 +60,20 @@
                                placeholder="e.g. @ciwielab, NEO9, or release ID" />
                         <select name="platform" id="archive-platform" class="archive-select">
                             <option value="">All sources</option>
-                            <option value="lbry" {% if archive_platform == 'lbry' %}selected{% endif %}>LBRY / Odysee</option>
-                            <option value="printables" {% if archive_platform == 'printables' %}selected{% endif %}>Printables</option>
-                            <option value="github" {% if archive_platform == 'github' %}selected{% endif %}>GitHub</option>
-                            <option value="http" {% if archive_platform == 'http' %}selected{% endif %}>Direct HTTP</option>
-                            <option value="torrent" {% if archive_platform == 'torrent' %}selected{% endif %}>BitTorrent Swarm</option>
+                            <option value="lbry"
+                                    {% if archive_platform == 'lbry' %}selected{% endif %}>LBRY / Odysee</option>
+                            <option value="printables"
+                                    {% if archive_platform == 'printables' %}selected{% endif %}>Printables</option>
+                            <option value="github"
+                                    {% if archive_platform == 'github' %}selected{% endif %}>GitHub</option>
+                            <option value="http"
+                                    {% if archive_platform == 'http' %}selected{% endif %}>Direct HTTP</option>
+                            <option value="torrent"
+                                    {% if archive_platform == 'torrent' %}selected{% endif %}>BitTorrent Swarm</option>
                         </select>
                         <button class="button" type="submit">Search</button>
                         {% if archive_query or archive_platform %}<a class="button button-secondary"
-    href="{{ url_for('archive_browser') }}">Clear</a>{% endif %}
+   href="{{ url_for('archive_browser') }}">Clear</a>{% endif %}
                     </div>
                 </form>
                 <p class="fine-print">
@@ -91,7 +96,7 @@
                                 {% if entry.size is not none %}· {{ entry.size | humanize_bytes }}{% endif %}
                             </p>
                             <p class="fine-print breakable">
-                                {% if entry.platform == 'lbry' %}
+                                {% if entry.platform == "lbry" %}
                                     Descriptor {{ entry.sd_hash[:12] }}
                                 {% else %}
                                     ID {{ entry.release_id }} · Digest {{ entry.sd_hash[:12] }}

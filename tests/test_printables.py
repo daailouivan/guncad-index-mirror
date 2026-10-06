@@ -415,8 +415,8 @@ class PrintablesAcquirerTests(unittest.TestCase):
         resp_ok = FakeResponse({"data": {"ok": True}})
         session = QueueSession(
             resp_429,  # Thread 1 attempt 1 fails with 429
-            resp_ok,   # Thread 1 attempt 2 succeeds
-            resp_ok,   # Request 2 succeeds
+            resp_ok,  # Thread 1 attempt 2 succeeds
+            resp_ok,  # Request 2 succeeds
         )
         acquirer = PrintablesAcquirer(
             session=session,  # type: ignore[arg-type]
@@ -428,4 +428,3 @@ class PrintablesAcquirerTests(unittest.TestCase):
         self.assertEqual(res1, {"ok": True})
         # 60s cooldown was invoked
         self.assertTrue(any(d >= 60.0 for d in sleep_calls))
-

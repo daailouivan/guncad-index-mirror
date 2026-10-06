@@ -269,7 +269,10 @@ class QBitClientTests(unittest.TestCase):
         self.client.set_location("a" * 40, "/downloads/releases/target")
         self.session.request.assert_called_once()
         _, request = self.session.request.call_args
-        self.assertEqual(request["data"], {"hashes": "a" * 40, "location": "/downloads/releases/target"})
+        self.assertEqual(
+            request["data"],
+            {"hashes": "a" * 40, "location": "/downloads/releases/target"},
+        )
 
     def test_missing_torrent_and_non_green_states_are_reported(self) -> None:
         self.response(document=[])
@@ -374,6 +377,85 @@ class QBitClientTests(unittest.TestCase):
             )
         self.client.close()
         self.session.close.assert_called_once_with()
+
+    def test_add_url_delete_and_validation_edges(self) -> None:
+        self.response(status=200)
+        self.client.add_url(
+            "magnet:?xt=urn:btih:" + "a" * 40,
+            save_path="/downloads/releases",
+            category="guncad-mirror",
+            tag="guncad-mirror",
+            paused=True,
+        )
+        args, request = self.session.request.call_args
+        self.assertTrue(args[1].endswith("/api/v2/torrents/add"))
+        self.assertEqual(request["data"]["paused"], "true")
+        self.assertEqual(request["data"]["urls"], "magnet:?xt=urn:btih:" + "a" * 40)
+
+        self.response(status=200)
+        self.client.delete("a" * 40, delete_files=True)
+        args, request = self.session.request.call_args
+        self.assertTrue(args[1].endswith("/api/v2/torrents/delete"))
+        self.assertEqual(request["data"]["deleteFiles"], "true")
+
+        invalid_transfer_cases = (
+            {"connection_status": "connected", "dht_nodes": True},
+            {"connection_status": "connected", "dht_nodes": -1},
+            "not-an-object",
+        )
+        for document in invalid_transfer_cases:
+            with self.subTest(document=document):
+                self.response(document=document)
+                with self.assertRaises(QBitConfigurationError):
+                    self.client.transfer()
+
+        invalid_torrent_cases = (
+            [self.torrent_document(), self.torrent_document()],
+            [self.torrent_document(content_path="")],
+            [self.torrent_document(amount_left=-1)],
+            [self.torrent_document(size=0)],
+            [self.torrent_document(state="")],
+            [self.torrent_document(force_start="yes")],
+            [self.torrent_document(category=object())],
+            [self.torrent_document(tags=object())],
+        )
+        for document in invalid_torrent_cases:
+            with self.subTest(document=document):
+                self.response(document=document)
+                with self.assertRaises(QBitConfigurationError):
+                    self.client.torrent("a" * 40)
+
+        invalid_tracker_docs = (
+            "not-a-list",
+            ["not-a-mapping"],
+            [{"url": "", "status": 1, "tier": 0}],
+            [{"url": "https://tracker.example/announce", "status": 9, "tier": 0}],
+            [{"url": "https://tracker.example/announce", "status": 1, "tier": True}],
+        )
+        for document in invalid_tracker_docs:
+            with self.subTest(document=document):
+                self.response(document=document)
+                with self.assertRaises(QBitConfigurationError):
+                    self.client.trackers("a" * 40)
+
+        self.response(document=[])
+        self.assertIsNone(self.client.observe("a" * 40))
+
+        self.client._authenticated = True
+        self.session.request.side_effect = requests.ConnectionError("boom")
+        with self.assertRaises(QBitRetryableError) as raised:
+            self.client.transfer()
+        self.assertEqual(raised.exception.code, "network_error")
+        self.session.request.side_effect = None
+
+        self.response(text="")
+        with self.assertRaises(QBitConfigurationError):
+            self.client.versions()
+
+        self.response(status=418)
+        with self.assertRaises(QBitConfigurationError) as raised:
+            self.client.transfer()
+        self.assertEqual(raised.exception.code, "http_418")
 
 
 if __name__ == "__main__":

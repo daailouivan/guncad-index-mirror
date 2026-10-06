@@ -122,7 +122,6 @@ class GitHubAcquirerTests(unittest.TestCase):
             "https://api.github.com/repos/owner/repo/zipball",
         )
 
-
     def test_respects_cancellation(self) -> None:
         stop = Event()
         stop.set()

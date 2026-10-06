@@ -20,7 +20,11 @@ from guncadmirror.audit import (
 )
 from guncadmirror.cancellation import AcquisitionCancelled
 from guncadmirror.github import GitHubAcquirer, GitHubProtocolError
-from guncadmirror.http_acquirer import HttpAcquirer, parse_content_disposition_filename
+from guncadmirror.http_acquirer import (
+    HttpAcquirer,
+    parse_content_disposition_filename,
+    parse_url_filename,
+)
 from guncadmirror.http_download import DownloadError, download_url_to_file
 from guncadmirror.index_client import IndexClient
 from guncadmirror.index_publisher import (
@@ -1385,6 +1389,288 @@ class PublicationAndServiceGapTests(unittest.TestCase):
             broken = replace(candidate[0], job=broken_job)
             with self.assertRaises(QBitError):
                 prepare_seed(seed_settings, broken)
+
+
+class ExtraCoverageGapTests(unittest.TestCase):
+    def test_additional_http_webui_migration_edges(self) -> None:
+        self.assertIsNone(parse_url_filename("https://example.com/get?filename=noext"))
+        destination = Path(tempfile.mkdtemp()) / "rate.bin"
+        rate = requests.HTTPError("429")
+        rate.response = Mock(status_code=429, headers={"Retry-After": "7"})
+
+        class Response:
+            def __init__(
+                self,
+                chunks,
+                headers=None,
+                error=None,
+                url="https://cdn.example/final.bin",
+            ):
+                self.headers = headers or {}
+                self.error = error
+                self._chunks = chunks
+                self.url = url
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> bool:
+                return False
+
+            def raise_for_status(self) -> None:
+                if self.error:
+                    raise self.error
+
+            def iter_content(self, chunk_size: int = 1):
+                yield from self._chunks
+
+        class Session:
+            def __init__(self, responses):
+                self.responses = list(responses)
+                self.closed = False
+
+            def get(self, url, **kwargs):
+                item = self.responses.pop(0)
+                if isinstance(item, Exception):
+                    raise item
+                return item
+
+            def head(self, url, **kwargs):
+                return self.responses.pop(0)
+
+            def close(self) -> None:
+                self.closed = True
+
+        sleeps: list[float] = []
+        ok = Response([b"data"], headers={"Content-Length": "4"})
+        session = Session([rate, ok])
+        size = download_url_to_file(
+            "https://files.example/rate",
+            destination,
+            session=session,
+            attempts=7,
+            backoff=1,
+            sleep=sleeps.append,
+            progress=lambda done, total: None,
+        )
+        self.assertEqual(size, 4)
+        self.assertGreaterEqual(sleeps[0], 7.0)
+
+        release = type(make_release()).from_api(
+            _platform_release(
+                "http",
+                "http-edge",
+                links=[{"url": "https://files.example/named", "name": "download"}],
+            )
+        )
+        progress = Mock()
+        head = Mock(
+            status_code=200,
+            headers={"Content-Type": "application/pdf"},
+            url="https://cdn.example/redirected-no-ext",
+        )
+        body = Response([b"pdf"], headers={"Content-Length": "3"})
+        http = HttpAcquirer(
+            session=Session([head, body]),
+            sleep=lambda _d: None,
+            progress=progress,
+        )
+        out = Path(tempfile.mkdtemp())
+        acquired = http.acquire(release, out)
+        self.assertTrue(acquired.path.is_file())
+        progress.update_activity.assert_called()
+
+        url_release = type(make_release()).from_api(
+            _platform_release(
+                "http", "http-url-fallback", url="https://files.example/fallback.bin"
+            )
+        )
+        raw = dict(url_release.raw)
+        origin = dict(raw.get("origin") or {})
+        origin["links"] = None
+        raw["origin"] = origin
+        from dataclasses import replace
+
+        url_release = replace(
+            url_release, raw=raw, url="https://files.example/fallback.bin"
+        )
+        self.assertEqual(
+            http._resolve_url(url_release), "https://files.example/fallback.bin"
+        )
+
+        class BareSession:
+            pass
+
+        bare = HttpAcquirer(session=BareSession())
+        bare.close()
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        settings = Settings.from_env(
+            {
+                "MIRROR_DATA_DIR": temporary.name,
+                "MIRROR_ENDPOINT": "https://index.example/api/v2/releases/",
+            }
+        )
+        store = JobStore(settings.state_path)
+        release_obj = type(make_release()).from_api(
+            _platform_release("printables", "printables-99")
+        )
+        store.register(release_obj)
+        store.start_attempt(release_obj)
+        payload = Path(temporary.name) / "payload.bin"
+        payload.write_bytes(b"hello-payload")
+        store.mark_verified(
+            release_obj, file_path=payload, sha384="c" * 96, sha256="d" * 64
+        )
+        torrent_path = (
+            Path(temporary.name)
+            / "outbox"
+            / release_obj.id
+            / release_obj.sd_hash
+            / "x.torrent"
+        )
+        torrent_path.parent.mkdir(parents=True, exist_ok=True)
+        torrent_path.write_bytes(b"torrent")
+        from guncadmirror.models import TorrentArtifact
+
+        artifact = TorrentArtifact(
+            file_path=payload,
+            torrent_path=torrent_path,
+            piece_length=16,
+            piece_count=1,
+            info_hash="e" * 40,
+            torrent_sha256="f" * 64,
+            magnet_uri="magnet:?xt=urn:btih:" + "e" * 40,
+            trackers=(),
+        )
+        store.mark_awaiting_index(release_obj, artifact)
+
+        collector = Mock()
+        collector.settings = settings
+        collector.store = store
+        collector.events = []
+        collector.get_activities.return_value = {}
+        collector.snapshot.return_value = {"version": "test"}
+        collector.collect = Mock()
+
+        # Force empty cachebuster branch by temporarily hiding styles.css
+        probe = create_app(collector)
+        css = Path(probe.static_folder or "") / "styles.css"
+        css_backup = css.with_suffix(".css.coverage-bak")
+        if css.exists():
+            css.rename(css_backup)
+            self.addCleanup(
+                lambda: (
+                    css_backup.rename(css)
+                    if css_backup.exists() and not css.exists()
+                    else None
+                )
+            )
+        app = create_app(collector)
+        processors = app.template_context_processors[None]
+        injected = processors[-1]()
+        self.assertEqual(injected.get("cachebuster"), "")
+
+        client = app.test_client()
+        entries = client.get("/api/entries?section=pipeline&category=all")
+        self.assertEqual(entries.status_code, 200)
+        body = entries.get_json()
+        self.assertTrue(any(item.get("payload_url") for item in body["entries"]))
+        self.assertTrue(any(item.get("torrent_url") for item in body["entries"]))
+        self.assertTrue(any(item.get("activity") is None for item in body["entries"]))
+
+        missing_job = client.get(f"/archive/{'0' * 40}/{'1' * 96}/payload")
+        self.assertEqual(missing_job.status_code, 404)
+        incomplete = make_release(release_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        store.register(incomplete)
+        not_ready = client.get(f"/archive/{incomplete.id}/{incomplete.sd_hash}/payload")
+        self.assertEqual(not_ready.status_code, 404)
+
+        # Migration store relocate path with db_conn=None
+        data = Path(temporary.name) / "mig-data"
+        (data / "lbry" / "lbrynet").mkdir(parents=True)
+        (data / "mirror").mkdir(parents=True)
+        (data / "outbox").mkdir(parents=True)
+        (data / "releases").mkdir(parents=True)
+        lbry_db = data / "lbry" / "lbrynet" / "lbrynet.sqlite"
+        conn = sqlite3.connect(lbry_db)
+        conn.execute(
+            "CREATE TABLE file (stream_hash TEXT, file_name TEXT, download_directory TEXT)"
+        )
+        conn.commit()
+        conn.close()
+
+        runner = V1MigrationRunner(
+            MigrationConfig(
+                data_dir=data,
+                dry_run=False,
+                staging_db=False,
+                detect_faulty_folders=False,
+                generate_missing_torrents=False,
+                logger=logging.getLogger("test-migration-store-relocate"),
+            )
+        )
+        migrated = make_release(b"model-bytes-xyz")
+        release_id = migrated.id
+        sd_hash = migrated.sd_hash
+        payload_dir = data / "mirror" / "Author" / "Claim"
+        payload_dir.mkdir(parents=True)
+        payload_file = payload_dir / "model.zip"
+        payload_file.write_bytes(b"model-bytes-xyz")
+        (payload_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "id": release_id,
+                    "name": migrated.name,
+                    "channel": {"handle": "@Author:c"},
+                    "sd_hash": sd_hash,
+                }
+            )
+        )
+        runner.store.register(migrated)
+        runner.store.start_attempt(migrated)
+        runner.store.mark_verified(
+            migrated,
+            file_path=payload_file,
+            sha384="a" * 96,
+            sha256="b" * 64,
+        )
+        fake_torrent = data / "outbox" / release_id / sd_hash / "old.torrent"
+        fake_torrent.parent.mkdir(parents=True, exist_ok=True)
+        fake_torrent.write_bytes(b"x" * 32)
+        runner.store.mark_awaiting_index(
+            migrated,
+            TorrentArtifact(
+                file_path=payload_file,
+                torrent_path=fake_torrent,
+                piece_length=16,
+                piece_count=1,
+                info_hash="1" * 40,
+                torrent_sha256="2" * 64,
+                magnet_uri="magnet:?xt=urn:btih:" + "1" * 40,
+                trackers=(),
+            ),
+        )
+        with runner.store._connect() as db:
+            db.execute(
+                "UPDATE jobs SET file_path=? WHERE release_id=? AND sd_hash=?",
+                ("/data/mirror/Author/Claim/model.zip", release_id, sd_hash),
+            )
+        # Map container paths: download_directory as stored in lbry uses /data prefix
+        runner._migrate_single_stream(
+            {
+                "sd_hash": sd_hash,
+                "file_name": "model.zip",
+                "download_directory": "/data/mirror/Author/Claim",
+            },
+            {},
+            None,
+            None,
+        )
+        self.assertGreaterEqual(
+            runner.stats.skipped_existing + runner.stats.payloads_relocated, 1
+        )
 
 
 def sqlite_row(**values: object):

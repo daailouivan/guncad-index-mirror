@@ -122,7 +122,7 @@
                                 <p class="activity-phase">{{ activity.phase }}</p>
                                 <p class="fine-print breakable">
                                     {{ activity.channel_handle }}
-                                    {% if activity.transport == 'lbry' or activity.transport == 'odysee-cdn' %}
+                                    {% if activity.transport == "lbry" or activity.transport == "odysee-cdn" %}
                                         · claim {{ activity.release_id }} · descriptor {{ activity.sd_hash[:12] }}
                                     {% else %}
                                         · id {{ activity.release_id }} · digest {{ activity.sd_hash[:12] }}
@@ -204,15 +204,43 @@
                     <table class="sources-table">
                         <thead>
                             <tr>
-                                <th scope="col">Source<br><span class="th-sub">platform</span></th>
-                                <th scope="col" class="num-col">Total<br><span class="th-sub">indexed</span></th>
-                                <th scope="col" class="num-col">Staged /<br><span class="th-sub">verified</span></th>
-                                <th scope="col" class="num-col">qB<br><span class="th-sub">seeding</span></th>
-                                <th scope="col" class="num-col">Index<br><span class="th-sub">published</span></th>
+                                <th scope="col">
+                                    Source
+                                    <br />
+                                    <span class="th-sub">platform</span>
+                                </th>
+                                <th scope="col" class="num-col">
+                                    Total
+                                    <br />
+                                    <span class="th-sub">indexed</span>
+                                </th>
+                                <th scope="col" class="num-col">
+                                    Staged /
+                                    <br />
+                                    <span class="th-sub">verified</span>
+                                </th>
+                                <th scope="col" class="num-col">
+                                    qB
+                                    <br />
+                                    <span class="th-sub">seeding</span>
+                                </th>
+                                <th scope="col" class="num-col">
+                                    Index
+                                    <br />
+                                    <span class="th-sub">published</span>
+                                </th>
                                 <th scope="col" class="num-col">In-flight</th>
                                 <th scope="col" class="num-col">Failed</th>
-                                <th scope="col" class="num-col">Excluded<br><span class="th-sub">by policy</span></th>
-                                <th scope="col" class="num-col">Payload<br><span class="th-sub">volume</span></th>
+                                <th scope="col" class="num-col">
+                                    Excluded
+                                    <br />
+                                    <span class="th-sub">by policy</span>
+                                </th>
+                                <th scope="col" class="num-col">
+                                    Payload
+                                    <br />
+                                    <span class="th-sub">volume</span>
+                                </th>
                                 <th scope="col" class="action-col">Archive</th>
                             </tr>
                         </thead>
@@ -295,9 +323,10 @@
                                                 title="View excluded {{ source.display_name }} entries">{{ source.excluded }}</button>
                                     </td>
                                     <td class="num-col">{{ source.staged_bytes | humanize_bytes }}</td>
-
                                     <td class="action-col">
-                                        <a href="{{ url_for('archive_browser', platform=source.platform) }}" class="archive-filter-btn" title="Filter archive for {{ source.display_name }}">Filter archive</a>
+                                        <a href="{{ url_for('archive_browser', platform=source.platform) }}"
+                                           class="archive-filter-btn"
+                                           title="Filter archive for {{ source.display_name }}">Filter archive</a>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -366,9 +395,10 @@
                                                 data-category="excluded"><strong>{{ platform_totals.excluded }}</strong></button>
                                     </td>
                                     <td class="num-col"><strong>{{ platform_totals.staged_bytes | humanize_bytes }}</strong></td>
-                                    <td class="action-col"><a href="{{ url_for('archive_browser') }}" class="archive-filter-btn" title="Browse all entries in archive">Browse all</a></td>
+                                    <td class="action-col"><a href="{{ url_for('archive_browser') }}"
+   class="archive-filter-btn"
+   title="Browse all entries in archive">Browse all</a></td>
                                 </tr>
-
                             </tfoot>
                         {% endif %}
                     </table>
@@ -380,30 +410,64 @@
             <section class="panel" data-testid="github-token-configuration">
                 <h2>GitHub API Access &amp; Rate Limits</h2>
                 {% if token_saved %}
-                    <div class="banner banner-success" role="alert" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: #1a4731; border: 1px solid #2e7d32; border-radius: 4px; color: #a5d6a7;">
+                    <div class="banner banner-success"
+                         role="alert"
+                         style="margin-bottom: 1rem;
+                                padding: 0.75rem 1rem;
+                                background: #1a4731;
+                                border: 1px solid #2e7d32;
+                                border-radius: 4px;
+                                color: #a5d6a7">
                         <strong>✓ GitHub Token updated successfully.</strong> Any previously rate-limited GitHub releases have been reset for immediate retry.
                     </div>
                 {% endif %}
-                <div class="github-token-box" style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
+                <div class="github-token-box"
+                     style="display: flex;
+                            flex-wrap: wrap;
+                            gap: 1.5rem;
+                            align-items: flex-start">
                     <div style="flex: 1; min-width: 280px;">
                         <p style="margin-top: 0;">
                             <strong>Authentication Status:</strong>
                             {% if github_token_configured %}
-                                <span class="source-badge source-badge-github" style="background: #2e7d32; color: #fff;">Authenticated (5,000 req/hr)</span>
-                                {% if github_token_masked %}<code style="margin-left: 0.5rem;">{{ github_token_masked }}</code>{% endif %}
+                                <span class="source-badge source-badge-github"
+                                      style="background: #2e7d32;
+                                             color: #fff">Authenticated (5,000 req/hr)</span>
+                                {% if github_token_masked %}<code style="margin-left: 0.5rem">{{ github_token_masked }}</code>{% endif %}
                             {% else %}
-                                <span class="source-badge" style="background: #b71c1c; color: #fff;">Unauthenticated (60 req/hr limit)</span>
+                                <span class="source-badge"
+                                      style="background: #b71c1c;
+                                             color: #fff">Unauthenticated (60 req/hr limit)</span>
                             {% endif %}
                         </p>
                         <p class="fine-print">
                             GitHub enforces an unauthenticated limit of 60 requests per hour per IP. Adding a personal access token (classic or fine-grained with public repository read permissions) increases the rate limit to 5,000 requests per hour, unblocking automated release and source archive mirroring.
                         </p>
                     </div>
-                    <form method="POST" action="{{ url_for('update_github_token') }}" style="flex: 1; min-width: 320px; display: flex; flex-direction: column; gap: 0.5rem;">
+                    <form method="post"
+                          action="{{ url_for('update_github_token') }}"
+                          style="flex: 1;
+                                 min-width: 320px;
+                                 display: flex;
+                                 flex-direction: column;
+                                 gap: 0.5rem">
                         <label for="github_token" style="font-weight: 600;">Personal Access Token</label>
                         <div style="display: flex; gap: 0.5rem;">
-                            <input type="password" id="github_token" name="github_token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="flex: 1; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid #444; background: #222; color: #fff; font-family: monospace;">
-                            <button type="submit" class="button" style="padding: 0.5rem 1rem; cursor: pointer;">Save Token</button>
+                            <input type="password"
+                                   id="github_token"
+                                   name="github_token"
+                                   placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                                   style="flex: 1;
+                                          padding: 0.5rem 0.75rem;
+                                          border-radius: 4px;
+                                          border: 1px solid #444;
+                                          background: #222;
+                                          color: #fff;
+                                          font-family: monospace" />
+                            <button type="submit"
+                                    class="button"
+                                    style="padding: 0.5rem 1rem;
+                                           cursor: pointer">Save Token</button>
                         </div>
                         <span class="fine-print">Submitting an updated token instantly resets all failed GitHub downloads for immediate retry.</span>
                     </form>
@@ -412,11 +476,36 @@
             <section class="panel" data-testid="seeding-panel">
                 <h2>qBittorrent seeding</h2>
                 <div class="job-grid">
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="pending" title="View seeding pending injection"><span>{{ seeding_pending }}</span> pending injection</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="injecting" title="View injecting torrents"><span>{{ seeding_injecting }}</span> injecting</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="retrying" title="View retrying torrents"><span>{{ seeding_retrying }}</span> retrying</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="seeding" data-category="green" title="View green seeders"><span>{{ seeding_green }}</span> green</button>
-                    <button type="button" class="job-stat-card{% if seeding_blocked > 0 %} stat-error{% endif %}" data-modal-trigger data-section="seeding" data-category="blocked" title="View blocked seeders"><span>{{ seeding_blocked }}</span> blocked</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="seeding"
+                            data-category="pending"
+                            title="View seeding pending injection"><span>{{ seeding_pending }}</span> pending injection</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="seeding"
+                            data-category="injecting"
+                            title="View injecting torrents"><span>{{ seeding_injecting }}</span> injecting</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="seeding"
+                            data-category="retrying"
+                            title="View retrying torrents"><span>{{ seeding_retrying }}</span> retrying</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="seeding"
+                            data-category="green"
+                            title="View green seeders"><span>{{ seeding_green }}</span> green</button>
+                    <button type="button"
+                            class="job-stat-card{% if seeding_blocked > 0 %} stat-error{% endif %}"
+                            data-modal-trigger
+                            data-section="seeding"
+                            data-category="blocked"
+                            title="View blocked seeders"><span>{{ seeding_blocked }}</span> blocked</button>
                 </div>
                 <p class="fine-print">
                     Green means qBittorrent has the exact BTIH at the assembled file's mounted path, reports 100% complete in forced upload mode, &amp; can reach DHT or a working tracker. Mirror rechecks green torrents every {{ mirror_qbittorrent_recheck_interval | humanize_seconds }}. Click any status to inspect entries.
@@ -452,13 +541,48 @@
             <section class="panel" data-testid="publication-panel">
                 <h2>Index publication</h2>
                 <div class="job-grid">
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="pending" title="View pending publications"><span>{{ publication_pending }}</span> pending</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="publishing" title="View in-flight publications"><span>{{ publication_publishing }}</span> publishing</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="retrying" title="View retrying publications"><span>{{ publication_retrying }}</span> retrying</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="published" title="View accepted publications"><span>{{ publication_published }}</span> accepted</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="publication" data-category="duplicate" title="View canonical duplicates"><span>{{ publication_duplicates }}</span> canonical duplicates</button>
-                    <button type="button" class="job-stat-card{% if publication_rejected > 0 %} stat-error{% endif %}" data-modal-trigger data-section="publication" data-category="rejected" title="View rejected publications"><span>{{ publication_rejected }}</span> rejected</button>
-                    <button type="button" class="job-stat-card{% if publication_conflicts > 0 %} stat-error{% endif %}" data-modal-trigger data-section="publication" data-category="conflict" title="View evidence conflicts"><span>{{ publication_conflicts }}</span> evidence conflicts</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="pending"
+                            title="View pending publications"><span>{{ publication_pending }}</span> pending</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="publishing"
+                            title="View in-flight publications"><span>{{ publication_publishing }}</span> publishing</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="retrying"
+                            title="View retrying publications"><span>{{ publication_retrying }}</span> retrying</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="published"
+                            title="View accepted publications"><span>{{ publication_published }}</span> accepted</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="duplicate"
+                            title="View canonical duplicates"><span>{{ publication_duplicates }}</span> canonical duplicates</button>
+                    <button type="button"
+                            class="job-stat-card{% if publication_rejected > 0 %} stat-error{% endif %}"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="rejected"
+                            title="View rejected publications"><span>{{ publication_rejected }}</span> rejected</button>
+                    <button type="button"
+                            class="job-stat-card{% if publication_conflicts > 0 %} stat-error{% endif %}"
+                            data-modal-trigger
+                            data-section="publication"
+                            data-category="conflict"
+                            title="View evidence conflicts"><span>{{ publication_conflicts }}</span> evidence conflicts</button>
                 </div>
                 <p class="fine-print">
                     Publication state is separate from acquisition state. A rejected POST does not discard its verified local payload or torrent. Click any status to inspect entries.
@@ -467,12 +591,42 @@
             <section class="panel" data-testid="pipeline-panel">
                 <h2>Pipeline jobs</h2>
                 <div class="job-grid">
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="pending" title="View pending pipeline jobs"><span>{{ pending }}</span> pending</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="acquiring" title="View acquiring jobs"><span>{{ acquiring }}</span> acquiring</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="verified" title="View verified jobs"><span>{{ verified }}</span> verified</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="awaiting_index" title="View awaiting index (staged) jobs"><span>{{ awaiting_index }}</span> awaiting Index</button>
-                    <button type="button" class="job-stat-card" data-modal-trigger data-section="pipeline" data-category="excluded" title="View excluded jobs"><span>{{ excluded }}</span> excluded by policy</button>
-                    <button type="button" class="job-stat-card{% if failed > 0 %} stat-error{% endif %}" data-modal-trigger data-section="pipeline" data-category="failed" title="View failed jobs"><span>{{ failed }}</span> failed</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="pending"
+                            title="View pending pipeline jobs"><span>{{ pending }}</span> pending</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="acquiring"
+                            title="View acquiring jobs"><span>{{ acquiring }}</span> acquiring</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="verified"
+                            title="View verified jobs"><span>{{ verified }}</span> verified</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="awaiting_index"
+                            title="View awaiting index (staged) jobs"><span>{{ awaiting_index }}</span> awaiting Index</button>
+                    <button type="button"
+                            class="job-stat-card"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="excluded"
+                            title="View excluded jobs"><span>{{ excluded }}</span> excluded by policy</button>
+                    <button type="button"
+                            class="job-stat-card{% if failed > 0 %} stat-error{% endif %}"
+                            data-modal-trigger
+                            data-section="pipeline"
+                            data-category="failed"
+                            title="View failed jobs"><span>{{ failed }}</span> failed</button>
                 </div>
                 <p class="fine-print">
                     Jobs are keyed by the Index release ID and LBRY stream descriptor hash. State is stored in <code>{{ mirror_data_dir }}/mirror-state.sqlite3</code>. Click any status to inspect entries, diagnose errors, or trigger retries.
@@ -742,9 +896,11 @@
     rel="noreferrer">Matrix support</a>
             </p>
         </footer>
-
         <!-- Category Entries Modal Dialog -->
-        <dialog id="category-modal" class="category-modal" aria-labelledby="modal-title" aria-modal="true">
+        <dialog id="category-modal"
+                class="category-modal"
+                aria-labelledby="modal-title"
+                aria-modal="true">
             <div class="modal-wrapper">
                 <header class="modal-header">
                     <div class="modal-title-group">
@@ -753,21 +909,31 @@
                         <span id="modal-count-badge" class="modal-count-pill">0 items</span>
                     </div>
                     <div class="modal-header-actions">
-                        <button type="button" id="modal-refresh-btn" class="button button-sm button-secondary" title="Refresh entries in this view">
-                            ⟳ Refresh
-                        </button>
-                        <button type="button" id="modal-retry-all-btn" class="button button-sm button-warning" style="display: none;">
-                            ⟳ Retry All Failed
-                        </button>
-                        <button type="button" id="modal-close-btn" class="modal-close-btn" aria-label="Close dialog">✕</button>
+                        <button type="button"
+                                id="modal-refresh-btn"
+                                class="button button-sm button-secondary"
+                                title="Refresh entries in this view">⟳ Refresh</button>
+                        <button type="button"
+                                id="modal-retry-all-btn"
+                                class="button button-sm button-warning"
+                                style="display: none">⟳ Retry All Failed</button>
+                        <button type="button"
+                                id="modal-close-btn"
+                                class="modal-close-btn"
+                                aria-label="Close dialog">✕</button>
                     </div>
                 </header>
                 <div class="modal-toolbar">
                     <div class="modal-search-box">
-                        <input type="search" id="modal-search" placeholder="Filter by name, channel, id, or error..." autocomplete="off">
+                        <input type="search"
+                               id="modal-search"
+                               placeholder="Filter by name, channel, id, or error..."
+                               autocomplete="off" />
                     </div>
                     <div class="modal-toolbar-filters">
-                        <select id="modal-platform-filter" class="archive-select" aria-label="Filter by platform">
+                        <select id="modal-platform-filter"
+                                class="archive-select"
+                                aria-label="Filter by platform">
                             <option value="">All platforms</option>
                             <option value="lbry">LBRY / Odysee</option>
                             <option value="printables">Printables</option>
@@ -775,7 +941,9 @@
                             <option value="http">Direct HTTP</option>
                             <option value="torrent">BitTorrent Swarm</option>
                         </select>
-                        <select id="modal-limit-select" class="archive-select" aria-label="Entries per page">
+                        <select id="modal-limit-select"
+                                class="archive-select"
+                                aria-label="Entries per page">
                             <option value="25">25 / page</option>
                             <option value="50" selected>50 / page</option>
                             <option value="100">100 / page</option>
@@ -788,9 +956,15 @@
                 </div>
                 <footer class="modal-footer">
                     <div class="modal-pagination">
-                        <button type="button" id="modal-prev-btn" class="button button-secondary button-sm" disabled>Previous</button>
+                        <button type="button"
+                                id="modal-prev-btn"
+                                class="button button-secondary button-sm"
+                                disabled>Previous</button>
                         <span id="modal-page-info" class="fine-print">Page 1 of 1</span>
-                        <button type="button" id="modal-next-btn" class="button button-secondary button-sm" disabled>Next</button>
+                        <button type="button"
+                                id="modal-next-btn"
+                                class="button button-secondary button-sm"
+                                disabled>Next</button>
                     </div>
                     <div class="modal-footer-stats">
                         <span id="modal-range-info" class="fine-print">Showing 0 entries</span>
@@ -798,7 +972,6 @@
                 </footer>
             </div>
         </dialog>
-
         <script>
         (function() {
             const modal = document.getElementById("category-modal");

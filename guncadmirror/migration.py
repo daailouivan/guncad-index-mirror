@@ -414,10 +414,11 @@ class V1MigrationRunner:
                                     continue
                                 if HEX_CLAIM_RE.fullmatch(rel.name):
                                     # Check if empty or only meta.json
-                                    has_payload = any(
-                                        f.is_file() and f.name != "meta.json"
-                                        for f in os.scandir(rel.path)
-                                    )
+                                    with os.scandir(rel.path) as entries:
+                                        has_payload = any(
+                                            f.is_file() and f.name != "meta.json"
+                                            for f in entries
+                                        )
                                     if not has_payload:
                                         faulty_stubs += 1
                     except OSError:
@@ -570,7 +571,9 @@ class V1MigrationRunner:
                             try:
                                 os.link(local_payload_path, canonical_local_payload)
                             except OSError:
-                                shutil.copy2(local_payload_path, canonical_local_payload)
+                                shutil.copy2(
+                                    local_payload_path, canonical_local_payload
+                                )
                         canonical_rel_json = canonical_local_dir / "release.json"
                         if not canonical_rel_json.is_file():
                             v2_raw = synthesize_v2_payload(
@@ -581,14 +584,13 @@ class V1MigrationRunner:
                                 size=payload_size,
                                 checksum=sha384,
                                 url=meta_json.get("url") if meta_json else None,
-                                url_lbry=meta_json.get("url_lbry") if meta_json else None,
+                                url_lbry=meta_json.get("url_lbry")
+                                if meta_json
+                                else None,
                             )
                             atomic_write(
                                 canonical_rel_json,
-                                (
-                                    json.dumps(v2_raw, indent=2)
-                                    + "\n"
-                                ).encode("utf-8"),
+                                (json.dumps(v2_raw, indent=2) + "\n").encode("utf-8"),
                             )
                         db_conn.execute(
                             "UPDATE jobs SET file_path=? WHERE release_id=? AND sd_hash=?",
@@ -619,7 +621,9 @@ class V1MigrationRunner:
                                 try:
                                     os.link(local_payload_path, canonical_local_payload)
                                 except OSError:
-                                    shutil.copy2(local_payload_path, canonical_local_payload)
+                                    shutil.copy2(
+                                        local_payload_path, canonical_local_payload
+                                    )
                             canonical_rel_json = canonical_local_dir / "release.json"
                             if not canonical_rel_json.is_file():
                                 v2_raw = synthesize_v2_payload(
@@ -630,19 +634,24 @@ class V1MigrationRunner:
                                     size=payload_size,
                                     checksum=sha384,
                                     url=meta_json.get("url") if meta_json else None,
-                                    url_lbry=meta_json.get("url_lbry") if meta_json else None,
+                                    url_lbry=meta_json.get("url_lbry")
+                                    if meta_json
+                                    else None,
                                 )
                                 atomic_write(
                                     canonical_rel_json,
-                                    (
-                                        json.dumps(v2_raw, indent=2)
-                                        + "\n"
-                                    ).encode("utf-8"),
+                                    (json.dumps(v2_raw, indent=2) + "\n").encode(
+                                        "utf-8"
+                                    ),
                                 )
                             with self.store._connect() as conn:
                                 conn.execute(
                                     "UPDATE jobs SET file_path=? WHERE release_id=? AND sd_hash=?",
-                                    (str(canonical_target_payload), release_id, sd_hash),
+                                    (
+                                        str(canonical_target_payload),
+                                        release_id,
+                                        sd_hash,
+                                    ),
                                 )
                         self.stats.payloads_relocated += 1
                     self.stats.skipped_existing += 1
@@ -802,7 +811,10 @@ class V1MigrationRunner:
         if self.config.relocate_releases and canonical_local_dir is not None:
             if not self.config.dry_run:
                 canonical_local_dir.mkdir(parents=True, exist_ok=True)
-                if not canonical_local_payload.is_file() and local_payload_path.is_file():
+                if (
+                    not canonical_local_payload.is_file()
+                    and local_payload_path.is_file()
+                ):
                     try:
                         os.link(local_payload_path, canonical_local_payload)
                     except OSError:
@@ -811,9 +823,7 @@ class V1MigrationRunner:
                 if not canonical_rel_json.is_file():
                     atomic_write(
                         canonical_rel_json,
-                        (
-                            json.dumps(release_obj.raw, indent=2) + "\n"
-                        ).encode("utf-8"),
+                        (json.dumps(release_obj.raw, indent=2) + "\n").encode("utf-8"),
                     )
             self.stats.payloads_relocated += 1
 
@@ -914,7 +924,10 @@ def relocate_qbit_seeds(
                     *rel.parts[:-1]
                 )
             )
-            if PurePosixPath(current_save) == PurePosixPath(canonical_save) and item.get("state") != "moving":
+            if (
+                PurePosixPath(current_save) == PurePosixPath(canonical_save)
+                and item.get("state") != "moving"
+            ):
                 stats["skipped_canonical"] += 1
                 continue
 
@@ -931,12 +944,16 @@ def relocate_qbit_seeds(
             local_torrent = Path(torrent_path_str)
             if not local_torrent.is_file():
                 try:
-                    t_rel = local_torrent.resolve().relative_to(settings.data_dir.resolve())
+                    t_rel = local_torrent.resolve().relative_to(
+                        settings.data_dir.resolve()
+                    )
                     local_torrent = settings.data_dir.resolve() / t_rel
                 except (ValueError, OSError):
                     t_parts = PurePosixPath(torrent_path_str).parts
                     if len(t_parts) > 2 and t_parts[1] == "data":
-                        local_torrent = settings.data_dir.resolve() / PurePosixPath(*t_parts[2:])
+                        local_torrent = settings.data_dir.resolve() / PurePosixPath(
+                            *t_parts[2:]
+                        )
                     else:
                         local_torrent = settings.outbox_dir / local_torrent.name
                 if not local_torrent.is_file():
