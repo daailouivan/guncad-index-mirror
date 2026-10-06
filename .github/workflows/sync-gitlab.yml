@@ -23,7 +23,10 @@ jobs:
         run: |
           CLEAN_TOKEN=$(echo -n "${GITLAB_TOKEN}" | tr -d '\r\n[:space:]')
           echo "Token length: ${#CLEAN_TOKEN}"
-          echo "Token prefix: ${CLEAN_TOKEN:0:5}"
+          echo "First 7 chars: ${CLEAN_TOKEN:0:7}"
+          echo "Has export: $(echo "$CLEAN_TOKEN" | grep -q "export" && echo YES || echo NO)"
+          echo "Has equal: $(echo "$CLEAN_TOKEN" | grep -q "=" && echo YES || echo NO)"
+          echo "Has quote: $(echo "$CLEAN_TOKEN" | grep -q -E "[\"']" && echo YES || echo NO)"
           if [ -z "${CLEAN_TOKEN}" ]; then
             echo "::error::GITLAB_TOKEN secret is empty"
             exit 1
