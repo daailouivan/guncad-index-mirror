@@ -18,6 +18,15 @@ from flask import (
 )
 from waitress import serve
 
+from .archive_inspector import (
+    ArchiveInspectorError,
+    ArchiveNotFoundError,
+    InvalidEntryPathError,
+    NotAZipArchiveError,
+    extract_archive_file,
+    inspect_archive,
+    sanitize_zip_path,
+)
 from .models import RELEASE_ID_RE, SHA384_RE, JobState
 from .paths import ensure_within
 from .stats import StatsCollector
@@ -389,6 +398,47 @@ def create_app(collector: StatsCollector) -> Flask:
             mimetype="application/x-bittorrent",
         )
 
+    @app.route("/archive/<release_id>/<sd_hash>/file")
+    def download_archive_file(release_id: str, sd_hash: str) -> Response:
+        if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+            abort(404)
+        if not collector.is_feature_enabled("archive_inspector"):
+            abort(403)
+        file_path_param = request.args.get("path", "").strip()
+        if not file_path_param:
+            abort(400, "Missing path parameter")
+        try:
+            job = collector.store.get(release_id, sd_hash)
+        except KeyError:
+            abort(404)
+        if job.file_path is None or job.state != JobState.AWAITING_INDEX:
+            abort(404)
+        try:
+            path = ensure_within(collector.settings.data_dir, job.file_path)
+        except ValueError:
+            abort(404)
+        if not path.is_file():
+            abort(404)
+
+        try:
+            fp, size, content_type = extract_archive_file(path, file_path_param)
+        except (KeyError, ArchiveNotFoundError):
+            abort(404)
+        except (InvalidEntryPathError, ValueError):
+            abort(400)
+        except NotAZipArchiveError:
+            abort(415)
+
+        download_name = Path(sanitize_zip_path(file_path_param)).name
+        response = send_file(
+            fp,
+            mimetype=content_type,
+            as_attachment=True,
+            download_name=download_name,
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
     @app.route("/api/entries/<release_id>/<sd_hash>/details")
     def entry_details(release_id: str, sd_hash: str) -> Response:
         if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
@@ -439,6 +489,53 @@ def create_app(collector: StatsCollector) -> Flask:
         )
 
         return jsonify({"ok": True, "detail": detail})
+
+    @app.route("/api/entries/<release_id>/<sd_hash>/archive-files")
+    def entry_archive_files(release_id: str, sd_hash: str) -> Response:
+        if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+            abort(404)
+        if not collector.is_feature_enabled("archive_inspector"):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            "In-archive file inspector is disabled. Enable it in Resource Profile "
+                            "& Optional Features to inspect archive contents."
+                        ),
+                        "feature_disabled": True,
+                    }
+                ),
+                403,
+            )
+        try:
+            job = collector.store.get(release_id, sd_hash)
+        except KeyError:
+            abort(404)
+        if job.file_path is None or job.state != JobState.AWAITING_INDEX:
+            abort(404)
+        try:
+            path = ensure_within(collector.settings.data_dir, job.file_path)
+        except ValueError:
+            abort(404)
+        if not path.is_file():
+            abort(404)
+
+        try:
+            entries, total_uncompressed, is_zip = inspect_archive(path)
+        except ArchiveInspectorError as err:
+            return jsonify({"ok": False, "error": str(err)}), 400
+
+        return jsonify(
+            {
+                "ok": True,
+                "is_zip": is_zip,
+                "archive_name": path.name,
+                "file_count": len(entries),
+                "total_uncompressed_bytes": total_uncompressed,
+                "files": [e.to_dict() for e in entries],
+            }
+        )
 
     @app.route("/api/entries/<release_id>/<sd_hash>/location")
     def entry_location(release_id: str, sd_hash: str) -> Response:

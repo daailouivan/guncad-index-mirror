@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -224,7 +225,8 @@ class WebUiTests(unittest.TestCase):
             self.settings.releases_dir / channel / f"{name}.zip"
         )
         payload_path.parent.mkdir(parents=True, exist_ok=True)
-        payload_path.write_bytes(payload_bytes)
+        if not payload_path.exists():
+            payload_path.write_bytes(payload_bytes)
         torrent_path = torrent_path or (
             self.settings.outbox_dir / release.id / release.sd_hash / f"{name}.torrent"
         )
@@ -1111,6 +1113,128 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(
             data["detail"]["host_file_path"].startswith("/mnt/user/storage/guncad")
         )
+
+    def test_api_archive_files_and_download_endpoints(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Create a release with a valid zip file payload
+        zip_path = self.root / "cad_package.zip"
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("frame.stl", b"STL FRAME CONTENT")
+            zf.writestr("docs/guide.pdf", b"%PDF-1.4 TEST PDF")
+
+        release, _, _ = self._complete_release(
+            name="Inspectable Zip Release",
+            channel="@cad:1",
+            payload_path=zip_path,
+        )
+
+        # 1. Feature disabled (default)
+        self.assertFalse(self.collector.is_feature_enabled("archive_inspector"))
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/archive-files")
+        self.assertEqual(resp.status_code, 403)
+        data = resp.get_json()
+        self.assertFalse(data["ok"])
+        self.assertTrue(data.get("feature_disabled"))
+
+        dl_resp = client.get(
+            f"/archive/{release.id}/{release.sd_hash}/file?path=frame.stl"
+        )
+        self.assertEqual(dl_resp.status_code, 403)
+
+        # Archive page omits "📦 Files" button when disabled
+        archive_resp = client.get("/archive")
+        self.assertNotIn("📦 Files</button>".encode(), archive_resp.data)
+
+        # 2. Enable feature
+        self.collector.set_feature_enabled("archive_inspector", True)
+        self.assertTrue(self.collector.is_feature_enabled("archive_inspector"))
+
+        # Invalid release id or hash
+        self.assertEqual(
+            client.get("/api/entries/bad-id/not-a-hash/archive-files").status_code, 404
+        )
+        self.assertEqual(
+            client.get(f"/api/entries/{'f' * 40}/{'0' * 96}/archive-files").status_code,
+            404,
+        )
+
+        # Archive files inspection success
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/archive-files")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["is_zip"])
+        self.assertEqual(data["file_count"], 2)
+        self.assertEqual(data["archive_name"], "cad_package.zip")
+        self.assertGreater(data["total_uncompressed_bytes"], 0)
+        file_paths = [f["path"] for f in data["files"]]
+        self.assertIn("frame.stl", file_paths)
+        self.assertIn("docs/guide.pdf", file_paths)
+
+        # Archive page renders "📦 Files" button when enabled
+        self.collector.snapshot.return_value["features"]["archive_inspector"] = True
+        archive_resp = client.get("/archive")
+        self.assertIn("📦 Files</button>".encode(), archive_resp.data)
+        self.assertIn(b'id="files-modal"', archive_resp.data)
+
+        # Download file: missing path param
+        self.assertEqual(
+            client.get(f"/archive/{release.id}/{release.sd_hash}/file").status_code,
+            400,
+        )
+
+        # Download file: invalid / traversal path
+        self.assertEqual(
+            client.get(
+                f"/archive/{release.id}/{release.sd_hash}/file?path=../secret.txt"
+            ).status_code,
+            400,
+        )
+
+        # Download file: missing file in zip
+        self.assertEqual(
+            client.get(
+                f"/archive/{release.id}/{release.sd_hash}/file?path=nonexistent.stl"
+            ).status_code,
+            404,
+        )
+
+        # Download file: success
+        dl_resp = client.get(
+            f"/archive/{release.id}/{release.sd_hash}/file?path=frame.stl"
+        )
+        self.assertEqual(dl_resp.status_code, 200)
+        self.assertEqual(dl_resp.data, b"STL FRAME CONTENT")
+        self.assertEqual(dl_resp.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertIn(
+            "filename=frame.stl", dl_resp.headers.get("Content-Disposition", "")
+        )
+        dl_resp.close()
+
+        # Standalone non-zip file payload
+        txt_path = self.root / "standalone.txt"
+        txt_path.write_text("not a zip", encoding="utf-8")
+        plain_release, _, _ = self._complete_release(
+            name="Plain Release",
+            payload_path=txt_path,
+        )
+        resp_plain = client.get(
+            f"/api/entries/{plain_release.id}/{plain_release.sd_hash}/archive-files"
+        )
+        self.assertEqual(resp_plain.status_code, 200)
+        data_plain = resp_plain.get_json()
+        self.assertTrue(data_plain["ok"])
+        self.assertFalse(data_plain["is_zip"])
+        self.assertEqual(data_plain["file_count"], 0)
+
+        # Downloading archive file on non-zip payload returns 415
+        dl_plain = client.get(
+            f"/archive/{plain_release.id}/{plain_release.sd_hash}/file?path=anything.txt"
+        )
+        self.assertEqual(dl_plain.status_code, 415)
 
 
 if __name__ == "__main__":

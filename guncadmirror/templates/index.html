@@ -1194,6 +1194,11 @@
                         <button type="button"
                                 id="details-open-location-btn"
                                 class="button button-secondary">📂 Local Location</button>
+                        {% if features and features.archive_inspector %}
+                            <button type="button"
+                                    id="details-inspect-files-btn"
+                                    class="button button-secondary">📦 Inspect Files</button>
+                        {% endif %}
                     </div>
                     <div class="details-footer-right" style="display: flex; gap: 0.75rem">
                         <a id="details-download-payload-btn"
@@ -1208,6 +1213,91 @@
                            style="display: none">Download Torrent</a>
                         <button type="button"
                                 id="details-modal-done-btn"
+                                class="button button-secondary">Close</button>
+                    </div>
+                </footer>
+            </div>
+        </dialog>
+        <!-- Archive File Inspector Modal -->
+        <dialog id="files-modal"
+                class="files-modal"
+                aria-labelledby="files-modal-title"
+                aria-modal="true">
+            <div class="modal-wrapper files-modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span id="files-platform-badge" class="source-badge">ZIP</span>
+                        <h2 id="files-modal-title">Archive Files</h2>
+                    </div>
+                    <button type="button"
+                            id="files-modal-close-btn"
+                            class="modal-close-btn"
+                            aria-label="Close dialog">✕</button>
+                </header>
+                <div id="files-modal-body" class="modal-body files-modal-body">
+                    <div id="files-loading" class="modal-loading">
+                        <p>Inspecting archive contents...</p>
+                    </div>
+                    <div id="files-error" class="modal-error" style="display: none">
+                        <p id="files-error-text"></p>
+                    </div>
+                    <div id="files-content" style="display: none">
+                        <div class="files-summary-bar">
+                            <div class="files-summary-info">
+                                <span class="fine-print">Archive:</span>
+                                <strong id="files-archive-name" class="mono"></strong>
+                                <span class="summary-sep">•</span>
+                                <span class="fine-print">Contained files:</span>
+                                <strong id="files-count">0</strong>
+                                <span class="summary-sep">•</span>
+                                <span class="fine-print">Uncompressed:</span>
+                                <strong id="files-uncompressed-size">0 B</strong>
+                            </div>
+                            <div class="files-safety-note">
+                                <span>💡</span>
+                                <span>Single-file extraction is read-only and preserves torrent seeding integrity.</span>
+                            </div>
+                        </div>
+                        <div class="files-filter-bar">
+                            <input type="search"
+                                   id="files-search-input"
+                                   class="files-search-input"
+                                   placeholder="Filter files by name or extension (e.g. .stl, step, pdf)..." />
+                            <div id="files-ext-chips" class="files-ext-chips"></div>
+                        </div>
+                        <div class="files-table-wrapper">
+                            <table class="files-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">File Path</th>
+                                        <th scope="col" class="ext-col">Type</th>
+                                        <th scope="col" class="num-col">Size</th>
+                                        <th scope="col" class="num-col">Modified</th>
+                                        <th scope="col" class="action-col">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="files-table-body">
+                                </tbody>
+                            </table>
+                            <div id="files-empty-state"
+                                 class="files-empty-state"
+                                 style="display: none">
+                                <p>No files match the filter.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <footer class="modal-footer"
+                        style="justify-content: space-between;
+                               gap: 0.75rem">
+                    <div class="files-footer-left">
+                        <button type="button"
+                                id="files-open-details-btn"
+                                class="button button-secondary">📖 Release Details</button>
+                    </div>
+                    <div class="files-footer-right">
+                        <button type="button"
+                                id="files-modal-done-btn"
                                 class="button button-secondary">Close</button>
                     </div>
                 </footer>
@@ -1520,6 +1610,9 @@
                     if (window.catalogDetailsEnabled) {
                         html += `<button type="button" class="button button-sm button-secondary open-details-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-platform="${escapeHtml(platform)}">📖 Details</button>`;
                     }
+                    if (window.archiveInspectorEnabled && (entry.has_payload || entry.payload_url)) {
+                        html += `<button type="button" class="button button-sm button-secondary open-files-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-platform="${escapeHtml(platform)}">📦 Files</button>`;
+                    }
                     if (entry.torrent_url) {
                         html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
                     }
@@ -1640,6 +1733,17 @@
                     });
                 });
 
+                bodyEl.querySelectorAll(".open-files-btn").forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        openFilesModal(
+                            btn.getAttribute("data-id"),
+                            btn.getAttribute("data-sd"),
+                            btn.getAttribute("data-name"),
+                            btn.getAttribute("data-platform")
+                        );
+                    });
+                });
             }
 
             const locModal = document.getElementById("location-modal");
@@ -1781,6 +1885,7 @@
 
             // --- Release Details Modal Logic ---
             window.catalogDetailsEnabled = {{ 'true' if features and features.catalog_details else 'false' }};
+            window.archiveInspectorEnabled = {{ 'true' if features and features.archive_inspector else 'false' }};
             const detModal = document.getElementById("details-modal");
             const detCloseBtn = document.getElementById("details-modal-close-btn");
             const detDoneBtn = document.getElementById("details-modal-done-btn");
@@ -1980,6 +2085,238 @@
                 });
             }
 
+            // --- Archive Files Inspector Modal Logic ---
+            const filesModal = document.getElementById("files-modal");
+            const filesCloseBtn = document.getElementById("files-modal-close-btn");
+            const filesDoneBtn = document.getElementById("files-modal-done-btn");
+            const filesOpenDetBtn = document.getElementById("files-open-details-btn");
+            const detInspectFilesBtn = document.getElementById("details-inspect-files-btn");
+            const filesTitle = document.getElementById("files-modal-title");
+            const filesPlatformBadge = document.getElementById("files-platform-badge");
+            const filesLoading = document.getElementById("files-loading");
+            const filesError = document.getElementById("files-error");
+            const filesErrorText = document.getElementById("files-error-text");
+            const filesContent = document.getElementById("files-content");
+            const filesArchiveName = document.getElementById("files-archive-name");
+            const filesCount = document.getElementById("files-count");
+            const filesUncompressedSize = document.getElementById("files-uncompressed-size");
+            const filesSearchInput = document.getElementById("files-search-input");
+            const filesExtChips = document.getElementById("files-ext-chips");
+            const filesTableBody = document.getElementById("files-table-body");
+            const filesEmptyState = document.getElementById("files-empty-state");
+
+            let currentFilesData = null;
+            let currentFilesFilter = "";
+            let currentExtFilter = "all";
+            let activeFilesReleaseId = "";
+            let activeFilesSdHash = "";
+            let activeFilesName = "";
+            let activeFilesPlatform = "";
+
+            function closeFilesModal() {
+                if (!filesModal) return;
+                if (typeof filesModal.close === "function") {
+                    filesModal.close();
+                } else {
+                    filesModal.removeAttribute("open");
+                }
+            }
+
+            if (filesCloseBtn) filesCloseBtn.addEventListener("click", closeFilesModal);
+            if (filesDoneBtn) filesDoneBtn.addEventListener("click", closeFilesModal);
+            if (filesModal) {
+                filesModal.addEventListener("click", (e) => {
+                    if (e.target === filesModal) closeFilesModal();
+                });
+            }
+
+            function renderFilesList() {
+                if (!filesTableBody || !currentFilesData) return;
+                const files = currentFilesData.files || [];
+                const q = currentFilesFilter.toLowerCase();
+                const ext = currentExtFilter.toLowerCase();
+
+                const filtered = files.filter(f => {
+                    if (f.is_dir) return false;
+                    const fext = (f.extension || "").toLowerCase();
+                    if (ext !== "all" && fext !== ext) return false;
+                    if (q) {
+                        return f.path.toLowerCase().includes(q) || f.name.toLowerCase().includes(q);
+                    }
+                    return true;
+                });
+
+                filesTableBody.innerHTML = "";
+                if (filtered.length === 0) {
+                    filesEmptyState.style.display = "block";
+                    return;
+                }
+                filesEmptyState.style.display = "none";
+
+                filtered.forEach(f => {
+                    const tr = document.createElement("tr");
+                    const extClean = (f.extension || "").replace(/^\./, "").toLowerCase();
+                    const extClass = extClean ? `file-ext-${extClean}` : "file-ext-misc";
+
+                    const pathParts = f.path.split("/");
+                    const filename = pathParts.pop();
+                    const dirPath = pathParts.length > 0 ? pathParts.join("/") + "/" : "";
+
+                    const downloadUrl = `/archive/${encodeURIComponent(activeFilesReleaseId)}/${encodeURIComponent(activeFilesSdHash)}/file?path=${encodeURIComponent(f.path)}`;
+
+                    tr.innerHTML = `
+                        <td class="file-path-cell">
+                            ${dirPath ? `<span class="file-path-dir">${escapeHtml(dirPath)}</span>` : ""}<span class="file-path-name">${escapeHtml(filename)}</span>
+                        </td>
+                        <td class="ext-col">
+                            <span class="file-ext-badge ${extClass}">${escapeHtml(extClean ? extClean.toUpperCase() : "FILE")}</span>
+                        </td>
+                        <td class="num-col">${formatBytes(f.size)}</td>
+                        <td class="num-col fine-print">${escapeHtml(f.modified || "—")}</td>
+                        <td class="action-col">
+                            <a href="${downloadUrl}" class="button button-sm button-secondary" download="${escapeHtml(filename)}">📥 Download</a>
+                        </td>
+                    `;
+                    filesTableBody.appendChild(tr);
+                });
+            }
+
+            function setupExtChips(files) {
+                if (!filesExtChips) return;
+                filesExtChips.innerHTML = "";
+                currentExtFilter = "all";
+
+                const extCounts = {};
+                (files || []).forEach(f => {
+                    if (f.is_dir) return;
+                    const ext = (f.extension || "").toLowerCase();
+                    if (ext) {
+                        extCounts[ext] = (extCounts[ext] || 0) + 1;
+                    }
+                });
+
+                const allChip = document.createElement("button");
+                allChip.type = "button";
+                allChip.className = "file-chip active";
+                allChip.textContent = `All (${(files || []).filter(f => !f.is_dir).length})`;
+                allChip.addEventListener("click", () => {
+                    currentExtFilter = "all";
+                    filesExtChips.querySelectorAll(".file-chip").forEach(c => c.classList.remove("active"));
+                    allChip.classList.add("active");
+                    renderFilesList();
+                });
+                filesExtChips.appendChild(allChip);
+
+                Object.keys(extCounts)
+                    .sort((a, b) => extCounts[b] - extCounts[a])
+                    .forEach(ext => {
+                        const chip = document.createElement("button");
+                        chip.type = "button";
+                        chip.className = "file-chip";
+                        chip.textContent = `${ext.toUpperCase()} (${extCounts[ext]})`;
+                        chip.addEventListener("click", () => {
+                            currentExtFilter = ext;
+                            filesExtChips.querySelectorAll(".file-chip").forEach(c => c.classList.remove("active"));
+                            chip.classList.add("active");
+                            renderFilesList();
+                        });
+                        filesExtChips.appendChild(chip);
+                    });
+            }
+
+            if (filesSearchInput) {
+                filesSearchInput.addEventListener("input", () => {
+                    currentFilesFilter = filesSearchInput.value.trim();
+                    renderFilesList();
+                });
+            }
+
+            async function openFilesModal(id, sd, name, platform) {
+                if (!filesModal) return;
+                activeFilesReleaseId = id;
+                activeFilesSdHash = sd;
+                activeFilesName = name;
+                activeFilesPlatform = platform;
+                currentFilesData = null;
+                currentFilesFilter = "";
+                currentExtFilter = "all";
+                if (filesSearchInput) filesSearchInput.value = "";
+
+                filesTitle.textContent = name || "Archive Files";
+                filesPlatformBadge.textContent = (platform || "zip").toUpperCase();
+                filesPlatformBadge.className = `source-badge source-badge-${platform || "lbry"}`;
+                filesLoading.style.display = "block";
+                filesError.style.display = "none";
+                filesContent.style.display = "none";
+
+                if (typeof filesModal.showModal === "function") {
+                    filesModal.showModal();
+                } else {
+                    filesModal.setAttribute("open", "");
+                }
+
+                try {
+                    const resp = await fetch(`/api/entries/${encodeURIComponent(id)}/${encodeURIComponent(sd)}/archive-files`);
+                    const data = await resp.json();
+                    if (!data.ok) {
+                        filesLoading.style.display = "none";
+                        filesError.style.display = "block";
+                        filesErrorText.textContent = data.error || "Unable to inspect archive contents.";
+                        return;
+                    }
+
+                    if (!data.is_zip) {
+                        filesLoading.style.display = "none";
+                        filesError.style.display = "block";
+                        filesErrorText.textContent = `Payload is a direct standalone file (${data.archive_name || "file"}), not a ZIP archive.`;
+                        return;
+                    }
+
+                    currentFilesData = data;
+                    filesArchiveName.textContent = data.archive_name || "archive.zip";
+                    filesCount.textContent = (data.files || []).filter(f => !f.is_dir).length;
+                    filesUncompressedSize.textContent = formatBytes(data.total_uncompressed_bytes);
+
+                    setupExtChips(data.files || []);
+                    renderFilesList();
+
+                    filesLoading.style.display = "none";
+                    filesContent.style.display = "block";
+                } catch (err) {
+                    filesLoading.style.display = "none";
+                    filesError.style.display = "block";
+                    filesErrorText.textContent = `Network error inspecting archive: ${err.message}`;
+                }
+            }
+
+            window.openFilesModal = openFilesModal;
+
+            if (detInspectFilesBtn) {
+                detInspectFilesBtn.addEventListener("click", () => {
+                    if (!currentDetail) return;
+                    closeDetailsModal();
+                    openFilesModal(
+                        currentDetail.release_id,
+                        currentDetail.sd_hash,
+                        currentDetail.name,
+                        currentDetail.platform
+                    );
+                });
+            }
+
+            if (filesOpenDetBtn) {
+                filesOpenDetBtn.addEventListener("click", () => {
+                    if (!activeFilesReleaseId || !activeFilesSdHash) return;
+                    closeFilesModal();
+                    openDetailsModal(
+                        activeFilesReleaseId,
+                        activeFilesSdHash,
+                        activeFilesName,
+                        activeFilesPlatform
+                    );
+                });
+            }
+
             function updatePagination() {
                 prevBtn.disabled = currentPage <= 1;
                 nextBtn.disabled = currentPage >= pageCount;
@@ -2122,6 +2459,12 @@
                             }
                             if (feature === "catalog_details") {
                                 window.catalogDetailsEnabled = newState;
+                                if (modal && modal.open) {
+                                    loadEntries();
+                                }
+                            }
+                            if (feature === "archive_inspector") {
+                                window.archiveInspectorEnabled = newState;
                                 if (modal && modal.open) {
                                     loadEntries();
                                 }
