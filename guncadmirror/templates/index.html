@@ -855,6 +855,45 @@
                                 </td>
                                 <td class="config-effect">Matching channel-handle prefixes are durably excluded before acquisition.</td>
                             </tr>
+                            <tr class="config-section-header">
+                                <th colspan="3" scope="colgroup">Resource Profile &amp; Optional Features</th>
+                            </tr>
+                            <tr>
+                                <th scope="row">Rich Release Details</th>
+                                <td class="config-val">
+                                    <div class="config-toggle-cell">
+                                        <span id="feat-status-catalog_details"
+                                              class="feature-badge {{ 'enabled' if features and features.catalog_details else 'disabled' }}">
+                                            {{ 'Enabled' if features and features.catalog_details else 'Disabled (Lightweight)' }}
+                                        </span>
+                                        <button type="button"
+                                                class="button button-sm button-secondary toggle-feature-btn"
+                                                data-feature="catalog_details"
+                                                data-state="{{ 'true' if features and features.catalog_details else 'false' }}">
+                                            {{ 'Disable' if features and features.catalog_details else 'Enable' }}
+                                        </button>
+                                    </div>
+                                </td>
+                                <td class="config-effect">Enriches entries with Markdown release descriptions, upstream platform links, and cryptographic hash audits.</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">In-Archive File Inspector</th>
+                                <td class="config-val">
+                                    <div class="config-toggle-cell">
+                                        <span id="feat-status-archive_inspector"
+                                              class="feature-badge {{ 'enabled' if features and features.archive_inspector else 'disabled' }}">
+                                            {{ 'Enabled' if features and features.archive_inspector else 'Disabled (Lightweight)' }}
+                                        </span>
+                                        <button type="button"
+                                                class="button button-sm button-secondary toggle-feature-btn"
+                                                data-feature="archive_inspector"
+                                                data-state="{{ 'true' if features and features.archive_inspector else 'false' }}">
+                                            {{ 'Disable' if features and features.archive_inspector else 'Enable' }}
+                                        </button>
+                                    </div>
+                                </td>
+                                <td class="config-effect">Enables reading inside .zip packages to preview contained CAD/STL/PDF files and download individual files.</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1739,6 +1778,39 @@
                     openModal(parts[0], parts[1], parts[2] || "");
                 }
             }
+
+            // Optional Feature Flag Toggles
+            document.querySelectorAll(".toggle-feature-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const feature = btn.getAttribute("data-feature");
+                    const currentState = btn.getAttribute("data-state") === "true";
+                    const newState = !currentState;
+                    btn.disabled = true;
+                    try {
+                        const resp = await fetch("/api/features", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ feature: feature, enabled: newState }),
+                        });
+                        const data = await resp.json();
+                        if (data.ok) {
+                            btn.setAttribute("data-state", newState ? "true" : "false");
+                            btn.textContent = newState ? "Disable" : "Enable";
+                            const statusBadge = document.getElementById(`feat-status-${feature}`);
+                            if (statusBadge) {
+                                statusBadge.className = `feature-badge ${newState ? "enabled" : "disabled"}`;
+                                statusBadge.textContent = newState ? "Enabled" : "Disabled (Lightweight)";
+                            }
+                        } else {
+                            alert(`Failed to update feature: ${data.error || "Unknown error"}`);
+                        }
+                    } catch (e) {
+                        alert(`Error: ${e.message}`);
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+            });
         })();
         </script>
     </body>

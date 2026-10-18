@@ -36,6 +36,33 @@ class WebUiTests(unittest.TestCase):
         self.collector = Mock()
         self.collector.settings = self.settings
         self.collector.store = self.store
+        self.collector.events = []
+
+        def fake_is_feature_enabled(name: str) -> bool:
+            stored = self.store.get_setting(f"feature_{name}")
+            if stored:
+                return stored.strip().lower() in {
+                    "1",
+                    "true",
+                    "t",
+                    "yes",
+                    "on",
+                    "enabled",
+                }
+            return bool(getattr(self.settings, f"enable_{name}", False))
+
+        def fake_set_feature_enabled(name: str, val: bool) -> None:
+            self.store.set_setting(f"feature_{name}", "true" if val else "false")
+            if (
+                isinstance(self.collector.snapshot.return_value, dict)
+                and "features" in self.collector.snapshot.return_value
+            ):
+                self.collector.snapshot.return_value["features"][name] = val
+                self.collector.snapshot.return_value[f"mirror_enable_{name}"] = val
+
+        self.collector.is_feature_enabled.side_effect = fake_is_feature_enabled
+        self.collector.set_feature_enabled.side_effect = fake_set_feature_enabled
+
         self.collector.snapshot.return_value = {
             "version": "test-ref",
             "mirror_state": "Sleeping",
@@ -66,6 +93,12 @@ class WebUiTests(unittest.TestCase):
             "mirror_publish_concurrency": 2,
             "mirror_publish_timeout": 60,
             "mirror_enable_webui": True,
+            "mirror_enable_catalog_details": False,
+            "mirror_enable_archive_inspector": False,
+            "features": {
+                "catalog_details": False,
+                "archive_inspector": False,
+            },
             "mirror_blacklisted_handles": (),
             "mirror_release_max_size": 1024,
             "mirror_min_free_space": 512,
@@ -950,6 +983,67 @@ class WebUiTests(unittest.TestCase):
             data = resp.get_json()
             self.assertFalse(data["opened"])
             self.assertIn("Directory does not exist", data["message"])
+
+    def test_api_features_endpoints(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # GET /api/features
+        resp = client.get("/api/features")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["features"]["catalog_details"])
+        self.assertFalse(data["features"]["archive_inspector"])
+
+        # POST /api/features invalid payload
+        resp = client.post("/api/features", data="not json", content_type="text/plain")
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.get_json()["ok"])
+
+        # POST /api/features unknown feature
+        resp = client.post(
+            "/api/features", json={"feature": "teleportation", "enabled": True}
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unknown feature", resp.get_json()["error"])
+
+        # POST /api/features empty/no valid features
+        resp = client.post("/api/features", json={"other": 123})
+        self.assertEqual(resp.status_code, 400)
+
+        # POST /api/features single feature toggle
+        resp = client.post(
+            "/api/features", json={"feature": "catalog_details", "enabled": True}
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["features"]["catalog_details"])
+        self.assertTrue(self.collector.is_feature_enabled("catalog_details"))
+
+        # POST /api/features multiple features dict
+        resp = client.post(
+            "/api/features",
+            json={"features": {"catalog_details": False, "archive_inspector": True}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["features"]["catalog_details"])
+        self.assertTrue(data["features"]["archive_inspector"])
+        self.assertFalse(self.collector.is_feature_enabled("catalog_details"))
+        self.assertTrue(self.collector.is_feature_enabled("archive_inspector"))
+
+        # Check rendered index.html and archive.html contain feature elements
+        resp = client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Resource Profile &amp; Optional Features", resp.data)
+        self.assertIn(b"toggle-feature-btn", resp.data)
+
+        resp = client.get("/archive")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Lightweight Mode", resp.data)
 
 
 if __name__ == "__main__":

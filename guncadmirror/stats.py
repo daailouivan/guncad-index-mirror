@@ -81,6 +81,12 @@ class StatsCollector:
             "mirror_releases_dir": str(settings.releases_dir),
             "mirror_outbox_dir": str(settings.outbox_dir),
             "mirror_host_data_dir": settings.host_data_dir,
+            "mirror_enable_catalog_details": bool(settings.enable_catalog_details),
+            "mirror_enable_archive_inspector": bool(settings.enable_archive_inspector),
+            "features": {
+                "catalog_details": bool(settings.enable_catalog_details),
+                "archive_inspector": bool(settings.enable_archive_inspector),
+            },
             "disk_space_used": 0,
             "job_counts": {},
             "seeding_counts": {},
@@ -218,6 +224,15 @@ class StatsCollector:
             self._snapshot["activities"] = activities
             self._snapshot["activity"] = activities[-1] if activities else None
 
+    def is_feature_enabled(self, name: str) -> bool:
+        stored = self.store.get_setting(f"feature_{name}")
+        if stored:
+            return stored.strip().lower() in {"1", "true", "t", "yes", "on", "enabled"}
+        return bool(getattr(self.settings, f"enable_{name}", False))
+
+    def set_feature_enabled(self, name: str, enabled: bool) -> None:
+        self.store.set_setting(f"feature_{name}", "true" if enabled else "false")
+
     def get_activities(self) -> dict[tuple[str, str], dict[str, Any]]:
         with self._lock:
             return {key: dict(val) for key, val in self._activities.items()}
@@ -280,6 +295,14 @@ class StatsCollector:
                     )
                     else ""
                 )
+            ),
+            "features": {
+                "catalog_details": self.is_feature_enabled("catalog_details"),
+                "archive_inspector": self.is_feature_enabled("archive_inspector"),
+            },
+            "mirror_enable_catalog_details": self.is_feature_enabled("catalog_details"),
+            "mirror_enable_archive_inspector": self.is_feature_enabled(
+                "archive_inspector"
             ),
         }
         with self._lock:

@@ -92,6 +92,62 @@ def create_app(collector: StatsCollector) -> Flask:
         collector.collect()
         return redirect("/?token_saved=1")
 
+    @app.route("/api/features", methods=["GET"])
+    def get_features() -> Response:
+        return jsonify(
+            {
+                "ok": True,
+                "features": {
+                    "catalog_details": collector.is_feature_enabled("catalog_details"),
+                    "archive_inspector": collector.is_feature_enabled(
+                        "archive_inspector"
+                    ),
+                },
+            }
+        )
+
+    @app.route("/api/features", methods=["POST"])
+    def update_features() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Invalid JSON payload"}), 400
+
+        valid_features = {"catalog_details", "archive_inspector"}
+        updates: dict[str, bool] = {}
+        if "feature" in payload:
+            feat = str(payload["feature"]).strip()
+            if feat not in valid_features:
+                return jsonify({"ok": False, "error": f"Unknown feature: {feat}"}), 400
+            updates[feat] = bool(payload.get("enabled", True))
+        elif "features" in payload and isinstance(payload["features"], dict):
+            for feat, val in payload["features"].items():
+                if feat in valid_features:
+                    updates[feat] = bool(val)
+
+        if not updates:
+            return (
+                jsonify({"ok": False, "error": "No valid feature updates specified"}),
+                400,
+            )
+
+        for feat, val in updates.items():
+            collector.set_feature_enabled(feat, val)
+            collector.events.append(f"Feature '{feat}' set to {val}")
+
+        collector.collect()
+        return jsonify(
+            {
+                "ok": True,
+                "message": "Features updated successfully",
+                "features": {
+                    "catalog_details": collector.is_feature_enabled("catalog_details"),
+                    "archive_inspector": collector.is_feature_enabled(
+                        "archive_inspector"
+                    ),
+                },
+            }
+        )
+
     @app.route("/api/entries")
     def api_category_entries() -> Response:
         section = request.args.get("section", "pipeline").strip().lower()

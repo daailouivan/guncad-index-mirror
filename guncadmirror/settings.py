@@ -74,6 +74,8 @@ class Settings:
     publish_timeout: float = 60
     github_token: str = ""
     host_data_dir: str = ""
+    enable_catalog_details: bool = False
+    enable_archive_inspector: bool = False
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -183,6 +185,12 @@ class Settings:
                 "MIRROR_GITHUB_TOKEN", env.get("GITHUB_TOKEN", "")
             ).strip(),
             host_data_dir=env.get("MIRROR_HOST_DATA_DIR", "").strip(),
+            enable_catalog_details=_boolean(
+                env, "MIRROR_ENABLE_CATALOG_DETAILS", False
+            ),
+            enable_archive_inspector=_boolean(
+                env, "MIRROR_ENABLE_ARCHIVE_INSPECTOR", False
+            ),
         )
         settings.validate()
         return settings

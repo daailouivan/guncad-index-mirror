@@ -266,6 +266,43 @@ class StatsCollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["platform_breakdown"]["lbry"]["total"], 1)
         self.assertEqual(snapshot["platform_totals"]["total"], 1)
 
+    def test_feature_flags_and_toggles(self) -> None:
+        collector = StatsCollector(self.settings, self.store)
+        # Defaults match settings
+        self.assertFalse(collector.is_feature_enabled("catalog_details"))
+        self.assertFalse(collector.is_feature_enabled("archive_inspector"))
+
+        snapshot = collector.snapshot()
+        self.assertIn("features", snapshot)
+        self.assertFalse(snapshot["features"]["catalog_details"])
+        self.assertFalse(snapshot["features"]["archive_inspector"])
+        self.assertFalse(snapshot["mirror_enable_catalog_details"])
+        self.assertFalse(snapshot["mirror_enable_archive_inspector"])
+
+        # Enable via store
+        collector.set_feature_enabled("catalog_details", True)
+        self.assertTrue(collector.is_feature_enabled("catalog_details"))
+        self.assertFalse(collector.is_feature_enabled("archive_inspector"))
+
+        collector.collect()
+        snapshot2 = collector.snapshot()
+        self.assertTrue(snapshot2["features"]["catalog_details"])
+        self.assertTrue(snapshot2["mirror_enable_catalog_details"])
+
+        # Disable via store
+        collector.set_feature_enabled("catalog_details", False)
+        self.assertFalse(collector.is_feature_enabled("catalog_details"))
+
+        # Fallback to settings when store key is empty
+        collector.store.set_setting("feature_catalog_details", "")
+        self.assertFalse(collector.is_feature_enabled("catalog_details"))
+        collector.settings = Settings(
+            endpoint="https://index.example/api/v2/releases/",
+            data_dir=self.root,
+            enable_catalog_details=True,
+        )
+        self.assertTrue(collector.is_feature_enabled("catalog_details"))
+
 
 if __name__ == "__main__":
     unittest.main()

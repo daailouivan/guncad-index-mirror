@@ -38,7 +38,13 @@
             <p>
                 A well regulated Militia, being necessary to the security of a free State, the right of the people to keep and bear Arms, shall not be infringed.
             </p>
-            <p><a href="{{ url_for('mirror_statistics') }}">Return to mirror status</a></p>
+            <p>
+                <a href="{{ url_for('mirror_statistics') }}">Return to mirror status</a>
+                •
+                <span class="feature-badge {{ 'enabled' if features and features.catalog_details else 'disabled' }}">
+                    {{ 'Enriched Catalog' if features and features.catalog_details else 'Lightweight Mode' }}
+                </span>
+            </p>
         </header>
         <main>
             <div class="banner banner-note">

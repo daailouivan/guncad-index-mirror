@@ -1329,3 +1329,36 @@ dialog.location-modal::backdrop {
 	background: rgba(255, 107, 107, 0.12);
 }
 
+.feature-badge {
+	display: inline-block;
+	padding: 0.18rem 0.5rem;
+	border-radius: 0.25rem;
+	font-size: 0.72rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	line-height: 1.25;
+	border: 1px solid var(--border);
+	white-space: nowrap;
+}
+
+.feature-badge.enabled {
+	color: #7ee787;
+	border-color: #3fb950;
+	background: #132b1a;
+}
+
+.feature-badge.disabled {
+	color: #8b949e;
+	border-color: #30363d;
+	background: #161b22;
+}
+
+.config-toggle-cell {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+}
+
+

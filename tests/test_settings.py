@@ -36,6 +36,8 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.qbittorrent_enabled)
         self.assertEqual(settings.qbittorrent_url, "http://qbittorrent:8080")
         self.assertEqual(settings.qbittorrent_data_dir, Path("/downloads"))
+        self.assertFalse(settings.enable_catalog_details)
+        self.assertFalse(settings.enable_archive_inspector)
 
     def test_reads_every_supported_environment_shape(self):
         settings = Settings.from_env(
@@ -84,6 +86,8 @@ class SettingsTests(unittest.TestCase):
                 "MIRROR_PUBLISH_TOKEN": "secret-token",
                 "MIRROR_PUBLISH_CONCURRENCY": "3",
                 "MIRROR_PUBLISH_TIMEOUT": "17.5",
+                "MIRROR_ENABLE_CATALOG_DETAILS": "true",
+                "MIRROR_ENABLE_ARCHIVE_INSPECTOR": "1",
             }
         )
 
@@ -130,6 +134,8 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.publish_token, "secret-token")
         self.assertEqual(settings.publish_concurrency, 3)
         self.assertEqual(settings.publish_timeout, 17.5)
+        self.assertTrue(settings.enable_catalog_details)
+        self.assertTrue(settings.enable_archive_inspector)
 
     def test_derives_tracker_policy_as_publish_endpoint_sibling(self):
         settings = Settings.from_env(
