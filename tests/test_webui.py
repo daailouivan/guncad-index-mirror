@@ -739,6 +739,218 @@ class WebUiTests(unittest.TestCase):
         bad_resp = client.post("/api/jobs/exclude", json={})
         self.assertEqual(bad_resp.status_code, 400)
 
+    def test_api_entry_location_and_caution_warning(self) -> None:
+        release, _, _ = self._complete_release(
+            name="Lower Receiver",
+            channel="@defense-distributed#1",
+        )
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Check /api/entries exposes file_path, folder_path, and location_url
+        entries_resp = client.get("/api/entries?section=pipeline&category=all")
+        self.assertEqual(entries_resp.status_code, 200)
+        entry_item = entries_resp.get_json()["entries"][0]
+        self.assertIsNotNone(entry_item["file_path"])
+        self.assertIsNotNone(entry_item["folder_path"])
+        self.assertIn("/api/entries/", entry_item["location_url"])
+
+        # Check /api/entries/<id>/<sd>/location
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/location")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["release_id"], release.id)
+        self.assertEqual(data["sd_hash"], release.sd_hash)
+        self.assertEqual(data["file_name"], "Lower Receiver.zip")
+        self.assertTrue(data["exists"])
+        self.assertTrue(data["folder_exists"])
+        self.assertIn("Lower Receiver.zip", data["file_path"])
+        self.assertIn("@defense-distributed#1", data["folder_path"])
+        self.assertIn("Active BitTorrent Seeding Directory", data["caution_warning"])
+        self.assertIn("Download an additional copy", data["preferred_workflow"])
+        self.assertIn("/archive/", data["payload_url"])
+        self.assertIn("/archive/", data["torrent_url"])
+
+    def test_api_entry_location_errors_and_traversal(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Malformed ID or SD hash
+        self.assertEqual(
+            client.get("/api/entries/bad!id/123/location").status_code, 404
+        )
+        self.assertEqual(
+            client.get(f"/api/entries/{'a' * 40}/bad_hash/location").status_code, 404
+        )
+
+        # Nonexistent release
+        self.assertEqual(
+            client.get(f"/api/entries/{'a' * 40}/{'b' * 96}/location").status_code, 404
+        )
+
+        # Registered release without a local payload file
+        raw = release_payload(b"empty", release_id="c" * 40, sd_hash="d" * 96)
+        rel = Release.from_api(raw)
+        self.store.register(rel)
+        self.assertEqual(
+            client.get(f"/api/entries/{rel.id}/{rel.sd_hash}/location").status_code, 404
+        )
+
+    def test_api_entry_open_location(self) -> None:
+        release, _, _ = self._complete_release(name="Glock Frame")
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Test POST /api/entries/<id>/<sd>/open-location with mocked subprocess
+        with (
+            patch("shutil.which", return_value="/usr/bin/xdg-open"),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["ok"])
+            self.assertTrue(data["opened"])
+            self.assertEqual(data["message"], "File manager opened")
+            mock_popen.assert_called_once()
+
+        # Test when no opener exists on system (e.g. headless container)
+        with patch("shutil.which", return_value=None):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["ok"])
+            self.assertFalse(data["opened"])
+            self.assertIn("No desktop file manager opener", data["message"])
+
+    def test_api_entry_location_with_host_mapping(self) -> None:
+        self.collector.settings = Settings(
+            endpoint="https://index.example/api/v2/releases/",
+            data_dir=self.root,
+            host_data_dir="/mnt/user/storage/guncad",
+        )
+        release, _, _ = self._complete_release(name="Host Test")
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/location")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["host_folder_path"].startswith("/mnt/user/storage/guncad"))
+        self.assertTrue(data["host_file_path"].startswith("/mnt/user/storage/guncad"))
+
+    def test_archive_page_renders_location_button(self) -> None:
+        self._complete_release(name="Pistol Slide")
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        resp = client.get("/archive")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"Local Location", resp.data)
+        self.assertIn(b"open-location-btn", resp.data)
+        self.assertIn(b"location-modal", resp.data)
+        self.assertIn(b"Seeding Integrity Warning", resp.data)
+
+    def test_api_entry_open_location_openers_and_errors(self) -> None:
+        release, _, _ = self._complete_release(name="Opener Test")
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # Nonexistent / escaped / malformed paths
+        self.assertEqual(
+            client.post("/api/entries/bad!id/123/open-location").status_code, 404
+        )
+        self.assertEqual(
+            client.post(
+                f"/api/entries/{'9' * 40}/{'9' * 96}/open-location"
+            ).status_code,
+            404,
+        )
+
+        # Job without file_path
+        raw = release_payload(b"empty", release_id="e" * 40, sd_hash="f" * 96)
+        rel = Release.from_api(raw)
+        self.store.register(rel)
+        self.assertEqual(
+            client.post(
+                f"/api/entries/{rel.id}/{rel.sd_hash}/open-location"
+            ).status_code,
+            404,
+        )
+
+        # Test gio opener
+        def fake_which(cmd: str) -> str | None:
+            return "/usr/bin/gio" if cmd == "gio" else None
+
+        with (
+            patch("shutil.which", side_effect=fake_which),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.get_json()["opened"])
+            mock_popen.assert_called_once()
+
+        # Test open (macOS) opener
+        def fake_mac_which(cmd: str) -> str | None:
+            return "/usr/bin/open" if cmd == "open" else None
+
+        with (
+            patch("shutil.which", side_effect=fake_mac_which),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.get_json()["opened"])
+            mock_popen.assert_called_once()
+
+        # Test explorer.exe (Windows) opener
+        def fake_win_which(cmd: str) -> str | None:
+            return "/mnt/c/Windows/explorer.exe" if cmd == "explorer.exe" else None
+
+        with (
+            patch("shutil.which", side_effect=fake_win_which),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.get_json()["opened"])
+            mock_popen.assert_called_once()
+
+        # Test Popen exception handling
+        with (
+            patch("shutil.which", return_value="/usr/bin/xdg-open"),
+            patch("subprocess.Popen", side_effect=OSError("permission denied")),
+        ):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertFalse(data["opened"])
+            self.assertIn("Failed to launch file manager", data["message"])
+
+        # Test missing folder on disk
+        with patch.object(Path, "exists", return_value=False):
+            resp = client.post(
+                f"/api/entries/{release.id}/{release.sd_hash}/open-location"
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertFalse(data["opened"])
+            self.assertIn("Directory does not exist", data["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

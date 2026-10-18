@@ -599,6 +599,14 @@ class JobStoreTests(unittest.TestCase):
         self.assertEqual(printables_entries[0].platform, "printables")
         self.assertEqual(printables_entries[0].name, "Printables Bracket")
         self.assertEqual(printables_entries[0].size, len(b"printables-payload"))
+        self.assertEqual(
+            printables_entries[0].file_path,
+            str(Path(self.temporary.name) / "payloads" / f"{printables_rel.id}.zip"),
+        )
+        self.assertEqual(
+            printables_entries[0].folder_path,
+            str(Path(self.temporary.name) / "payloads"),
+        )
 
         lbry_entries, l_total = self.store.search_archive(platform="lbry")
         self.assertEqual(l_total, 1)

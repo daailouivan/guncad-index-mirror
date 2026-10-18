@@ -73,6 +73,7 @@ class Settings:
     publish_concurrency: int = 2
     publish_timeout: float = 60
     github_token: str = ""
+    host_data_dir: str = ""
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -181,6 +182,7 @@ class Settings:
             github_token=env.get(
                 "MIRROR_GITHUB_TOKEN", env.get("GITHUB_TOKEN", "")
             ).strip(),
+            host_data_dir=env.get("MIRROR_HOST_DATA_DIR", "").strip(),
         )
         settings.validate()
         return settings

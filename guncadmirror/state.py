@@ -161,6 +161,8 @@ class ArchiveEntry:
     canonical_magnet_uri: str | None
     canonical_torrent_url: str | None
     platform: str = "lbry"
+    file_path: str | None = None
+    folder_path: str | None = None
 
 
 PLATFORMS_DISPLAY_ORDER = ("lbry", "printables", "github", "http", "torrent")
@@ -1434,6 +1436,10 @@ class JobStore:
                     "next_attempt_at": row["next_attempt_at"],
                     "has_payload": bool(row["file_path"]),
                     "has_torrent": bool(row["torrent_path"]),
+                    "file_path": row["file_path"],
+                    "folder_path": str(Path(row["file_path"]).parent)
+                    if row["file_path"]
+                    else None,
                     "info_hash": row["info_hash"],
                     "magnet_uri": row["magnet_uri"],
                     "last_error": row["last_error"],
@@ -1728,6 +1734,8 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         canonical_magnet_uri=row["canonical_magnet_uri"],
         canonical_torrent_url=row["canonical_torrent_url"],
         platform=platform,
+        file_path=str(path) if path else None,
+        folder_path=str(path.parent) if path else None,
     )
 
 

@@ -989,6 +989,88 @@
                 </footer>
             </div>
         </dialog>
+        <!-- Local Location & Caution Warning Modal -->
+        <dialog id="location-modal"
+                class="location-modal"
+                aria-labelledby="location-modal-title"
+                aria-modal="true">
+            <div class="modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span class="source-badge"
+                              style="border-color: var(--note);
+                                     color: var(--note)">CAUTION</span>
+                        <h2 id="location-modal-title">Local Entry Location</h2>
+                    </div>
+                    <button type="button"
+                            id="location-modal-close-btn"
+                            class="modal-close-btn"
+                            aria-label="Close dialog">✕</button>
+                </header>
+                <div class="modal-body location-modal-body">
+                    <!-- Caution Banner -->
+                    <div class="caution-callout">
+                        <div class="caution-callout-header">
+                            <span>⚠️</span>
+                            <strong>Seeding Integrity Warning</strong>
+                        </div>
+                        <p>
+                            This entry is stored in the local archive and actively seeded by qBittorrent. <strong>Modifying, renaming, moving, unzipping in-place, or deleting files in this directory will corrupt torrent piece hashes and fail seeding checks.</strong>
+                        </p>
+                        <div class="preferred-workflow-notice">
+                            <strong>Preferred Workflow:</strong> Download an additional copy or copy the files out of this location before unzipping, slicing, CAD editing, or printing.
+                        </div>
+                        <div class="caution-callout-actions">
+                            <a id="location-download-copy-btn"
+                               href="#"
+                               class="button button-primary"
+                               download>📥 Download Additional Copy (Recommended)</a>
+                        </div>
+                    </div>
+                    <!-- Path Details -->
+                    <div class="location-details-group">
+                        <div class="location-field">
+                            <label class="fine-print"><strong>Local Folder Path:</strong></label>
+                            <div class="location-path-row">
+                                <code id="location-folder-display">Loading...</code>
+                                <button type="button"
+                                        id="location-copy-folder-btn"
+                                        class="button button-sm button-secondary">📋 Copy Folder</button>
+                            </div>
+                        </div>
+                        <div class="location-field">
+                            <label class="fine-print"><strong>Local File Path:</strong></label>
+                            <div class="location-path-row">
+                                <code id="location-file-display">Loading...</code>
+                                <button type="button"
+                                        id="location-copy-file-btn"
+                                        class="button button-sm button-secondary">📋 Copy File</button>
+                            </div>
+                        </div>
+                        <div id="location-host-field" class="location-field" style="display: none">
+                            <label class="fine-print"><strong>Mapped Host Folder:</strong></label>
+                            <div class="location-path-row">
+                                <code id="location-host-folder-display"></code>
+                                <button type="button"
+                                        id="location-copy-host-btn"
+                                        class="button button-sm button-secondary">📋 Copy Host Path</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="location-status-message"
+                         class="location-status-msg fine-print"
+                         style="display: none"></div>
+                </div>
+                <footer class="modal-footer" style="justify-content: flex-end; gap: 0.75rem">
+                    <button type="button"
+                            id="location-open-fm-btn"
+                            class="button button-secondary">📂 Open in File Manager</button>
+                    <button type="button"
+                            id="location-modal-done-btn"
+                            class="button button-secondary">Close</button>
+                </footer>
+            </div>
+        </dialog>
         <script>
         (function() {
             const modal = document.getElementById("category-modal");
@@ -1290,6 +1372,9 @@
                     if (entry.payload_url) {
                         html += `<a href="${entry.payload_url}" class="button button-sm button-secondary" download>Download Payload</a>`;
                     }
+                    if (entry.has_payload || entry.payload_url) {
+                        html += `<button type="button" class="button button-sm button-secondary open-location-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-file="${escapeHtml(entry.file_path ? entry.file_path.split('/').pop() : '')}" data-folder="${escapeHtml(entry.folder_path || '')}" data-path="${escapeHtml(entry.file_path || '')}" data-payload="${escapeHtml(entry.payload_url || '')}">📂 Local Location</button>`;
+                    }
                     if (entry.torrent_url) {
                         html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
                     }
@@ -1385,6 +1470,156 @@
                     });
                 });
 
+                bodyEl.querySelectorAll(".open-location-btn").forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        openLocationModal(
+                            btn.getAttribute("data-id"),
+                            btn.getAttribute("data-sd"),
+                            btn.getAttribute("data-folder"),
+                            btn.getAttribute("data-path"),
+                            btn.getAttribute("data-payload")
+                        );
+                    });
+                });
+
+            }
+
+            const locModal = document.getElementById("location-modal");
+            const locCloseBtn = document.getElementById("location-modal-close-btn");
+            const locDoneBtn = document.getElementById("location-modal-done-btn");
+            const downloadCopyBtn = document.getElementById("location-download-copy-btn");
+            const folderDisplay = document.getElementById("location-folder-display");
+            const fileDisplay = document.getElementById("location-file-display");
+            const hostField = document.getElementById("location-host-field");
+            const hostFolderDisplay = document.getElementById("location-host-folder-display");
+            const copyFolderBtn = document.getElementById("location-copy-folder-btn");
+            const copyFileBtn = document.getElementById("location-copy-file-btn");
+            const copyHostBtn = document.getElementById("location-copy-host-btn");
+            const openFmBtn = document.getElementById("location-open-fm-btn");
+            const statusMsg = document.getElementById("location-status-message");
+
+            let activeLocReleaseId = "";
+            let activeLocSdHash = "";
+            let activeLocFolderPath = "";
+            let activeLocFilePath = "";
+            let activeLocHostFolderPath = "";
+
+            function setLocationStatus(text, type = "info") {
+                if (!statusMsg) return;
+                if (!text) {
+                    statusMsg.style.display = "none";
+                    statusMsg.textContent = "";
+                    statusMsg.className = "location-status-msg fine-print";
+                    return;
+                }
+                statusMsg.style.display = "block";
+                statusMsg.textContent = text;
+                statusMsg.className = "location-status-msg fine-print status-" + type;
+            }
+
+            async function copyLocText(btn, text) {
+                if (!text) return;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    const orig = btn.textContent;
+                    btn.textContent = "✓ Copied!";
+                    setTimeout(() => { btn.textContent = orig; }, 1800);
+                } catch (_) {
+                    setLocationStatus("Unable to copy to clipboard automatically. Please select and copy manually.", "error");
+                }
+            }
+
+            if (copyFolderBtn) copyFolderBtn.addEventListener("click", () => copyLocText(copyFolderBtn, activeLocFolderPath));
+            if (copyFileBtn) copyFileBtn.addEventListener("click", () => copyLocText(copyFileBtn, activeLocFilePath));
+            if (copyHostBtn) copyHostBtn.addEventListener("click", () => copyLocText(copyHostBtn, activeLocHostFolderPath));
+
+            if (openFmBtn) {
+                openFmBtn.addEventListener("click", async () => {
+                    if (!activeLocReleaseId || !activeLocSdHash) return;
+                    openFmBtn.disabled = true;
+                    openFmBtn.textContent = "Opening...";
+                    setLocationStatus("Attempting to open local file manager...", "info");
+                    try {
+                        const resp = await fetch(`/api/entries/${encodeURIComponent(activeLocReleaseId)}/${encodeURIComponent(activeLocSdHash)}/open-location`, {
+                            method: "POST"
+                        });
+                        const data = await resp.json();
+                        if (data.opened) {
+                            setLocationStatus("✓ Local file manager opened successfully.", "success");
+                        } else {
+                            setLocationStatus(data.message || "Could not launch file manager on host/container.", "info");
+                        }
+                    } catch (err) {
+                        setLocationStatus("Network error attempting to open file manager.", "error");
+                    } finally {
+                        openFmBtn.disabled = false;
+                        openFmBtn.textContent = "📂 Open in File Manager";
+                    }
+                });
+            }
+
+            function openLocationModal(id, sd, folder, path, payload) {
+                if (!locModal) return;
+                activeLocReleaseId = id || "";
+                activeLocSdHash = sd || "";
+                activeLocFolderPath = folder || "";
+                activeLocFilePath = path || "";
+                activeLocHostFolderPath = "";
+
+                if (downloadCopyBtn) {
+                    downloadCopyBtn.href = payload || "#";
+                    downloadCopyBtn.style.display = payload ? "inline-flex" : "none";
+                }
+                if (folderDisplay) folderDisplay.textContent = activeLocFolderPath || "Loading...";
+                if (fileDisplay) fileDisplay.textContent = activeLocFilePath || "Loading...";
+                if (hostField) hostField.style.display = "none";
+                setLocationStatus("");
+
+                if (typeof locModal.showModal === "function") {
+                    locModal.showModal();
+                } else {
+                    locModal.setAttribute("open", "");
+                }
+
+                if (activeLocReleaseId && activeLocSdHash) {
+                    fetch(`/api/entries/${encodeURIComponent(activeLocReleaseId)}/${encodeURIComponent(activeLocSdHash)}/location`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(info => {
+                            if (!info) return;
+                            activeLocFolderPath = info.folder_path || activeLocFolderPath;
+                            activeLocFilePath = info.file_path || activeLocFilePath;
+                            if (folderDisplay) folderDisplay.textContent = activeLocFolderPath;
+                            if (fileDisplay) fileDisplay.textContent = activeLocFilePath;
+                            if (downloadCopyBtn && info.payload_url) {
+                                downloadCopyBtn.href = info.payload_url;
+                                downloadCopyBtn.style.display = "inline-flex";
+                            }
+                            if (hostField && hostFolderDisplay && info.host_folder_path && info.host_folder_path !== info.folder_path) {
+                                activeLocHostFolderPath = info.host_folder_path;
+                                hostFolderDisplay.textContent = info.host_folder_path;
+                                hostField.style.display = "block";
+                            }
+                        })
+                        .catch(() => {});
+                }
+            }
+
+            function closeLocationModal() {
+                if (!locModal) return;
+                if (typeof locModal.close === "function") {
+                    locModal.close();
+                } else {
+                    locModal.removeAttribute("open");
+                }
+            }
+
+            if (locCloseBtn) locCloseBtn.addEventListener("click", closeLocationModal);
+            if (locDoneBtn) locDoneBtn.addEventListener("click", closeLocationModal);
+            if (locModal) {
+                locModal.addEventListener("click", (e) => {
+                    if (e.target === locModal) closeLocationModal();
+                });
             }
 
             function updatePagination() {

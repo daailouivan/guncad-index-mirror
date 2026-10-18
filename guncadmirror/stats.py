@@ -80,6 +80,7 @@ class StatsCollector:
             "mirror_data_dir": str(settings.data_dir),
             "mirror_releases_dir": str(settings.releases_dir),
             "mirror_outbox_dir": str(settings.outbox_dir),
+            "mirror_host_data_dir": settings.host_data_dir,
             "disk_space_used": 0,
             "job_counts": {},
             "seeding_counts": {},

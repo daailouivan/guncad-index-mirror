@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from math import ceil
 from pathlib import Path
 from threading import Thread
@@ -203,6 +205,12 @@ def create_app(collector: StatsCollector) -> Flask:
                 )
             else:
                 item["payload_url"] = None
+            if item.get("has_payload"):
+                item["location_url"] = (
+                    f"/api/entries/{item['release_id']}/{item['sd_hash']}/location"
+                )
+            else:
+                item["location_url"] = None
             if (
                 item.get("has_torrent")
                 and item.get("state") == JobState.AWAITING_INDEX.value
@@ -325,6 +333,102 @@ def create_app(collector: StatsCollector) -> Flask:
             mimetype="application/x-bittorrent",
         )
 
+    @app.route("/api/entries/<release_id>/<sd_hash>/location")
+    def entry_location(release_id: str, sd_hash: str) -> Response:
+        if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+            abort(404)
+        try:
+            job = collector.store.get(release_id, sd_hash)
+        except KeyError:
+            abort(404)
+        if job.file_path is None:
+            abort(404)
+        try:
+            path = ensure_within(collector.settings.data_dir, job.file_path)
+        except ValueError:
+            abort(404)
+
+        folder = path.parent
+        file_exists = path.is_file()
+        folder_exists = folder.is_dir()
+
+        host_folder = str(folder)
+        host_file = str(path)
+        if collector.settings.host_data_dir:
+            try:
+                rel = path.resolve().relative_to(collector.settings.data_dir.resolve())
+                host_p = Path(collector.settings.host_data_dir) / rel
+                host_file = str(host_p)
+                host_folder = str(host_p.parent)
+            except (ValueError, TypeError):
+                pass
+
+        payload_url = None
+        if file_exists and job.state == JobState.AWAITING_INDEX:
+            payload_url = f"/archive/{release_id}/{sd_hash}/payload"
+
+        torrent_url = None
+        if job.torrent_path and job.state == JobState.AWAITING_INDEX:
+            torrent_url = f"/archive/{release_id}/{sd_hash}/torrent"
+
+        return jsonify(
+            {
+                "ok": True,
+                "release_id": release_id,
+                "sd_hash": sd_hash,
+                "file_name": path.name,
+                "file_path": str(path),
+                "folder_path": str(folder),
+                "host_file_path": host_file,
+                "host_folder_path": host_folder,
+                "exists": file_exists,
+                "folder_exists": folder_exists,
+                "payload_url": payload_url,
+                "torrent_url": torrent_url,
+                "seeding_state": job.seeding_state.value if job.seeding_state else None,
+                "caution_warning": (
+                    "Active BitTorrent Seeding Directory: Modifying, renaming, moving, "
+                    "unzipping in-place, or deleting files in this directory will corrupt "
+                    "torrent piece hashes and disrupt seeding."
+                ),
+                "preferred_workflow": (
+                    "Download an additional copy to ensure integrity of the seeding status "
+                    "before unzipping or modifying files."
+                ),
+            }
+        )
+
+    @app.route("/api/entries/<release_id>/<sd_hash>/open-location", methods=["POST"])
+    def entry_open_location(release_id: str, sd_hash: str) -> Response:
+        if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+            abort(404)
+        try:
+            job = collector.store.get(release_id, sd_hash)
+        except KeyError:
+            abort(404)
+        if job.file_path is None:
+            abort(404)
+        try:
+            path = ensure_within(collector.settings.data_dir, job.file_path)
+        except ValueError:
+            abort(404)
+
+        folder = path.parent
+        opened, message = _try_open_local_path(folder, path)
+        return jsonify(
+            {
+                "ok": True,
+                "opened": opened,
+                "folder_path": str(folder),
+                "file_path": str(path),
+                "message": (
+                    "File manager opened"
+                    if opened
+                    else (message or "Could not open file manager")
+                ),
+            }
+        )
+
     return app
 
 
@@ -376,3 +480,45 @@ def start(collector: StatsCollector) -> Thread:
     )
     thread.start()
     return thread
+
+
+def _try_open_local_path(
+    folder_path: Path, file_path: Path | None = None
+) -> tuple[bool, str | None]:
+    if not folder_path.exists():
+        return False, f"Directory does not exist on disk: {folder_path}"
+
+    opener = None
+    args: list[str] = []
+    if shutil.which("xdg-open"):
+        opener = "xdg-open"
+        args = ["xdg-open", str(folder_path)]
+    elif shutil.which("gio"):
+        opener = "gio"
+        args = ["gio", "open", str(folder_path)]
+    elif shutil.which("open"):
+        opener = "open"
+        if file_path and file_path.exists():
+            args = ["open", "-R", str(file_path)]
+        else:
+            args = ["open", str(folder_path)]
+    elif shutil.which("explorer.exe"):
+        opener = "explorer.exe"
+        args = ["explorer.exe", str(folder_path)]
+
+    if not opener:
+        return (
+            False,
+            "No desktop file manager opener (e.g. xdg-open) is available on this system.",
+        )
+
+    try:
+        subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True, None
+    except Exception as exc:
+        return False, f"Failed to launch file manager: {exc}"
