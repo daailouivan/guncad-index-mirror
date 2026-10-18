@@ -164,7 +164,7 @@
                     <span class="metric-value">{{ publication_published + publication_duplicates }}</span>
                     <span class="metric-label">Index receipts</span>
                 </div>
-                <div class="metric">
+                <div class="metric{% if failed > 0 %} metric-failed{% endif %}">
                     <span class="metric-value">{{ failed }}</span>
                     <span class="metric-label">Failed jobs</span>
                 </div>
@@ -172,31 +172,67 @@
                     <span class="metric-value">{{ known_jobs }}</span>
                     <span class="metric-label">Durable jobs</span>
                 </div>
-                <div class="metric">
-                    <span class="metric-value">{{ disk_space_used | humanize_bytes }}</span>
-                    <span class="metric-label">Data volume used</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-value">{{ psutil_disk.free | humanize_bytes }}</span>
-                    <span class="metric-label">Data volume free</span>
+                <div class="metric metric-storage"
+                     title="{{ disk_space_used | humanize_bytes }} used · {{ psutil_disk.free | humanize_bytes }} free ({{ psutil_disk.percent|default(0)|round(1) }}% capacity)">
+                    <div class="metric-storage-header">
+                        <span class="storage-used">{{ disk_space_used | humanize_bytes }}</span>
+                        <span class="storage-divider">/</span>
+                        <span class="storage-free">{{ psutil_disk.free | humanize_bytes }} <small>free</small></span>
+                    </div>
+                    <div class="storage-mini-track"
+                         role="progressbar"
+                         aria-valuenow="{{ psutil_disk.percent|default(0)|round(1) }}"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                        <div class="storage-mini-fill"
+                             style="width: {{ psutil_disk.percent|default(0)|round(1) }}%;"></div>
+                    </div>
+                    <span class="metric-label">Data volume ({{ psutil_disk.percent|default(0)|round(1) }}% used)</span>
                 </div>
             </section>
             <section class="panel" data-testid="sources-breakdown">
                 <h2>Ingestion sources &amp; file counts</h2>
                 {% set sources = platform_breakdown or {} %}
-                <div class="job-grid source-summary-grid">
+                <div class="source-summary-grid">
                     {% for source in sources.values() %}
                         <button type="button"
-                                class="job-stat-card source-summary-card"
+                                class="source-card source-card-{{ source.platform }} source-summary-card"
                                 data-modal-trigger
                                 data-section="source"
                                 data-platform="{{ source.platform }}"
                                 data-category="all"
                                 title="View {{ source.display_name }} entries">
-                            <span>{{ source.awaiting_index }} <small>/ {{ source.total }}</small></span>
-                            <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
-                            <strong>{{ source.display_name }}</strong>
-                            <div class="fine-print">staged / indexed</div>
+                            <div class="source-card-top">
+                                <div class="source-card-identity">
+                                    <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
+                                    <strong class="source-card-title">{{ source.display_name }}</strong>
+                                </div>
+                                <span class="source-card-pct{% if source.total > 0 and source.awaiting_index == source.total %} pct-complete{% endif %}">
+                                    {{ ((source.awaiting_index / source.total) * 100)|round(0)|int if source.total else 0 }}%
+                                </span>
+                            </div>
+                            <div class="source-card-metrics">
+                                <div class="source-card-counts">
+                                    <span class="source-count-num">{{ source.awaiting_index }}</span>
+                                    <span class="source-count-label">staged / <strong class="source-total-num">{{ source.total }}</strong> indexed</span>
+                                </div>
+                                <div class="source-card-track" aria-hidden="true">
+                                    <div class="source-card-fill source-fill-{{ source.platform }}"
+                                         style="width: {{ ((source.awaiting_index / source.total) * 100)|round(1) if source.total else 0 }}%;"></div>
+                                </div>
+                            </div>
+                            <div class="source-card-bottom">
+                                {% if source.failed > 0 %}
+                                    <span class="source-tag source-tag-failed">{{ source.failed }} failed</span>
+                                {% elif source.total > 0 and source.awaiting_index == source.total %}
+                                    <span class="source-tag source-tag-complete">✓ Fully staged</span>
+                                {% elif source.total > 0 %}
+                                    <span class="source-tag source-tag-syncing">{{ source.total - source.awaiting_index }} remaining</span>
+                                {% else %}
+                                    <span class="source-tag source-tag-empty">0 files indexed</span>
+                                {% endif %}
+                                <span class="source-card-hint">View entries →</span>
+                            </div>
                         </button>
                     {% endfor %}
                 </div>
