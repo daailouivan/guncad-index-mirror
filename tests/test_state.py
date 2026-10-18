@@ -442,6 +442,15 @@ class JobStoreTests(unittest.TestCase):
         entries, total = self.store.search_archive("alpha-special")
         self.assertEqual(total, 1)
         self.assertEqual(entries[0].name, "Alpha 100% Tool")
+        self.assertEqual(
+            entries[0].guncad_index_url, "https://guncadindex.com/detail/" + "1" * 40
+        )
+        custom_entries, _ = self.store.search_archive(
+            "alpha-special", index_base_url="http://testnode:8000"
+        )
+        self.assertEqual(
+            custom_entries[0].guncad_index_url, "http://testnode:8000/detail/" + "1" * 40
+        )
 
         entries, total = self.store.search_archive("%")
         self.assertEqual(total, 1)

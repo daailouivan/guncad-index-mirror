@@ -232,3 +232,16 @@ class SettingsTests(unittest.TestCase):
                 self.assertRaisesRegex(ConfigurationError, message),
             ):
                 Settings.from_env(env)
+
+    def test_index_base_url_derivation(self):
+        default_settings = Settings.from_env({})
+        self.assertEqual(default_settings.index_base_url, "https://guncadindex.com")
+
+        custom_settings = Settings.from_env(
+            {"MIRROR_API_ENDPOINT": "http://custom-index.internal:8000/api/v2/releases/"}
+        )
+        self.assertEqual(custom_settings.index_base_url, "http://custom-index.internal:8000")
+
+        fallback_settings = Settings(endpoint="invalid-url-without-scheme")
+        self.assertEqual(fallback_settings.index_base_url, "https://guncadindex.com")
+

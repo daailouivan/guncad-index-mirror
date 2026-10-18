@@ -285,6 +285,11 @@ def create_app(collector: StatsCollector) -> Flask:
                 )
             else:
                 item["torrent_url"] = None
+            item["guncad_index_url"] = (
+                f"{collector.settings.index_base_url.rstrip('/')}/detail/{item['release_id']}"
+                if item.get("release_id")
+                else None
+            )
             formatted_entries.append(item)
 
         return jsonify(
@@ -354,6 +359,7 @@ def create_app(collector: StatsCollector) -> Flask:
             platform=platform_filter,
             limit=ARCHIVE_PAGE_SIZE,
             offset=(page - 1) * ARCHIVE_PAGE_SIZE,
+            index_base_url=collector.settings.index_base_url,
         )
         page_count = max(1, ceil(total / ARCHIVE_PAGE_SIZE))
         if page > page_count:
@@ -363,6 +369,7 @@ def create_app(collector: StatsCollector) -> Flask:
                 platform=platform_filter,
                 limit=ARCHIVE_PAGE_SIZE,
                 offset=(page - 1) * ARCHIVE_PAGE_SIZE,
+                index_base_url=collector.settings.index_base_url,
             )
         context = collector.snapshot()
         context.update(
@@ -486,6 +493,9 @@ def create_app(collector: StatsCollector) -> Flask:
             if detail.get("torrent_path")
             and detail.get("state") == JobState.AWAITING_INDEX.value
             else None
+        )
+        detail["guncad_index_url"] = (
+            f"{collector.settings.index_base_url.rstrip('/')}/detail/{release_id}"
         )
 
         return jsonify({"ok": True, "detail": detail})

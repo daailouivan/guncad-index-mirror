@@ -27,5 +27,6 @@ skip_covered = true
 blank_line_after_tag = "load,extends"
 close_void_tags = true
 exclude = "venv"
+ignore = "H021"
 profile = "jinja"
 use_gitignore = true

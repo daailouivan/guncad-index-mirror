@@ -208,6 +208,13 @@ class Settings:
         return self.data_dir / "releases"
 
     @property
+    def index_base_url(self) -> str:
+        parsed = urlsplit(self.endpoint)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+        return "https://guncadindex.com"
+
+    @property
     def effective_tracker_policy_url(self) -> str:
         if self.tracker_policy_url:
             return self.tracker_policy_url

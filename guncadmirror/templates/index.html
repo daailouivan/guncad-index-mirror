@@ -1590,22 +1590,8 @@
                     }
 
                     html += `<div class="entry-actions">`;
-                    if (entry.source_url) {
-                        html += `<a href="${escapeHtml(entry.source_url)}" class="button button-sm button-secondary" target="_blank" rel="noopener" title="Open upstream release page">Open Source ↗</a>`;
-                    }
-                    if (entry.state === "failed") {
-                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Retry Job</button>`;
-                    }
-                    if (entry.state === "excluded") {
-                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Re-include (Retry)</button>`;
-                    } else if (entry.state !== "awaiting_index" && entry.state !== "verified") {
-                        html += `<button type="button" class="button button-sm button-secondary exclude-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">🚫 Exclude (Non-model)</button>`;
-                    }
                     if (entry.payload_url) {
-                        html += `<a href="${entry.payload_url}" class="button button-sm button-secondary" download>Download Payload</a>`;
-                    }
-                    if (entry.has_payload || entry.payload_url) {
-                        html += `<button type="button" class="button button-sm button-secondary open-location-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-file="${escapeHtml(entry.file_path ? entry.file_path.split('/').pop() : '')}" data-folder="${escapeHtml(entry.folder_path || '')}" data-path="${escapeHtml(entry.file_path || '')}" data-payload="${escapeHtml(entry.payload_url || '')}">📂 Local Location</button>`;
+                        html += `<a href="${entry.payload_url}" class="button button-sm button-primary" download>📥 Download</a>`;
                     }
                     if (window.catalogDetailsEnabled) {
                         html += `<button type="button" class="button button-sm button-secondary open-details-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-platform="${escapeHtml(platform)}">📖 Details</button>`;
@@ -1613,11 +1599,43 @@
                     if (window.archiveInspectorEnabled && (entry.has_payload || entry.payload_url)) {
                         html += `<button type="button" class="button button-sm button-secondary open-files-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-platform="${escapeHtml(platform)}">📦 Files</button>`;
                     }
-                    if (entry.torrent_url) {
-                        html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
+                    if (entry.has_payload || entry.payload_url) {
+                        html += `<button type="button" class="button button-sm button-secondary open-location-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-file="${escapeHtml(entry.file_path ? entry.file_path.split('/').pop() : '')}" data-folder="${escapeHtml(entry.folder_path || '')}" data-path="${escapeHtml(entry.file_path || '')}" data-payload="${escapeHtml(entry.payload_url || '')}">📂 Location</button>`;
                     }
-                    if (entry.magnet_uri) {
-                        html += `<button type="button" class="button button-sm button-secondary copy-magnet-btn" data-magnet="${escapeHtml(entry.magnet_uri)}" title="Copy magnet URI to clipboard">📋 Copy Magnet</button>`;
+
+                    const magnet = entry.canonical_magnet_uri || entry.magnet_uri;
+                    html += `<div class="action-dropdown">
+                        <button type="button" class="button button-sm button-secondary action-dropdown-toggle" aria-haspopup="true" aria-expanded="false" title="More sources, torrents, and links">
+                            🔗 Sources &amp; Swarm ▾
+                        </button>
+                        <div class="action-dropdown-menu" role="menu">
+                            <div class="dropdown-header">Online Catalogs</div>`;
+                    if (entry.guncad_index_url) {
+                        html += `<a class="dropdown-item" href="${escapeHtml(entry.guncad_index_url)}" target="_blank" rel="noopener noreferrer" role="menuitem"><span class="dropdown-icon">🌐</span> Open on GunCAD Index ↗</a>`;
+                    }
+                    if (entry.source_url) {
+                        html += `<a class="dropdown-item" href="${escapeHtml(entry.source_url)}" target="_blank" rel="noopener noreferrer" role="menuitem"><span class="dropdown-icon">↗</span> Open Upstream Source ↗</a>`;
+                    }
+                    html += `<div class="dropdown-divider"></div>
+                            <div class="dropdown-header">BitTorrent Swarm</div>`;
+                    if (entry.torrent_url) {
+                        html += `<a class="dropdown-item" href="${entry.torrent_url}" download role="menuitem"><span class="dropdown-icon">⬇</span> Download Local Torrent</a>`;
+                    }
+                    if (entry.canonical_torrent_url) {
+                        html += `<a class="dropdown-item" href="${escapeHtml(entry.canonical_torrent_url)}" target="_blank" rel="noopener noreferrer" download role="menuitem"><span class="dropdown-icon">🌐</span> Download Index Torrent</a>`;
+                    }
+                    if (magnet) {
+                        html += `<button type="button" class="dropdown-item copy-magnet-action" data-magnet="${escapeHtml(magnet)}" role="menuitem"><span class="dropdown-icon">🧲</span> <span class="magnet-text">Copy Magnet URI</span></button>`;
+                    }
+                    html += `</div></div>`;
+
+                    if (entry.state === "failed") {
+                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Retry Job</button>`;
+                    }
+                    if (entry.state === "excluded") {
+                        html += `<button type="button" class="button button-sm button-secondary retry-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">⟳ Re-include (Retry)</button>`;
+                    } else if (entry.state !== "awaiting_index" && entry.state !== "verified") {
+                        html += `<button type="button" class="button button-sm button-secondary exclude-single-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}">🚫 Exclude (Non-model)</button>`;
                     }
                     html += `</div></article>`;
                 });
@@ -1681,11 +1699,14 @@
                     });
                 });
 
-                bodyEl.querySelectorAll(".copy-magnet-btn").forEach(btn => {
-                    btn.addEventListener("click", async () => {
+                bodyEl.querySelectorAll(".copy-magnet-btn, .copy-magnet-action").forEach(btn => {
+                    btn.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         const magnet = btn.getAttribute("data-magnet");
                         if (!magnet) return;
-                        const origText = btn.textContent;
+                        const textSpan = btn.querySelector(".magnet-text") || btn;
+                        const origText = textSpan.textContent;
                         try {
                             if (navigator.clipboard && navigator.clipboard.writeText) {
                                 await navigator.clipboard.writeText(magnet);
@@ -1699,11 +1720,38 @@
                                 document.execCommand("copy");
                                 document.body.removeChild(ta);
                             }
-                            btn.textContent = "✓ Copied!";
-                            setTimeout(() => { btn.textContent = origText; }, 2000);
+                            btn.classList.add("is-copied");
+                            textSpan.textContent = "✓ Copied URI!";
+                            setTimeout(() => {
+                                textSpan.textContent = origText;
+                                btn.classList.remove("is-copied");
+                            }, 1800);
                         } catch (err) {
-                            btn.textContent = "Copy Failed";
-                            setTimeout(() => { btn.textContent = origText; }, 2000);
+                            textSpan.textContent = "Copy Failed";
+                            setTimeout(() => { textSpan.textContent = origText; }, 1800);
+                        }
+                    });
+                });
+
+                bodyEl.querySelectorAll(".action-dropdown-toggle").forEach(toggle => {
+                    toggle.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const parent = toggle.closest(".action-dropdown");
+                        const isOpen = parent.classList.contains("is-open");
+                        document.querySelectorAll(".action-dropdown.is-open").forEach(d => {
+                            if (d !== parent) {
+                                d.classList.remove("is-open");
+                                const t = d.querySelector(".action-dropdown-toggle");
+                                if (t) t.setAttribute("aria-expanded", "false");
+                            }
+                        });
+                        if (isOpen) {
+                            parent.classList.remove("is-open");
+                            toggle.setAttribute("aria-expanded", "false");
+                        } else {
+                            parent.classList.add("is-open");
+                            toggle.setAttribute("aria-expanded", "true");
                         }
                     });
                 });
@@ -1992,6 +2040,15 @@
                     detAuthorName.textContent = d.channel_name && d.channel_name !== d.channel_handle ? `(${d.channel_name})` : "";
 
                     detLinksRow.innerHTML = "";
+                    if (d.guncad_index_url) {
+                        const a = document.createElement("a");
+                        a.href = d.guncad_index_url;
+                        a.className = "button button-sm button-secondary";
+                        a.target = "_blank";
+                        a.rel = "noopener noreferrer";
+                        a.textContent = "🌐 Open on GunCAD Index ↗";
+                        detLinksRow.appendChild(a);
+                    }
                     if (d.source_url) {
                         const a = document.createElement("a");
                         a.href = d.source_url;
@@ -2478,6 +2535,27 @@
                         btn.disabled = false;
                     }
                 });
+            });
+
+            // Document-level dropdown dismiss handlers
+            document.addEventListener("click", (e) => {
+                if (!e.target.closest(".action-dropdown")) {
+                    document.querySelectorAll(".action-dropdown.is-open").forEach(d => {
+                        d.classList.remove("is-open");
+                        const t = d.querySelector(".action-dropdown-toggle");
+                        if (t) t.setAttribute("aria-expanded", "false");
+                    });
+                }
+            });
+
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") {
+                    document.querySelectorAll(".action-dropdown.is-open").forEach(d => {
+                        d.classList.remove("is-open");
+                        const t = d.querySelector(".action-dropdown-toggle");
+                        if (t) t.setAttribute("aria-expanded", "false");
+                    });
+                }
             });
         })();
 </script>

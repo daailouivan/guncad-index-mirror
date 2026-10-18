@@ -39,6 +39,7 @@ class StatsCollector:
             "version": os.getenv("GUNCAD_COMMIT_REF", "Unknown"),
             "mirror_state": "Starting",
             "mirror_api_endpoint": settings.endpoint,
+            "mirror_index_url": settings.index_base_url,
             "mirror_api_max_pages": settings.api_max_pages,
             "mirror_max_releases_per_run": settings.max_releases_per_run,
             "mirror_lbry_url": settings.lbry_url,

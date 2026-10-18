@@ -380,6 +380,12 @@ class WebUiTests(unittest.TestCase):
         self.assertIn(b"Download file", response.data)
         self.assertIn(b"Download torrent", response.data)
         self.assertIn(b"magnet:?xt=urn:btih:", response.data)
+        self.assertIn(b"Sources &amp; Swarm", response.data)
+        self.assertIn(b"Open on GunCAD Index", response.data)
+        self.assertIn(
+            f"{self.settings.index_base_url}/detail/{first.id}".encode("utf-8"),
+            response.data,
+        )
 
         response = client.get("/archive?q=maker+alpha-jig")
         self.assertEqual(response.status_code, 200)
@@ -789,6 +795,10 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNotNone(entry_item["file_path"])
         self.assertIsNotNone(entry_item["folder_path"])
         self.assertIn("/api/entries/", entry_item["location_url"])
+        self.assertEqual(
+            entry_item["guncad_index_url"],
+            f"{self.settings.index_base_url}/detail/{release.id}",
+        )
 
         # Check /api/entries/<id>/<sd>/location
         resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/location")
@@ -1094,6 +1104,10 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNotNone(detail["torrent_url"])
         self.assertIn("host_file_path", detail)
         self.assertIn("host_folder_path", detail)
+        self.assertEqual(
+            detail["guncad_index_url"],
+            f"{self.settings.index_base_url}/detail/{release.id}",
+        )
 
         # Verify archive page renders Details button when enabled
         self.collector.snapshot.return_value["features"]["catalog_details"] = True

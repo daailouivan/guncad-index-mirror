@@ -163,6 +163,8 @@ class ArchiveEntry:
     platform: str = "lbry"
     file_path: str | None = None
     folder_path: str | None = None
+    source_url: str | None = None
+    guncad_index_url: str | None = None
 
 
 PLATFORMS_DISPLAY_ORDER = ("lbry", "printables", "github", "http", "torrent")
@@ -1123,6 +1125,7 @@ class JobStore:
         platform: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        index_base_url: str = "https://guncadindex.com",
     ) -> tuple[list[ArchiveEntry], int]:
         if limit < 1 or limit > 200:
             raise ValueError("archive search limit must be between 1 and 200")
@@ -1190,7 +1193,9 @@ class JobStore:
                 """,
                 [*parameters, limit, offset],
             ).fetchall()
-        return [_archive_entry_from_row(row) for row in rows], total
+        return [
+            _archive_entry_from_row(row, index_base_url=index_base_url) for row in rows
+        ], total
 
     def retry_job(self, release_id: str, sd_hash: str) -> bool:
         now = self.clock()
@@ -1830,7 +1835,10 @@ def _like_pattern(value: str) -> str:
     return f"%{escaped}%"
 
 
-def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
+def _archive_entry_from_row(
+    row: sqlite3.Row,
+    index_base_url: str = "https://guncadindex.com",
+) -> ArchiveEntry:
     raw_path = row["file_path"]
     path = Path(raw_path) if raw_path else None
     size = (
@@ -1843,6 +1851,14 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         if "platform" in row.keys() and row["platform"]
         else _platform_from_json(row["release_json"])
     )
+    source_url = (
+        _source_url_from_json(row["release_json"])
+        if "release_json" in row.keys() and row["release_json"]
+        else None
+    )
+    clean_base = index_base_url.rstrip("/")
+    rel_id = row["release_id"]
+    guncad_index_url = f"{clean_base}/detail/{rel_id}" if rel_id else None
     return ArchiveEntry(
         release_id=row["release_id"],
         sd_hash=row["sd_hash"],
@@ -1863,6 +1879,8 @@ def _archive_entry_from_row(row: sqlite3.Row) -> ArchiveEntry:
         platform=platform,
         file_path=str(path) if path else None,
         folder_path=str(path.parent) if path else None,
+        source_url=source_url,
+        guncad_index_url=guncad_index_url,
     )
 
 
