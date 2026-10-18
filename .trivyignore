@@ -6,10 +6,11 @@
 # why we're skipping it.
 #
 
-# DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+# DS-0002 / AVD-DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
 # Skipped since we immediately pivot down from root in our startup script,
 # and starting as root lets us repair persistent-volume ownership before that pivot.
 DS-0002
+AVD-DS-0002
 
 # AVD-DS-0029 (HIGH): '--no-install-recommends' flag is missed
 # I disagree that this is a vulnerability. Additionally, Trivy is not

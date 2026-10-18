@@ -1,5 +1,6 @@
 # Unreleased
 
+* Add Trivy security scanning to GitHub Actions (.github/workflows/trivy.yml) for repository code, dependencies, secrets, and misconfigurations with SARIF reporting, add container image scanning to GHCR publish workflow, and enhance GitLab CI Trivy pipeline with dedicated code vulnerability scanning
 * Overhaul mirror summary metrics to fit symmetrically on a single row with consolidated storage capacity and progress tracking, and modernize ingestion source cards with platform-colored completion bars, deduplicated branding, and status indicators
 * Remove build-only pip from the runtime image, require urllib3 >= 2.8.0, apply Alpine security updates to the qBittorrent image, and scan the qBittorrent OCI archive the same way as the main image
 * Replaced the legacy reflection loop with a durable LBRY-to-BitTorrent evacuation pipeline

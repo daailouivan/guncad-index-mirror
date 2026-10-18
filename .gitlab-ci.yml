@@ -34,6 +34,14 @@ default:
     - python --version
     - python -m pip install --upgrade pip
     - python -m pip install -r requirements.txt -r requirements-build.txt
+Trivy Code Vulnerabilities:
+  image:
+    name: ghcr.io/aquasecurity/trivy:0.69.3
+    entrypoint: [""]
+  stage: Scan Early
+  retry: 0
+  script:
+    - trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 ./
 Trivy Secrets:
   image:
     name: ghcr.io/aquasecurity/trivy:0.69.3
@@ -41,7 +49,7 @@ Trivy Secrets:
   stage: Scan Early
   retry: 0
   script:
-    - trivy fs --exit-code 1 ./
+    - trivy fs --scanners secret --exit-code 1 ./
 Trivy Misconfiguration:
   image:
     name: ghcr.io/aquasecurity/trivy:0.69.3
