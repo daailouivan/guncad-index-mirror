@@ -131,6 +131,14 @@
                                 {% elif entry.magnet_uri %}
                                     <a class="button button-secondary" href="{{ entry.magnet_uri }}">Magnet</a>
                                 {% endif %}
+                                {% if features and features.catalog_details %}
+                                    <button type="button"
+                                            class="button button-secondary open-details-btn"
+                                            data-id="{{ entry.release_id }}"
+                                            data-sd="{{ entry.sd_hash }}"
+                                            data-name="{{ entry.name }}"
+                                            data-platform="{{ entry.platform }}">📖 Details</button>
+                                {% endif %}
                                 <button type="button"
                                         class="button button-secondary open-location-btn"
                                         data-id="{{ entry.release_id }}"
@@ -251,9 +259,113 @@
                 </footer>
             </div>
         </dialog>
+        <!-- Release Details Modal -->
+        <dialog id="details-modal"
+                class="details-modal"
+                aria-labelledby="details-modal-title"
+                aria-modal="true">
+            <div class="modal-wrapper details-modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span id="details-platform-badge" class="source-badge">LBRY</span>
+                        <h2 id="details-modal-title">Release Details</h2>
+                    </div>
+                    <button type="button"
+                            id="details-modal-close-btn"
+                            class="modal-close-btn"
+                            aria-label="Close dialog">✕</button>
+                </header>
+                <div id="details-modal-body" class="modal-body details-modal-body">
+                    <div id="details-loading" class="modal-loading">
+                        <p>Loading release details...</p>
+                    </div>
+                    <div id="details-error" class="modal-error" style="display: none">
+                        <p id="details-error-text"></p>
+                    </div>
+                    <div id="details-content" style="display: none">
+                        <!-- Author & Platform Links Bar -->
+                        <div class="details-header-card">
+                            <div class="details-author-row">
+                                <div class="details-author-info">
+                                    <span class="fine-print">Published by</span>
+                                    <strong id="details-author-handle"></strong>
+                                    <span id="details-author-name" class="fine-print text-muted"></span>
+                                </div>
+                                <div id="details-links-row" class="details-links-row"></div>
+                            </div>
+                            <div id="details-tags-row" class="details-tags-row"></div>
+                        </div>
+                        <!-- Description / Release Notes -->
+                        <div class="details-section">
+                            <div class="details-section-header">
+                                <h3>Release Notes &amp; Description</h3>
+                            </div>
+                            <div id="details-description" class="details-description-content"></div>
+                        </div>
+                        <!-- Technical & Verification Specs -->
+                        <div class="details-section">
+                            <div class="details-section-header">
+                                <h3>Artifact &amp; Verification Specs</h3>
+                            </div>
+                            <div class="details-specs-grid">
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Payload Size</span>
+                                    <span id="details-spec-size" class="spec-value"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Release ID</span>
+                                    <span id="details-spec-id" class="spec-value mono"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">SHA-384 Digest</span>
+                                    <span id="details-spec-sha384" class="spec-value mono"></span>
+                                </div>
+                                <div id="details-spec-sha256-box" class="details-spec-item">
+                                    <span class="spec-label">SHA-256 Digest</span>
+                                    <span id="details-spec-sha256" class="spec-value mono"></span>
+                                </div>
+                                <div id="details-spec-btih-box" class="details-spec-item">
+                                    <span class="spec-label">BitTorrent Info Hash</span>
+                                    <span id="details-spec-btih" class="spec-value mono"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Seeding Health</span>
+                                    <span id="details-spec-seeding" class="spec-value"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <footer class="modal-footer"
+                        style="justify-content: space-between;
+                               gap: 0.75rem">
+                    <div class="details-footer-left">
+                        <button type="button"
+                                id="details-open-location-btn"
+                                class="button button-secondary">📂 Local Location</button>
+                    </div>
+                    <div class="details-footer-right" style="display: flex; gap: 0.75rem">
+                        <a id="details-download-payload-btn"
+                           href="#"
+                           class="button button-primary"
+                           download
+                           style="display: none">Download File</a>
+                        <a id="details-download-torrent-btn"
+                           href="#"
+                           class="button button-secondary"
+                           download
+                           style="display: none">Download Torrent</a>
+                        <button type="button"
+                                id="details-modal-done-btn"
+                                class="button button-secondary">Close</button>
+                    </div>
+                </footer>
+            </div>
+        </dialog>
         <script>
         (function() {
             const locModal = document.getElementById("location-modal");
+            const detModal = document.getElementById("details-modal");
             if (!locModal) return;
 
             const locCloseBtn = document.getElementById("location-modal-close-btn");
@@ -276,6 +388,7 @@
             let activeHostFolderPath = "";
 
             function setStatus(text, type = "info") {
+                if (!statusMsg) return;
                 if (!text) {
                     statusMsg.style.display = "none";
                     statusMsg.textContent = "";
@@ -299,87 +412,99 @@
                 }
             }
 
-            copyFolderBtn.addEventListener("click", () => copyText(copyFolderBtn, activeFolderPath));
-            copyFileBtn.addEventListener("click", () => copyText(copyFileBtn, activeFilePath));
-            if (copyHostBtn) {
-                copyHostBtn.addEventListener("click", () => copyText(copyHostBtn, activeHostFolderPath));
+            if (copyFolderBtn) copyFolderBtn.addEventListener("click", () => copyText(copyFolderBtn, activeFolderPath));
+            if (copyFileBtn) copyFileBtn.addEventListener("click", () => copyText(copyFileBtn, activeFilePath));
+            if (copyHostBtn) copyHostBtn.addEventListener("click", () => copyText(copyHostBtn, activeHostFolderPath));
+
+            if (openFmBtn) {
+                openFmBtn.addEventListener("click", async () => {
+                    if (!activeReleaseId || !activeSdHash) return;
+                    openFmBtn.disabled = true;
+                    openFmBtn.textContent = "Opening...";
+                    setStatus("Attempting to open local file manager...", "info");
+                    try {
+                        const resp = await fetch(`/api/entries/${encodeURIComponent(activeReleaseId)}/${encodeURIComponent(activeSdHash)}/open-location`, {
+                            method: "POST"
+                        });
+                        const data = await resp.json();
+                        if (data.opened) {
+                            setStatus("✓ Local file manager opened successfully.", "success");
+                        } else {
+                            setStatus(data.message || "Could not launch file manager on host/container.", "info");
+                        }
+                    } catch (err) {
+                        setStatus("Network error attempting to open file manager.", "error");
+                    } finally {
+                        openFmBtn.disabled = false;
+                        openFmBtn.textContent = "📂 Open in File Manager";
+                    }
+                });
             }
 
-            openFmBtn.addEventListener("click", async () => {
-                if (!activeReleaseId || !activeSdHash) return;
-                openFmBtn.disabled = true;
-                openFmBtn.textContent = "Opening...";
-                setStatus("Attempting to open local file manager...", "info");
-                try {
-                    const resp = await fetch(`/api/entries/${encodeURIComponent(activeReleaseId)}/${encodeURIComponent(activeSdHash)}/open-location`, {
-                        method: "POST"
-                    });
-                    const data = await resp.json();
-                    if (data.opened) {
-                        setStatus("✓ Local file manager opened successfully.", "success");
-                    } else {
-                        setStatus(data.message || "Could not launch file manager on host/container.", "info");
-                    }
-                } catch (err) {
-                    setStatus("Network error attempting to open file manager.", "error");
-                } finally {
-                    openFmBtn.disabled = false;
-                    openFmBtn.textContent = "📂 Open in File Manager";
+            function openLocation(id, sd, folder, path, payload) {
+                activeReleaseId = id || "";
+                activeSdHash = sd || "";
+                activeFolderPath = folder || "";
+                activeFilePath = path || "";
+
+                if (downloadCopyBtn) {
+                    downloadCopyBtn.href = payload || "#";
+                    downloadCopyBtn.style.display = payload ? "inline-flex" : "none";
                 }
-            });
+                if (folderDisplay) folderDisplay.textContent = activeFolderPath || "Loading...";
+                if (fileDisplay) fileDisplay.textContent = activeFilePath || "Loading...";
+                if (hostField) hostField.style.display = "none";
+                setStatus("");
 
-            function setupTriggerButtons(container) {
+                if (typeof locModal.showModal === "function") {
+                    locModal.showModal();
+                } else {
+                    locModal.setAttribute("open", "");
+                }
+
+                if (activeReleaseId && activeSdHash) {
+                    fetch(`/api/entries/${encodeURIComponent(activeReleaseId)}/${encodeURIComponent(activeSdHash)}/location`)
+                        .then(r => r.ok ? r.json() : null)
+                        .then(info => {
+                            if (!info) return;
+                            activeFolderPath = info.folder_path || activeFolderPath;
+                            activeFilePath = info.file_path || activeFilePath;
+                            if (folderDisplay) folderDisplay.textContent = activeFolderPath;
+                            if (fileDisplay) fileDisplay.textContent = activeFilePath;
+                            if (downloadCopyBtn && info.payload_url) {
+                                downloadCopyBtn.href = info.payload_url;
+                                downloadCopyBtn.style.display = "inline-flex";
+                            }
+                            if (hostField && hostFolderDisplay && info.host_folder_path && info.host_folder_path !== info.folder_path) {
+                                activeHostFolderPath = info.host_folder_path;
+                                hostFolderDisplay.textContent = info.host_folder_path;
+                                hostField.style.display = "block";
+                            }
+                        })
+                        .catch(() => {});
+                }
+            }
+
+            function setupLocationTriggers(container) {
                 (container || document).querySelectorAll(".open-location-btn").forEach(btn => {
-                    btn.addEventListener("click", async (e) => {
+                    btn.addEventListener("click", (e) => {
                         e.preventDefault();
-                        activeReleaseId = btn.getAttribute("data-id") || "";
-                        activeSdHash = btn.getAttribute("data-sd") || "";
-                        activeFolderPath = btn.getAttribute("data-folder") || "";
-                        activeFilePath = btn.getAttribute("data-path") || "";
-                        const payloadUrl = btn.getAttribute("data-payload") || "";
-
-                        downloadCopyBtn.href = payloadUrl || "#";
-                        downloadCopyBtn.style.display = payloadUrl ? "inline-flex" : "none";
-                        folderDisplay.textContent = activeFolderPath || "Loading...";
-                        fileDisplay.textContent = activeFilePath || "Loading...";
-                        hostField.style.display = "none";
-                        setStatus("");
-
-                        if (typeof locModal.showModal === "function") {
-                            locModal.showModal();
-                        } else {
-                            locModal.setAttribute("open", "");
-                        }
-
-                        if (activeReleaseId && activeSdHash) {
-                            try {
-                                const resp = await fetch(`/api/entries/${encodeURIComponent(activeReleaseId)}/${encodeURIComponent(activeSdHash)}/location`);
-                                if (resp.ok) {
-                                    const info = await resp.json();
-                                    activeFolderPath = info.folder_path || activeFolderPath;
-                                    activeFilePath = info.file_path || activeFilePath;
-                                    folderDisplay.textContent = activeFolderPath;
-                                    fileDisplay.textContent = activeFilePath;
-                                    if (info.payload_url) {
-                                        downloadCopyBtn.href = info.payload_url;
-                                        downloadCopyBtn.style.display = "inline-flex";
-                                    }
-                                    if (info.host_folder_path && info.host_folder_path !== info.folder_path) {
-                                        activeHostFolderPath = info.host_folder_path;
-                                        hostFolderDisplay.textContent = info.host_folder_path;
-                                        hostField.style.display = "block";
-                                    }
-                                }
-                            } catch (_) {}
-                        }
+                        openLocation(
+                            btn.getAttribute("data-id") || "",
+                            btn.getAttribute("data-sd") || "",
+                            btn.getAttribute("data-folder") || "",
+                            btn.getAttribute("data-path") || "",
+                            btn.getAttribute("data-payload") || ""
+                        );
                     });
                 });
             }
 
-            setupTriggerButtons(document);
-            window.initLocationTriggers = setupTriggerButtons;
+            setupLocationTriggers(document);
+            window.openEntryLocation = openLocation;
+            window.initLocationTriggers = setupLocationTriggers;
 
-            function closeModal() {
+            function closeLocationModal() {
                 if (typeof locModal.close === "function") {
                     locModal.close();
                 } else {
@@ -387,12 +512,230 @@
                 }
             }
 
-            locCloseBtn.addEventListener("click", closeModal);
-            locDoneBtn.addEventListener("click", closeModal);
+            if (locCloseBtn) locCloseBtn.addEventListener("click", closeLocationModal);
+            if (locDoneBtn) locDoneBtn.addEventListener("click", closeLocationModal);
             locModal.addEventListener("click", (e) => {
-                if (e.target === locModal) closeModal();
+                if (e.target === locModal) closeLocationModal();
             });
+
+            // --- Release Details Modal Logic ---
+            if (!detModal) return;
+            const detCloseBtn = document.getElementById("details-modal-close-btn");
+            const detDoneBtn = document.getElementById("details-modal-done-btn");
+            const detOpenLocBtn = document.getElementById("details-open-location-btn");
+            const detTitle = document.getElementById("details-modal-title");
+            const detPlatformBadge = document.getElementById("details-platform-badge");
+            const detLoading = document.getElementById("details-loading");
+            const detError = document.getElementById("details-error");
+            const detErrorText = document.getElementById("details-error-text");
+            const detContent = document.getElementById("details-content");
+            const detAuthorHandle = document.getElementById("details-author-handle");
+            const detAuthorName = document.getElementById("details-author-name");
+            const detLinksRow = document.getElementById("details-links-row");
+            const detTagsRow = document.getElementById("details-tags-row");
+            const detDescription = document.getElementById("details-description");
+            const detSpecSize = document.getElementById("details-spec-size");
+            const detSpecId = document.getElementById("details-spec-id");
+            const detSpecSha384 = document.getElementById("details-spec-sha384");
+            const detSpecSha256 = document.getElementById("details-spec-sha256");
+            const detSpecBtih = document.getElementById("details-spec-btih");
+            const detSpecSeeding = document.getElementById("details-spec-seeding");
+            const detDownloadPayloadBtn = document.getElementById("details-download-payload-btn");
+            const detDownloadTorrentBtn = document.getElementById("details-download-torrent-btn");
+
+            let currentDetail = null;
+
+            function formatBytes(bytes) {
+                if (bytes == null || isNaN(bytes)) return "Unknown";
+                const b = Number(bytes);
+                if (b < 1024) return b + " B";
+                if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+                if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB";
+                return (b / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+            }
+
+            function renderMarkdown(text) {
+                if (!text || !text.trim()) {
+                    return "<p><em>No description provided upstream.</em></p>";
+                }
+                let s = text
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+
+                s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="details-code-block"><code>${code.trim()}</code></pre>`);
+                s = s.replace(/`([^`]+)`/g, '<code class="details-inline-code">$1</code>');
+                s = s.replace(/^### (.*$)/gim, '<h4 class="details-h4">$1</h4>');
+                s = s.replace(/^## (.*$)/gim, '<h3 class="details-h3">$1</h3>');
+                s = s.replace(/^# (.*$)/gim, '<h2 class="details-h2">$1</h2>');
+                s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                s = s.replace(/__(.*?)__/g, '<strong>$1</strong>');
+                s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|lbry:\/\/[^\s)]+|magnet:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="details-link">$1</a>');
+                s = s.replace(/(^|[\s])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="details-link">$2</a>');
+                s = s.replace(/^\s*[-*]\s+(.*)$/gim, '<li class="details-list-item">$1</li>');
+                s = s.replace(/(<li class="details-list-item">.*<\/li>)/gims, '<ul class="details-list">$1</ul>');
+
+                const paras = s.split(/\n{2,}/);
+                return paras.map(p => {
+                    p = p.trim();
+                    if (!p) return "";
+                    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<ul")) return p;
+                    return `<p>${p.replace(/\n/g, "<br>")}</p>`;
+                }).join("");
+            }
+
+            async function openDetails(id, sd, name, platform) {
+                currentDetail = null;
+                detTitle.textContent = name || "Release Details";
+                detPlatformBadge.textContent = (platform || "lbry").toUpperCase();
+                detPlatformBadge.className = `source-badge source-badge-${platform || "lbry"}`;
+                detLoading.style.display = "block";
+                detError.style.display = "none";
+                detContent.style.display = "none";
+                detDownloadPayloadBtn.style.display = "none";
+                detDownloadTorrentBtn.style.display = "none";
+
+                if (typeof detModal.showModal === "function") {
+                    detModal.showModal();
+                } else {
+                    detModal.setAttribute("open", "");
+                }
+
+                try {
+                    const resp = await fetch(`/api/entries/${encodeURIComponent(id)}/${encodeURIComponent(sd)}/details`);
+                    const data = await resp.json();
+                    if (!data.ok) {
+                        detLoading.style.display = "none";
+                        detError.style.display = "block";
+                        detErrorText.textContent = data.error || "Unable to load release details.";
+                        return;
+                    }
+
+                    const d = data.detail;
+                    currentDetail = d;
+                    detTitle.textContent = d.name || name || "Release Details";
+                    detPlatformBadge.textContent = (d.platform || "lbry").toUpperCase();
+                    detPlatformBadge.className = `source-badge source-badge-${d.platform || "lbry"}`;
+
+                    detAuthorHandle.textContent = d.channel_handle || "Unknown";
+                    detAuthorName.textContent = d.channel_name && d.channel_name !== d.channel_handle ? `(${d.channel_name})` : "";
+
+                    // Links
+                    detLinksRow.innerHTML = "";
+                    if (d.source_url) {
+                        const a = document.createElement("a");
+                        a.href = d.source_url;
+                        a.className = "button button-sm button-secondary";
+                        a.target = "_blank";
+                        a.rel = "noopener noreferrer";
+                        a.textContent = "Open Upstream ↗";
+                        detLinksRow.appendChild(a);
+                    }
+                    if (Array.isArray(d.origin_links)) {
+                        d.origin_links.forEach(l => {
+                            if (l.url && l.url !== d.source_url) {
+                                const a = document.createElement("a");
+                                a.href = l.url;
+                                a.className = "button button-sm button-secondary";
+                                a.target = "_blank";
+                                a.rel = "noopener noreferrer";
+                                a.textContent = `${l.name} ↗`;
+                                detLinksRow.appendChild(a);
+                            }
+                        });
+                    }
+
+                    // Tags
+                    detTagsRow.innerHTML = "";
+                    if (Array.isArray(d.tags) && d.tags.length > 0) {
+                        d.tags.forEach(t => {
+                            const span = document.createElement("span");
+                            span.className = "details-tag-badge";
+                            span.textContent = t;
+                            detTagsRow.appendChild(span);
+                        });
+                    } else {
+                        detTagsRow.innerHTML = '<span class="fine-print text-muted">No tags</span>';
+                    }
+
+                    // Description
+                    detDescription.innerHTML = renderMarkdown(d.description);
+
+                    // Specs
+                    detSpecSize.textContent = formatBytes(d.payload_size);
+                    detSpecId.textContent = d.release_id || "N/A";
+                    detSpecSha384.textContent = d.sha384 || "N/A";
+                    detSpecSha256.textContent = d.sha256 || "Pending verification / calculation";
+                    detSpecBtih.textContent = d.info_hash || (d.canonical_magnet_uri ? "In Magnet" : "N/A");
+                    detSpecSeeding.textContent = `${d.seeding_state || "pending"}${d.seeding_observed_state ? ` (${d.seeding_observed_state})` : ""} · ${d.seeding_working_trackers || 0} trackers · ${d.seeding_dht_nodes || 0} DHT nodes`;
+
+                    // Actions
+                    if (d.payload_url) {
+                        detDownloadPayloadBtn.href = d.payload_url;
+                        detDownloadPayloadBtn.style.display = "inline-flex";
+                    }
+                    if (d.torrent_url) {
+                        detDownloadTorrentBtn.href = d.torrent_url;
+                        detDownloadTorrentBtn.style.display = "inline-flex";
+                    }
+
+                    detLoading.style.display = "none";
+                    detContent.style.display = "flex";
+                } catch (err) {
+                    detLoading.style.display = "none";
+                    detError.style.display = "block";
+                    detErrorText.textContent = `Network error loading release details: ${err.message}`;
+                }
+            }
+
+            function setupDetailsTriggers(container) {
+                (container || document).querySelectorAll(".open-details-btn").forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        openDetails(
+                            btn.getAttribute("data-id") || "",
+                            btn.getAttribute("data-sd") || "",
+                            btn.getAttribute("data-name") || "",
+                            btn.getAttribute("data-platform") || "lbry"
+                        );
+                    });
+                });
+            }
+
+            setupDetailsTriggers(document);
+            window.initDetailsTriggers = setupDetailsTriggers;
+
+            function closeDetailsModal() {
+                if (typeof detModal.close === "function") {
+                    detModal.close();
+                } else {
+                    detModal.removeAttribute("open");
+                }
+            }
+
+            if (detCloseBtn) detCloseBtn.addEventListener("click", closeDetailsModal);
+            if (detDoneBtn) detDoneBtn.addEventListener("click", closeDetailsModal);
+            detModal.addEventListener("click", (e) => {
+                if (e.target === detModal) closeDetailsModal();
+            });
+
+            if (detOpenLocBtn) {
+                detOpenLocBtn.addEventListener("click", () => {
+                    if (!currentDetail) return;
+                    closeDetailsModal();
+                    openLocation(
+                        currentDetail.release_id,
+                        currentDetail.sd_hash,
+                        currentDetail.folder_path,
+                        currentDetail.file_path,
+                        currentDetail.payload_url
+                    );
+                });
+            }
         })();
-        </script>
-    </body>
+</script>
+</body>
 </html>

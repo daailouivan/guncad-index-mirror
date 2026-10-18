@@ -1462,6 +1462,133 @@ class JobStore:
             )
         return entries, total
 
+    def get_release_detail(
+        self, release_id: str, sd_hash: str
+    ) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM jobs
+                WHERE release_id = ? AND sd_hash = ?
+                """,
+                (release_id, sd_hash),
+            ).fetchone()
+        if row is None:
+            return None
+
+        raw: dict[str, Any] = {}
+        try:
+            parsed = json.loads(row["release_json"])
+            if isinstance(parsed, dict):
+                raw = parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        origin = raw.get("origin") if isinstance(raw.get("origin"), dict) else {}
+        channel = raw.get("channel") if isinstance(raw.get("channel"), dict) else {}
+        raw_tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+        tags = []
+        for tag in raw_tags:
+            if isinstance(tag, dict):
+                t_val = tag.get("name") or tag.get("slug")
+                if t_val:
+                    tags.append(str(t_val))
+            elif isinstance(tag, str) and tag.strip():
+                tags.append(tag.strip())
+
+        origin_links = []
+        raw_links = origin.get("links") if isinstance(origin.get("links"), list) else []
+        for link in raw_links:
+            if isinstance(link, dict) and link.get("url"):
+                origin_links.append(
+                    {
+                        "name": str(link.get("name") or "Upstream Link"),
+                        "url": str(link.get("url")),
+                    }
+                )
+
+        file_p = Path(row["file_path"]) if row["file_path"] else None
+        torrent_p = Path(row["torrent_path"]) if row["torrent_path"] else None
+
+        return {
+            "release_id": row["release_id"],
+            "sd_hash": row["sd_hash"],
+            "name": row["release_name"] or raw.get("name") or row["release_id"],
+            "channel_handle": (
+                row["channel_handle"] or channel.get("handle") or "Unknown channel"
+            ),
+            "channel_name": (
+                channel.get("name") or row["channel_handle"] or "Unknown channel"
+            ),
+            "channel_description": channel.get("description"),
+            "slug": row["release_slug"] or origin.get("slug") or "",
+            "platform": row["platform"] or origin.get("platform") or "lbry",
+            "description": raw.get("description") or "",
+            "tags": tags,
+            "categories": raw.get("categories") or origin.get("categories") or [],
+            "discovered": raw.get("discovered"),
+            "released": raw.get("released"),
+            "last_updated": raw.get("last_updated"),
+            "popularity": origin.get("popularity"),
+            "license": origin.get("license"),
+            "origin_links": origin_links,
+            "source_url": _source_url_from_json(row["release_json"]),
+            "thumbnail_url": (
+                raw.get("thumbnail", {}).get("large")
+                if isinstance(raw.get("thumbnail"), dict)
+                else None
+            )
+            or (
+                raw.get("thumbnail", {}).get("small")
+                if isinstance(raw.get("thumbnail"), dict)
+                else None
+            ),
+            "payload_size": (
+                row["payload_size"]
+                if row["payload_size"] is not None
+                else origin.get("size")
+            ),
+            "file_name": file_p.name if file_p else "payload",
+            "file_path": str(file_p) if file_p else None,
+            "folder_path": str(file_p.parent) if file_p else None,
+            "sha384": row["sha384"] or origin.get("checksum"),
+            "sha256": row["sha256"],
+            "info_hash": row["info_hash"],
+            "magnet_uri": (
+                row["magnet_uri"]
+                or (
+                    raw.get("torrent", {}).get("magnet_uri")
+                    if isinstance(raw.get("torrent"), dict)
+                    else None
+                )
+            ),
+            "torrent_path": str(torrent_p) if torrent_p else None,
+            "canonical_torrent_url": (
+                row["canonical_torrent_url"]
+                or (
+                    raw.get("torrent", {}).get("torrent_url")
+                    if isinstance(raw.get("torrent"), dict)
+                    else None
+                )
+            ),
+            "canonical_magnet_uri": row["canonical_magnet_uri"],
+            "state": row["state"],
+            "seeding_state": row["seeding_state"],
+            "seeding_observed_state": row["seeding_observed_state"],
+            "seeding_dht_nodes": row["seeding_dht_nodes"],
+            "seeding_working_trackers": row["seeding_working_trackers"],
+            "seeding_error_code": row["seeding_error_code"],
+            "publication_state": row["publication_state"],
+            "publication_canonical": (
+                None
+                if row["publication_canonical"] is None
+                else bool(row["publication_canonical"])
+            ),
+            "publication_outcome": row["publication_outcome"],
+            "last_error": row["last_error"],
+            "exclusion_reason": row["exclusion_reason"],
+        }
+
     def load_tracker_policy_cache(
         self,
         endpoint: str,

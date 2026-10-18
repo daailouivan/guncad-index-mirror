@@ -1110,6 +1110,109 @@
                 </footer>
             </div>
         </dialog>
+        <!-- Release Details Modal -->
+        <dialog id="details-modal"
+                class="details-modal"
+                aria-labelledby="details-modal-title"
+                aria-modal="true">
+            <div class="modal-wrapper details-modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span id="details-platform-badge" class="source-badge">LBRY</span>
+                        <h2 id="details-modal-title">Release Details</h2>
+                    </div>
+                    <button type="button"
+                            id="details-modal-close-btn"
+                            class="modal-close-btn"
+                            aria-label="Close dialog">✕</button>
+                </header>
+                <div id="details-modal-body" class="modal-body details-modal-body">
+                    <div id="details-loading" class="modal-loading">
+                        <p>Loading release details...</p>
+                    </div>
+                    <div id="details-error" class="modal-error" style="display: none">
+                        <p id="details-error-text"></p>
+                    </div>
+                    <div id="details-content" style="display: none">
+                        <!-- Author & Platform Links Bar -->
+                        <div class="details-header-card">
+                            <div class="details-author-row">
+                                <div class="details-author-info">
+                                    <span class="fine-print">Published by</span>
+                                    <strong id="details-author-handle"></strong>
+                                    <span id="details-author-name" class="fine-print text-muted"></span>
+                                </div>
+                                <div id="details-links-row" class="details-links-row"></div>
+                            </div>
+                            <div id="details-tags-row" class="details-tags-row"></div>
+                        </div>
+                        <!-- Description / Release Notes -->
+                        <div class="details-section">
+                            <div class="details-section-header">
+                                <h3>Release Notes &amp; Description</h3>
+                            </div>
+                            <div id="details-description" class="details-description-content"></div>
+                        </div>
+                        <!-- Technical & Verification Specs -->
+                        <div class="details-section">
+                            <div class="details-section-header">
+                                <h3>Artifact &amp; Verification Specs</h3>
+                            </div>
+                            <div class="details-specs-grid">
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Payload Size</span>
+                                    <span id="details-spec-size" class="spec-value"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Release ID</span>
+                                    <span id="details-spec-id" class="spec-value mono"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">SHA-384 Digest</span>
+                                    <span id="details-spec-sha384" class="spec-value mono"></span>
+                                </div>
+                                <div id="details-spec-sha256-box" class="details-spec-item">
+                                    <span class="spec-label">SHA-256 Digest</span>
+                                    <span id="details-spec-sha256" class="spec-value mono"></span>
+                                </div>
+                                <div id="details-spec-btih-box" class="details-spec-item">
+                                    <span class="spec-label">BitTorrent Info Hash</span>
+                                    <span id="details-spec-btih" class="spec-value mono"></span>
+                                </div>
+                                <div class="details-spec-item">
+                                    <span class="spec-label">Seeding Health</span>
+                                    <span id="details-spec-seeding" class="spec-value"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <footer class="modal-footer"
+                        style="justify-content: space-between;
+                               gap: 0.75rem">
+                    <div class="details-footer-left">
+                        <button type="button"
+                                id="details-open-location-btn"
+                                class="button button-secondary">📂 Local Location</button>
+                    </div>
+                    <div class="details-footer-right" style="display: flex; gap: 0.75rem">
+                        <a id="details-download-payload-btn"
+                           href="#"
+                           class="button button-primary"
+                           download
+                           style="display: none">Download File</a>
+                        <a id="details-download-torrent-btn"
+                           href="#"
+                           class="button button-secondary"
+                           download
+                           style="display: none">Download Torrent</a>
+                        <button type="button"
+                                id="details-modal-done-btn"
+                                class="button button-secondary">Close</button>
+                    </div>
+                </footer>
+            </div>
+        </dialog>
         <script>
         (function() {
             const modal = document.getElementById("category-modal");
@@ -1414,6 +1517,9 @@
                     if (entry.has_payload || entry.payload_url) {
                         html += `<button type="button" class="button button-sm button-secondary open-location-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-file="${escapeHtml(entry.file_path ? entry.file_path.split('/').pop() : '')}" data-folder="${escapeHtml(entry.folder_path || '')}" data-path="${escapeHtml(entry.file_path || '')}" data-payload="${escapeHtml(entry.payload_url || '')}">📂 Local Location</button>`;
                     }
+                    if (window.catalogDetailsEnabled) {
+                        html += `<button type="button" class="button button-sm button-secondary open-details-btn" data-id="${escapeHtml(entry.release_id)}" data-sd="${escapeHtml(entry.sd_hash)}" data-name="${escapeHtml(title)}" data-platform="${escapeHtml(platform)}">📖 Details</button>`;
+                    }
                     if (entry.torrent_url) {
                         html += `<a href="${entry.torrent_url}" class="button button-sm button-secondary" download>Download Torrent</a>`;
                     }
@@ -1518,6 +1624,18 @@
                             btn.getAttribute("data-folder"),
                             btn.getAttribute("data-path"),
                             btn.getAttribute("data-payload")
+                        );
+                    });
+                });
+
+                bodyEl.querySelectorAll(".open-details-btn").forEach(btn => {
+                    btn.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        openDetailsModal(
+                            btn.getAttribute("data-id"),
+                            btn.getAttribute("data-sd"),
+                            btn.getAttribute("data-name"),
+                            btn.getAttribute("data-platform")
                         );
                     });
                 });
@@ -1661,6 +1779,207 @@
                 });
             }
 
+            // --- Release Details Modal Logic ---
+            window.catalogDetailsEnabled = {{ 'true' if features and features.catalog_details else 'false' }};
+            const detModal = document.getElementById("details-modal");
+            const detCloseBtn = document.getElementById("details-modal-close-btn");
+            const detDoneBtn = document.getElementById("details-modal-done-btn");
+            const detOpenLocBtn = document.getElementById("details-open-location-btn");
+            const detTitle = document.getElementById("details-modal-title");
+            const detPlatformBadge = document.getElementById("details-platform-badge");
+            const detLoading = document.getElementById("details-loading");
+            const detError = document.getElementById("details-error");
+            const detErrorText = document.getElementById("details-error-text");
+            const detContent = document.getElementById("details-content");
+            const detAuthorHandle = document.getElementById("details-author-handle");
+            const detAuthorName = document.getElementById("details-author-name");
+            const detLinksRow = document.getElementById("details-links-row");
+            const detTagsRow = document.getElementById("details-tags-row");
+            const detDescription = document.getElementById("details-description");
+            const detSpecSize = document.getElementById("details-spec-size");
+            const detSpecId = document.getElementById("details-spec-id");
+            const detSpecSha384 = document.getElementById("details-spec-sha384");
+            const detSpecSha256 = document.getElementById("details-spec-sha256");
+            const detSpecBtih = document.getElementById("details-spec-btih");
+            const detSpecSeeding = document.getElementById("details-spec-seeding");
+            const detDownloadPayloadBtn = document.getElementById("details-download-payload-btn");
+            const detDownloadTorrentBtn = document.getElementById("details-download-torrent-btn");
+
+            let currentDetail = null;
+
+            function formatBytes(bytes) {
+                if (bytes == null || isNaN(bytes)) return "Unknown";
+                const b = Number(bytes);
+                if (b < 1024) return b + " B";
+                if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+                if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB";
+                return (b / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+            }
+
+            function renderMarkdown(text) {
+                if (!text || !text.trim()) {
+                    return "<p><em>No description provided upstream.</em></p>";
+                }
+                let s = text
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+
+                s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="details-code-block"><code>${code.trim()}</code></pre>`);
+                s = s.replace(/`([^`]+)`/g, '<code class="details-inline-code">$1</code>');
+                s = s.replace(/^### (.*$)/gim, '<h4 class="details-h4">$1</h4>');
+                s = s.replace(/^## (.*$)/gim, '<h3 class="details-h3">$1</h3>');
+                s = s.replace(/^# (.*$)/gim, '<h2 class="details-h2">$1</h2>');
+                s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                s = s.replace(/__(.*?)__/g, '<strong>$1</strong>');
+                s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+                s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|lbry:\/\/[^\s)]+|magnet:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="details-link">$1</a>');
+                s = s.replace(/(^|[\s])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="details-link">$2</a>');
+                s = s.replace(/^\s*[-*]\s+(.*)$/gim, '<li class="details-list-item">$1</li>');
+                s = s.replace(/(<li class="details-list-item">.*<\/li>)/gims, '<ul class="details-list">$1</ul>');
+
+                const paras = s.split(/\n{2,}/);
+                return paras.map(p => {
+                    p = p.trim();
+                    if (!p) return "";
+                    if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<ul")) return p;
+                    return `<p>${p.replace(/\n/g, "<br>")}</p>`;
+                }).join("");
+            }
+
+            async function openDetailsModal(id, sd, name, platform) {
+                if (!detModal) return;
+                currentDetail = null;
+                detTitle.textContent = name || "Release Details";
+                detPlatformBadge.textContent = (platform || "lbry").toUpperCase();
+                detPlatformBadge.className = `source-badge source-badge-${platform || "lbry"}`;
+                detLoading.style.display = "block";
+                detError.style.display = "none";
+                detContent.style.display = "none";
+                detDownloadPayloadBtn.style.display = "none";
+                detDownloadTorrentBtn.style.display = "none";
+
+                if (typeof detModal.showModal === "function") {
+                    detModal.showModal();
+                } else {
+                    detModal.setAttribute("open", "");
+                }
+
+                try {
+                    const resp = await fetch(`/api/entries/${encodeURIComponent(id)}/${encodeURIComponent(sd)}/details`);
+                    const data = await resp.json();
+                    if (!data.ok) {
+                        detLoading.style.display = "none";
+                        detError.style.display = "block";
+                        detErrorText.textContent = data.error || "Unable to load release details.";
+                        return;
+                    }
+
+                    const d = data.detail;
+                    currentDetail = d;
+                    detTitle.textContent = d.name || name || "Release Details";
+                    detPlatformBadge.textContent = (d.platform || "lbry").toUpperCase();
+                    detPlatformBadge.className = `source-badge source-badge-${d.platform || "lbry"}`;
+
+                    detAuthorHandle.textContent = d.channel_handle || "Unknown";
+                    detAuthorName.textContent = d.channel_name && d.channel_name !== d.channel_handle ? `(${d.channel_name})` : "";
+
+                    detLinksRow.innerHTML = "";
+                    if (d.source_url) {
+                        const a = document.createElement("a");
+                        a.href = d.source_url;
+                        a.className = "button button-sm button-secondary";
+                        a.target = "_blank";
+                        a.rel = "noopener noreferrer";
+                        a.textContent = "Open Upstream ↗";
+                        detLinksRow.appendChild(a);
+                    }
+                    if (Array.isArray(d.origin_links)) {
+                        d.origin_links.forEach(l => {
+                            if (l.url && l.url !== d.source_url) {
+                                const a = document.createElement("a");
+                                a.href = l.url;
+                                a.className = "button button-sm button-secondary";
+                                a.target = "_blank";
+                                a.rel = "noopener noreferrer";
+                                a.textContent = `${l.name} ↗`;
+                                detLinksRow.appendChild(a);
+                            }
+                        });
+                    }
+
+                    detTagsRow.innerHTML = "";
+                    if (Array.isArray(d.tags) && d.tags.length > 0) {
+                        d.tags.forEach(t => {
+                            const span = document.createElement("span");
+                            span.className = "details-tag-badge";
+                            span.textContent = t;
+                            detTagsRow.appendChild(span);
+                        });
+                    } else {
+                        detTagsRow.innerHTML = '<span class="fine-print text-muted">No tags</span>';
+                    }
+
+                    detDescription.innerHTML = renderMarkdown(d.description);
+
+                    detSpecSize.textContent = formatBytes(d.payload_size);
+                    detSpecId.textContent = d.release_id || "N/A";
+                    detSpecSha384.textContent = d.sha384 || "N/A";
+                    detSpecSha256.textContent = d.sha256 || "Pending verification / calculation";
+                    detSpecBtih.textContent = d.info_hash || (d.canonical_magnet_uri ? "In Magnet" : "N/A");
+                    detSpecSeeding.textContent = `${d.seeding_state || "pending"}${d.seeding_observed_state ? ` (${d.seeding_observed_state})` : ""} · ${d.seeding_working_trackers || 0} trackers · ${d.seeding_dht_nodes || 0} DHT nodes`;
+
+                    if (d.payload_url) {
+                        detDownloadPayloadBtn.href = d.payload_url;
+                        detDownloadPayloadBtn.style.display = "inline-flex";
+                    }
+                    if (d.torrent_url) {
+                        detDownloadTorrentBtn.href = d.torrent_url;
+                        detDownloadTorrentBtn.style.display = "inline-flex";
+                    }
+
+                    detLoading.style.display = "none";
+                    detContent.style.display = "flex";
+                } catch (err) {
+                    detLoading.style.display = "none";
+                    detError.style.display = "block";
+                    detErrorText.textContent = `Network error loading release details: ${err.message}`;
+                }
+            }
+
+            function closeDetailsModal() {
+                if (!detModal) return;
+                if (typeof detModal.close === "function") {
+                    detModal.close();
+                } else {
+                    detModal.removeAttribute("open");
+                }
+            }
+
+            if (detCloseBtn) detCloseBtn.addEventListener("click", closeDetailsModal);
+            if (detDoneBtn) detDoneBtn.addEventListener("click", closeDetailsModal);
+            if (detModal) {
+                detModal.addEventListener("click", (e) => {
+                    if (e.target === detModal) closeDetailsModal();
+                });
+            }
+
+            if (detOpenLocBtn) {
+                detOpenLocBtn.addEventListener("click", () => {
+                    if (!currentDetail) return;
+                    closeDetailsModal();
+                    openLocationModal(
+                        currentDetail.release_id,
+                        currentDetail.sd_hash,
+                        currentDetail.folder_path,
+                        currentDetail.file_path,
+                        currentDetail.payload_url
+                    );
+                });
+            }
+
             function updatePagination() {
                 prevBtn.disabled = currentPage <= 1;
                 nextBtn.disabled = currentPage >= pageCount;
@@ -1801,6 +2120,12 @@
                                 statusBadge.className = `feature-badge ${newState ? "enabled" : "disabled"}`;
                                 statusBadge.textContent = newState ? "Enabled" : "Disabled (Lightweight)";
                             }
+                            if (feature === "catalog_details") {
+                                window.catalogDetailsEnabled = newState;
+                                if (modal && modal.open) {
+                                    loadEntries();
+                                }
+                            }
                         } else {
                             alert(`Failed to update feature: ${data.error || "Unknown error"}`);
                         }
@@ -1812,6 +2137,6 @@
                 });
             });
         })();
-        </script>
-    </body>
+</script>
+</body>
 </html>

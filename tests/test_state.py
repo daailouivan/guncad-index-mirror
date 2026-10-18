@@ -769,6 +769,52 @@ class JobStoreTests(unittest.TestCase):
         # Retrying a non-failed job returns False
         self.assertFalse(self.store.retry_job("a" * 40, "1" * 96))
 
+    def test_get_release_detail(self) -> None:
+        self.assertIsNone(self.store.get_release_detail("missing", "hash"))
+
+        payload = release_payload(
+            release_id="c" * 40,
+            sd_hash="2" * 96,
+            name="Detailed Tool",
+            channel="@builder:b",
+        )
+        payload["description"] = "Comprehensive build instructions and legal notes"
+        payload["tags"] = [{"name": "Pistol", "slug": "pistol"}, {"slug": "accessory"}]
+        payload["categories"] = ["models"]
+        payload["origin"]["links"].append(
+            {"name": "Custom", "url": "https://custom.example/tool"}
+        )
+        release = Release.from_api(payload)
+        self.store.register(release)
+
+        detail = self.store.get_release_detail("c" * 40, "2" * 96)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual(detail["release_id"], "c" * 40)
+        self.assertEqual(detail["sd_hash"], "2" * 96)
+        self.assertEqual(detail["name"], "Detailed Tool")
+        self.assertEqual(detail["channel_handle"], "@builder:b")
+        self.assertEqual(
+            detail["description"], "Comprehensive build instructions and legal notes"
+        )
+        self.assertEqual(detail["tags"], ["Pistol", "accessory"])
+        self.assertEqual(detail["categories"], ["models"])
+        self.assertTrue(
+            any(link["name"] == "Custom" for link in detail["origin_links"])
+        )
+
+        # Corrupted release_json fallback
+        with closing(self.store._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE jobs SET release_json='invalid json' WHERE release_id=? AND sd_hash=?",
+                ("c" * 40, "2" * 96),
+            )
+        corrupted = self.store.get_release_detail("c" * 40, "2" * 96)
+        self.assertIsNotNone(corrupted)
+        assert corrupted is not None
+        self.assertEqual(corrupted["description"], "")
+        self.assertEqual(corrupted["tags"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

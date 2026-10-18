@@ -389,6 +389,57 @@ def create_app(collector: StatsCollector) -> Flask:
             mimetype="application/x-bittorrent",
         )
 
+    @app.route("/api/entries/<release_id>/<sd_hash>/details")
+    def entry_details(release_id: str, sd_hash: str) -> Response:
+        if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):
+            abort(404)
+        if not collector.is_feature_enabled("catalog_details"):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Catalog details feature is disabled. Enable it in Resource Profile "
+                            "& Optional Features to view rich metadata."
+                        ),
+                        "feature_disabled": True,
+                    }
+                ),
+                403,
+            )
+        detail = collector.store.get_release_detail(release_id, sd_hash)
+        if detail is None:
+            abort(404)
+
+        if detail.get("file_path") and collector.settings.host_data_dir:
+            try:
+                p = Path(detail["file_path"])
+                rel = p.resolve().relative_to(collector.settings.data_dir.resolve())
+                host_p = Path(collector.settings.host_data_dir) / rel
+                detail["host_file_path"] = str(host_p)
+                detail["host_folder_path"] = str(host_p.parent)
+            except (ValueError, TypeError):
+                detail["host_file_path"] = detail.get("file_path")
+                detail["host_folder_path"] = detail.get("folder_path")
+        else:
+            detail["host_file_path"] = detail.get("file_path")
+            detail["host_folder_path"] = detail.get("folder_path")
+
+        detail["payload_url"] = (
+            f"/archive/{release_id}/{sd_hash}/payload"
+            if detail.get("file_path")
+            and detail.get("state") == JobState.AWAITING_INDEX.value
+            else None
+        )
+        detail["torrent_url"] = (
+            f"/archive/{release_id}/{sd_hash}/torrent"
+            if detail.get("torrent_path")
+            and detail.get("state") == JobState.AWAITING_INDEX.value
+            else None
+        )
+
+        return jsonify({"ok": True, "detail": detail})
+
     @app.route("/api/entries/<release_id>/<sd_hash>/location")
     def entry_location(release_id: str, sd_hash: str) -> Response:
         if not RELEASE_ID_RE.fullmatch(release_id) or not SHA384_RE.fullmatch(sd_hash):

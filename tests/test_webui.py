@@ -1045,6 +1045,73 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b"Lightweight Mode", resp.data)
 
+    def test_api_entry_details_endpoint(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        release, _, _ = self._complete_release(
+            name="Detailed CAD Release",
+            channel="@dev:1",
+        )
+
+        # 1. Feature disabled (default)
+        self.assertFalse(self.collector.is_feature_enabled("catalog_details"))
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/details")
+        self.assertEqual(resp.status_code, 403)
+        data = resp.get_json()
+        self.assertFalse(data["ok"])
+        self.assertTrue(data.get("feature_disabled"))
+
+        # Verify archive page omits Details button when disabled
+        archive_resp = client.get("/archive")
+        self.assertNotIn("📖 Details</button>".encode(), archive_resp.data)
+
+        # 2. Enable feature
+        self.collector.set_feature_enabled("catalog_details", True)
+        self.assertTrue(self.collector.is_feature_enabled("catalog_details"))
+
+        # Invalid parameters
+        self.assertEqual(
+            client.get("/api/entries/bad-id/not-a-hash/details").status_code, 404
+        )
+        self.assertEqual(
+            client.get(f"/api/entries/{'f' * 40}/{'0' * 96}/details").status_code, 404
+        )
+
+        # Valid release details
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/details")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        detail = data["detail"]
+        self.assertEqual(detail["release_id"], release.id)
+        self.assertEqual(detail["sd_hash"], release.sd_hash)
+        self.assertEqual(detail["name"], "Detailed CAD Release")
+        self.assertEqual(detail["channel_handle"], "@dev:1")
+        self.assertIsNotNone(detail["payload_url"])
+        self.assertIsNotNone(detail["torrent_url"])
+        self.assertIn("host_file_path", detail)
+        self.assertIn("host_folder_path", detail)
+
+        # Verify archive page renders Details button when enabled
+        self.collector.snapshot.return_value["features"]["catalog_details"] = True
+        archive_resp = client.get("/archive")
+        self.assertIn("📖 Details</button>".encode(), archive_resp.data)
+        self.assertIn(b'id="details-modal"', archive_resp.data)
+
+        # Host data directory mapping
+        self.collector.settings = Settings(
+            endpoint="https://index.example/api/v2/releases/",
+            data_dir=self.root,
+            host_data_dir="/mnt/user/storage/guncad",
+        )
+        resp = client.get(f"/api/entries/{release.id}/{release.sd_hash}/details")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(
+            data["detail"]["host_file_path"].startswith("/mnt/user/storage/guncad")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
