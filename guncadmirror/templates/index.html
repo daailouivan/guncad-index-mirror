@@ -203,18 +203,19 @@
                                 data-category="all"
                                 title="View {{ source.display_name }} entries">
                             <div class="source-card-top">
-                                <div class="source-card-identity">
-                                    <span class="source-badge source-badge-{{ source.platform }}">{{ source.platform }}</span>
-                                    <strong class="source-card-title">{{ source.display_name }}</strong>
-                                </div>
+                                <span class="source-badge source-badge-{{ source.platform }}">{{ source.display_name }}</span>
                                 <span class="source-card-pct{% if source.total > 0 and source.awaiting_index == source.total %} pct-complete{% endif %}">
                                     {{ ((source.awaiting_index / source.total) * 100)|round(0)|int if source.total else 0 }}%
                                 </span>
                             </div>
                             <div class="source-card-metrics">
                                 <div class="source-card-counts">
-                                    <span class="source-count-num">{{ source.awaiting_index }}</span>
-                                    <span class="source-count-label">staged / <strong class="source-total-num">{{ source.total }}</strong> indexed</span>
+                                    <div class="source-count-ratio">
+                                        <span class="source-count-num">{{ source.awaiting_index }}</span>
+                                        <span class="source-count-divider">/</span>
+                                        <span class="source-total-num">{{ source.total }}</span>
+                                    </div>
+                                    <span class="source-count-label">staged / indexed</span>
                                 </div>
                                 <div class="source-card-track" aria-hidden="true">
                                     <div class="source-card-fill source-fill-{{ source.platform }}"
@@ -240,43 +241,15 @@
                     <table class="sources-table">
                         <thead>
                             <tr>
-                                <th scope="col">
-                                    Source
-                                    <br />
-                                    <span class="th-sub">platform</span>
-                                </th>
-                                <th scope="col" class="num-col">
-                                    Total
-                                    <br />
-                                    <span class="th-sub">indexed</span>
-                                </th>
-                                <th scope="col" class="num-col">
-                                    Staged /
-                                    <br />
-                                    <span class="th-sub">verified</span>
-                                </th>
-                                <th scope="col" class="num-col">
-                                    qB
-                                    <br />
-                                    <span class="th-sub">seeding</span>
-                                </th>
-                                <th scope="col" class="num-col">
-                                    Index
-                                    <br />
-                                    <span class="th-sub">published</span>
-                                </th>
+                                <th scope="col">Source</th>
+                                <th scope="col" class="num-col">Total Indexed</th>
+                                <th scope="col" class="num-col">Staged</th>
+                                <th scope="col" class="num-col">qB Seeding</th>
+                                <th scope="col" class="num-col">Index Published</th>
                                 <th scope="col" class="num-col">In-flight</th>
                                 <th scope="col" class="num-col">Failed</th>
-                                <th scope="col" class="num-col">
-                                    Excluded
-                                    <br />
-                                    <span class="th-sub">by policy</span>
-                                </th>
-                                <th scope="col" class="num-col">
-                                    Payload
-                                    <br />
-                                    <span class="th-sub">volume</span>
-                                </th>
+                                <th scope="col" class="num-col">Excluded</th>
+                                <th scope="col" class="num-col">Payload Size</th>
                                 <th scope="col" class="action-col">Archive</th>
                             </tr>
                         </thead>
@@ -682,7 +655,23 @@
                 </div>
             </section>
             <section class="panel">
-                <h2>Configuration</h2>
+                <div class="panel-header-row">
+                    <h2>Configuration</h2>
+                    <button type="button"
+                            class="button button-sm button-secondary"
+                            id="open-config-modal-btn">
+                        ⚙ Edit Configuration
+                    </button>
+                </div>
+                {% if config_saved %}
+                    <div class="banner banner-success" style="margin-bottom: 1rem;">
+                        <strong>✓ Configuration updated successfully.</strong> Settings have been saved to persistent SQLite storage (<code>state.db</code>) and applied immediately.
+                    </div>
+                {% endif %}
+                <div class="config-env-notice">
+                    <span class="notice-icon">ℹ</span>
+                    <span><strong>Configuration Persistence:</strong> Settings updated through the WebUI are saved into the persistent SQLite database (<code>state.db</code>) and survive container restarts. Container processes do not edit host <code>.env</code> files; database settings take precedence over environment variable defaults.</span>
+                </div>
                 <div class="table-wrap">
                     <table class="config-table">
                         <colgroup>
@@ -1337,6 +1326,167 @@
                                 class="button button-secondary">Close</button>
                     </div>
                 </footer>
+            </div>
+        </dialog>
+        <!-- Configuration Modal Dialog -->
+        <dialog id="config-modal"
+                class="config-modal"
+                aria-labelledby="config-modal-title"
+                aria-modal="true">
+            <div class="modal-wrapper">
+                <header class="modal-header">
+                    <div class="modal-title-group">
+                        <span class="source-badge">SETTINGS</span>
+                        <h2 id="config-modal-title">Mirror Runtime Configuration</h2>
+                    </div>
+                    <button type="button"
+                            id="config-modal-close-btn"
+                            class="modal-close-btn"
+                            aria-label="Close dialog">✕</button>
+                </header>
+                <form id="config-form"
+                      method="post"
+                      action="{{ url_for('update_config_form') }}">
+                    <div class="modal-body" style="padding: 1.25rem;">
+                        <div class="config-env-notice" style="margin-bottom: 1.25rem;">
+                            <span class="notice-icon">ℹ</span>
+                            <span>Settings updated here are saved directly into the persistent SQLite database (<code>state.db</code>) and take effect immediately. Values override <code>.env</code> file defaults and persist across container updates.</span>
+                        </div>
+                        <div class="config-form-grid">
+                            <div class="config-group">
+                                <h3 class="config-group-title">Core Timing &amp; Limits</h3>
+                                <div class="config-field">
+                                    <label for="cfg_loop_interval">Cycle interval</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_loop_interval" name="loop_interval" min="1" step="1" required />
+                                        <span class="config-unit">seconds</span>
+                                    </div>
+                                    <span class="config-field-desc">Delay between completed index scans (e.g. 14400s = 4h).</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_cycle_error_interval">Failed-cycle retry delay</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_cycle_error_interval" name="cycle_error_interval" min="1" step="1" required />
+                                        <span class="config-unit">seconds</span>
+                                    </div>
+                                    <span class="config-field-desc">Wait time before retrying a scan aborted by an error.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_api_max_pages">API page limit</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_api_max_pages" name="api_max_pages" min="1" max="100000" step="1" required />
+                                        <span class="config-unit">pages</span>
+                                    </div>
+                                    <span class="config-field-desc">Bounds pagination walk to stop rogue runs.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_max_releases_per_run">Per-cycle release cap</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_max_releases_per_run" name="max_releases_per_run" min="0" step="1" />
+                                        <span class="config-unit">items (0 = no cap)</span>
+                                    </div>
+                                    <span class="config-field-desc">Limits workload per cycle without altering search query.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_download_timeout">Download stall timeout</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_download_timeout" name="download_timeout" min="10" step="1" required />
+                                        <span class="config-unit">seconds</span>
+                                    </div>
+                                    <span class="config-field-desc">Aborts stream only after this long without progress.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_min_free_space">Free-space reserve</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_min_free_space" name="min_free_space" min="0" step="1048576" required />
+                                        <span class="config-unit">bytes</span>
+                                    </div>
+                                    <span class="config-field-desc">Minimum disk bytes kept free (e.g. 5368709120 = 5 GB).</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_max_release_size">Maximum payload size</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_max_release_size" name="max_release_size" min="0" step="1048576" required />
+                                        <span class="config-unit">bytes (0 = unlimited)</span>
+                                    </div>
+                                    <span class="config-field-desc">Rejects releases larger than this (e.g. 10737418240 = 10 GB).</span>
+                                </div>
+                            </div>
+                            <div class="config-group">
+                                <h3 class="config-group-title">Ingestion Concurrency</h3>
+                                <div class="config-field">
+                                    <label for="cfg_lbry_concurrency">LBRY acquisition workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_lbry_concurrency" name="lbry_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous LBRY stream descriptor downloads.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_odysee_concurrency">Odysee fallback workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_odysee_concurrency" name="odysee_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous verified CDN fallback recoveries.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_printables_concurrency">Printables workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_printables_concurrency" name="printables_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous Printables asset downloads.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_github_concurrency">GitHub workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_github_concurrency" name="github_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous GitHub release downloads.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_http_concurrency">Direct HTTP workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_http_concurrency" name="http_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous direct HTTP/HTTPS downloads.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_torrent_concurrency">BitTorrent intake workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_torrent_concurrency" name="torrent_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous external magnet/torrent downloads.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_finalize_concurrency">Finalization workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_finalize_concurrency" name="finalize_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous verification and torrent hashing jobs.</span>
+                                </div>
+                                <div class="config-field">
+                                    <label for="cfg_publish_concurrency">Index publication workers</label>
+                                    <div class="config-input-wrap">
+                                        <input type="number" id="cfg_publish_concurrency" name="publish_concurrency" min="1" max="16" step="1" required />
+                                        <span class="config-unit">workers</span>
+                                    </div>
+                                    <span class="config-field-desc">Simultaneous index publication upload groups.</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="config-status-msg" class="fine-print" style="display: none; margin-top: 0.5rem;"></div>
+                    </div>
+                    <footer class="modal-footer" style="justify-content: flex-end; gap: 0.75rem;">
+                        <button type="button" id="config-cancel-btn" class="button button-secondary">Cancel</button>
+                        <button type="submit" id="config-save-btn" class="button button-primary">Save Configuration</button>
+                    </footer>
+                </form>
             </div>
         </dialog>
         <script>
@@ -2572,6 +2722,112 @@
                     }
                 });
             });
+
+            // Config Modal Handling
+            const configModal = document.getElementById("config-modal");
+            const openConfigBtn = document.getElementById("open-config-modal-btn");
+            const closeConfigBtn = document.getElementById("config-modal-close-btn");
+            const cancelConfigBtn = document.getElementById("config-cancel-btn");
+            const configForm = document.getElementById("config-form");
+            const configSaveBtn = document.getElementById("config-save-btn");
+            const configStatusMsg = document.getElementById("config-status-msg");
+
+            if (openConfigBtn && configModal) {
+                const openConfigModal = async () => {
+                    if (configStatusMsg) {
+                        configStatusMsg.style.display = "none";
+                        configStatusMsg.textContent = "";
+                    }
+                    try {
+                        const res = await fetch("/api/config");
+                        const data = await res.json();
+                        if (data.ok && data.config) {
+                            for (const [key, val] of Object.entries(data.config)) {
+                                const input = document.getElementById(`cfg_${key}`);
+                                if (input) {
+                                    input.value = val;
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch config", err);
+                    }
+                    configModal.showModal();
+                };
+
+                openConfigBtn.addEventListener("click", openConfigModal);
+
+                const closeConfigModal = () => {
+                    configModal.close();
+                };
+
+                if (closeConfigBtn) closeConfigBtn.addEventListener("click", closeConfigModal);
+                if (cancelConfigBtn) cancelConfigBtn.addEventListener("click", closeConfigModal);
+
+                configModal.addEventListener("click", (e) => {
+                    const rect = configModal.getBoundingClientRect();
+                    const isInDialog = (
+                        rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                        rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+                    );
+                    if (!isInDialog) {
+                        configModal.close();
+                    }
+                });
+
+                if (configForm) {
+                    configForm.addEventListener("submit", async (e) => {
+                        e.preventDefault();
+                        if (!configSaveBtn) return;
+                        configSaveBtn.disabled = true;
+                        configSaveBtn.textContent = "Saving...";
+                        if (configStatusMsg) {
+                            configStatusMsg.style.display = "none";
+                        }
+
+                        const formData = new FormData(configForm);
+                        const payload = {};
+                        formData.forEach((val, key) => {
+                            payload[key] = val;
+                        });
+
+                        try {
+                            const res = await fetch("/api/config", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(payload)
+                            });
+                            const result = await res.json();
+                            if (result.ok) {
+                                if (configStatusMsg) {
+                                    configStatusMsg.style.display = "block";
+                                    configStatusMsg.style.color = "#3fb950";
+                                    configStatusMsg.textContent = "✓ Configuration saved successfully! Reloading...";
+                                }
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 600);
+                            } else {
+                                if (configStatusMsg) {
+                                    configStatusMsg.style.display = "block";
+                                    configStatusMsg.style.color = "var(--error)";
+                                    configStatusMsg.textContent = `Error: ${result.error || "Save failed"}`;
+                                }
+                                configSaveBtn.disabled = false;
+                                configSaveBtn.textContent = "Save Configuration";
+                            }
+                        } catch (err) {
+                            if (configStatusMsg) {
+                                configStatusMsg.style.display = "block";
+                                configStatusMsg.style.color = "var(--error)";
+                                configStatusMsg.textContent = `Network error: ${err.message}`;
+                            }
+                            configSaveBtn.disabled = false;
+                            configSaveBtn.textContent = "Save Configuration";
+                        }
+                    });
+                }
+            }
 
             // Document-level dropdown dismiss handlers
             document.addEventListener("click", (e) => {

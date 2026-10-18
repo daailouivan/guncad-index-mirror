@@ -5,6 +5,7 @@ import subprocess
 from math import ceil
 from pathlib import Path
 from threading import Thread
+from typing import Any
 
 from flask import (
     Flask,
@@ -86,6 +87,7 @@ def create_app(collector: StatsCollector) -> Flask:
     def mirror_statistics() -> str:
         context = collector.snapshot()
         context["token_saved"] = request.args.get("token_saved") == "1"
+        context["config_saved"] = request.args.get("config_saved") == "1"
         return render_template("index.html", **context)
 
     @app.route("/settings/github-token", methods=["POST"])
@@ -100,6 +102,163 @@ def create_app(collector: StatsCollector) -> Flask:
                 )
         collector.collect()
         return redirect("/?token_saved=1")
+
+    @app.route("/api/config", methods=["GET"])
+    def get_config() -> Response:
+        config = {
+            "loop_interval": collector.get_effective_setting("loop_interval", float),
+            "cycle_error_interval": collector.get_effective_setting(
+                "cycle_error_interval", float
+            ),
+            "api_max_pages": collector.get_effective_setting("api_max_pages", int),
+            "max_releases_per_run": (
+                collector.get_effective_setting("max_releases_per_run", int) or 0
+            ),
+            "download_timeout": collector.get_effective_setting(
+                "download_timeout", float
+            ),
+            "min_free_space": collector.get_effective_setting("min_free_space", int),
+            "max_release_size": collector.get_effective_setting(
+                "max_release_size", int
+            ),
+            "lbry_concurrency": collector.get_effective_setting(
+                "lbry_concurrency", int
+            ),
+            "odysee_concurrency": collector.get_effective_setting(
+                "odysee_concurrency", int
+            ),
+            "printables_concurrency": collector.get_effective_setting(
+                "printables_concurrency", int
+            ),
+            "github_concurrency": collector.get_effective_setting(
+                "github_concurrency", int
+            ),
+            "http_concurrency": collector.get_effective_setting(
+                "http_concurrency", int
+            ),
+            "torrent_concurrency": collector.get_effective_setting(
+                "torrent_concurrency", int
+            ),
+            "finalize_concurrency": collector.get_effective_setting(
+                "finalize_concurrency", int
+            ),
+            "publish_concurrency": collector.get_effective_setting(
+                "publish_concurrency", int
+            ),
+        }
+        overrides = {k: bool(collector.get_setting_override(k)) for k in config}
+        return jsonify({"ok": True, "config": config, "overrides": overrides})
+
+    @app.route("/api/config", methods=["POST"])
+    def update_config_api() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Invalid JSON payload"}), 400
+
+        allowed: dict[str, tuple[type, float, float]] = {
+            "loop_interval": (float, 1.0, 86400.0 * 30),
+            "cycle_error_interval": (float, 1.0, 86400.0),
+            "api_max_pages": (int, 1, 100000),
+            "max_releases_per_run": (int, 0, 1000000),
+            "download_timeout": (float, 10.0, 86400.0 * 7),
+            "min_free_space": (int, 0, 100 * 1024**4),
+            "max_release_size": (int, 0, 100 * 1024**4),
+            "lbry_concurrency": (int, 1, 32),
+            "odysee_concurrency": (int, 1, 32),
+            "printables_concurrency": (int, 1, 32),
+            "github_concurrency": (int, 1, 32),
+            "http_concurrency": (int, 1, 32),
+            "torrent_concurrency": (int, 1, 32),
+            "finalize_concurrency": (int, 1, 32),
+            "publish_concurrency": (int, 1, 32),
+        }
+
+        updated: dict[str, Any] = {}
+        for key, (cast_type, min_val, max_val) in allowed.items():
+            if key in payload:
+                raw = payload[key]
+                if raw is None or raw == "":
+                    if key == "max_releases_per_run":
+                        collector.set_setting_override(key, "0")
+                        updated[key] = 0
+                    continue
+                try:
+                    val = cast_type(raw)
+                    if val < min_val or val > max_val:
+                        return (
+                            jsonify(
+                                {
+                                    "ok": False,
+                                    "error": f"{key} out of range ({min_val} - {max_val})",
+                                }
+                            ),
+                            400,
+                        )
+                    collector.set_setting_override(key, str(val))
+                    updated[key] = val
+                except (ValueError, TypeError):
+                    return (
+                        jsonify({"ok": False, "error": f"Invalid value for {key}"}),
+                        400,
+                    )
+
+        if updated:
+            collector.events.append(
+                f"Configuration updated via WebUI: {', '.join(f'{k}={v}' for k, v in updated.items())}"
+            )
+            collector.collect()
+
+        return jsonify(
+            {
+                "ok": True,
+                "message": "Configuration updated successfully",
+                "updated": updated,
+            }
+        )
+
+    @app.route("/settings/config", methods=["POST"])
+    def update_config_form() -> Response:
+        allowed: dict[str, tuple[type, float, float]] = {
+            "loop_interval": (float, 1.0, 86400.0 * 30),
+            "cycle_error_interval": (float, 1.0, 86400.0),
+            "api_max_pages": (int, 1, 100000),
+            "max_releases_per_run": (int, 0, 1000000),
+            "download_timeout": (float, 10.0, 86400.0 * 7),
+            "min_free_space": (int, 0, 100 * 1024**4),
+            "max_release_size": (int, 0, 100 * 1024**4),
+            "lbry_concurrency": (int, 1, 32),
+            "odysee_concurrency": (int, 1, 32),
+            "printables_concurrency": (int, 1, 32),
+            "github_concurrency": (int, 1, 32),
+            "http_concurrency": (int, 1, 32),
+            "torrent_concurrency": (int, 1, 32),
+            "finalize_concurrency": (int, 1, 32),
+            "publish_concurrency": (int, 1, 32),
+        }
+        updated: dict[str, Any] = {}
+        for key, (cast_type, min_val, max_val) in allowed.items():
+            if key in request.form:
+                raw = request.form[key].strip()
+                if raw == "":
+                    if key == "max_releases_per_run":
+                        collector.set_setting_override(key, "0")
+                        updated[key] = 0
+                    continue
+                try:
+                    val = cast_type(raw)
+                    if min_val <= val <= max_val:
+                        collector.set_setting_override(key, str(val))
+                        updated[key] = val
+                except (ValueError, TypeError):
+                    continue
+
+        if updated:
+            collector.events.append(
+                f"Configuration updated: {', '.join(f'{k}={v}' for k, v in updated.items())}"
+            )
+            collector.collect()
+
+        return redirect("/?config_saved=1")
 
     @app.route("/api/features", methods=["GET"])
     def get_features() -> Response:

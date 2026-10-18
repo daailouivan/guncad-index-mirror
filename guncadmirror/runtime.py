@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from threading import Event
+from typing import Any
 
 from .cancellation import AcquisitionCancelled
 from .github import GitHubAcquirer
@@ -117,9 +118,18 @@ class Runtime:
             )
         return result
 
+    def _effective_setting(self, attr: str, typ: type = float) -> Any:
+        try:
+            val = self.stats.get_effective_setting(attr, typ)
+            if typ in (int, float) and not isinstance(val, (int, float)):
+                return getattr(self.settings, attr)
+            return val
+        except Exception:
+            return getattr(self.settings, attr)
+
     def run_forever(self, stop: Event) -> None:
         while not stop.is_set():
-            delay = self.settings.loop_interval
+            delay = self._effective_setting("loop_interval", float)
             try:
                 self.run_cycle(stop)
             except AcquisitionCancelled:
@@ -127,7 +137,7 @@ class Runtime:
                 return
             except Exception:
                 logging.getLogger("guncad-mirror").exception("Mirror cycle failed")
-                delay = self.settings.cycle_error_interval
+                delay = self._effective_setting("cycle_error_interval", float)
                 self.stats.log(
                     f"Mirror cycle failed; retrying in {delay:.0f}s; "
                     "see application log"
@@ -136,7 +146,7 @@ class Runtime:
                 publication_delay = self.publication.next_delay()
                 if publication_delay is not None:
                     minimum = (
-                        self.settings.cycle_error_interval
+                        self._effective_setting("cycle_error_interval", float)
                         if self.publication_paused
                         else 1
                     )
@@ -145,7 +155,7 @@ class Runtime:
                 seeding_delay = self.seeding.next_delay()
                 if seeding_delay is not None:
                     minimum = (
-                        self.settings.cycle_error_interval
+                        self._effective_setting("cycle_error_interval", float)
                         if self.seeding_degraded
                         else 1
                     )

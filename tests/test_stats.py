@@ -303,6 +303,48 @@ class StatsCollectorTests(unittest.TestCase):
         )
         self.assertTrue(collector.is_feature_enabled("catalog_details"))
 
+    def test_setting_overrides_and_effective_settings(self) -> None:
+        collector = StatsCollector(self.settings, self.store)
+        self.assertEqual(collector.get_setting_override("loop_interval"), "")
+        self.assertEqual(
+            collector.get_effective_setting("loop_interval", float),
+            self.settings.loop_interval,
+        )
+
+        collector.set_setting_override("loop_interval", "7200")
+        self.assertEqual(collector.get_setting_override("loop_interval"), "7200")
+        self.assertEqual(collector.get_effective_setting("loop_interval", float), 7200.0)
+
+        collector.set_setting_override("api_max_pages", "50")
+        self.assertEqual(collector.get_effective_setting("api_max_pages", int), 50)
+
+        # Invalid value falls back to settings default
+        collector.set_setting_override("loop_interval", "not-a-number")
+        self.assertEqual(
+            collector.get_effective_setting("loop_interval", float),
+            self.settings.loop_interval,
+        )
+
+        # Boolean override
+        collector.set_setting_override("enable_webui", "true")
+        self.assertTrue(collector.get_effective_setting("enable_webui", bool))
+        collector.set_setting_override("enable_webui", "false")
+        self.assertFalse(collector.get_effective_setting("enable_webui", bool))
+
+        # String override
+        collector.set_setting_override("endpoint", "https://custom.example/api")
+        self.assertEqual(
+            collector.get_effective_setting("endpoint", str),
+            "https://custom.example/api",
+        )
+
+        # Collect includes overrides
+        collector.set_setting_override("loop_interval", "3600")
+        collector.collect()
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot["mirror_loop_interval"], 3600.0)
+        self.assertTrue(snapshot["config_overrides"]["loop_interval"])
+
 
 if __name__ == "__main__":
     unittest.main()

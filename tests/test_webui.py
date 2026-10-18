@@ -5,6 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock, patch
 
 from guncadmirror.models import JobState, PublicationState, Release, TorrentArtifact
@@ -63,6 +64,38 @@ class WebUiTests(unittest.TestCase):
 
         self.collector.is_feature_enabled.side_effect = fake_is_feature_enabled
         self.collector.set_feature_enabled.side_effect = fake_set_feature_enabled
+
+        def fake_get_setting_override(name: str) -> str:
+            return self.store.get_setting(f"config_{name}")
+
+        def fake_set_setting_override(name: str, val: str) -> None:
+            self.store.set_setting(f"config_{name}", val)
+
+        def fake_get_effective_setting(name: str, typ: type = int) -> Any:
+            override = self.store.get_setting(f"config_{name}")
+            if override != "":
+                try:
+                    if typ is int:
+                        return int(override)
+                    elif typ is float:
+                        return float(override)
+                    elif typ is bool:
+                        return override.strip().lower() in {
+                            "1",
+                            "true",
+                            "t",
+                            "yes",
+                            "on",
+                            "enabled",
+                        }
+                    return override
+                except (ValueError, TypeError):
+                    pass
+            return getattr(self.settings, name)
+
+        self.collector.get_setting_override.side_effect = fake_get_setting_override
+        self.collector.set_setting_override.side_effect = fake_set_setting_override
+        self.collector.get_effective_setting.side_effect = fake_get_effective_setting
 
         self.collector.snapshot.return_value = {
             "version": "test-ref",
@@ -1253,6 +1286,84 @@ class WebUiTests(unittest.TestCase):
             f"/archive/{plain_release.id}/{plain_release.sd_hash}/file?path=anything.txt"
         )
         self.assertEqual(dl_plain.status_code, 415)
+
+    def test_config_endpoints(self) -> None:
+        app = create_app(self.collector)
+        client = app.test_client()
+
+        # GET /api/config
+        resp = client.get("/api/config")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertIn("loop_interval", data["config"])
+        self.assertIn("lbry_concurrency", data["config"])
+
+        # POST /api/config - invalid JSON
+        bad_json = client.post(
+            "/api/config", data="not json", content_type="text/plain"
+        )
+        self.assertEqual(bad_json.status_code, 400)
+
+        # POST /api/config - out of range
+        out_of_range = client.post(
+            "/api/config",
+            json={"loop_interval": -5},
+        )
+        self.assertEqual(out_of_range.status_code, 400)
+
+        # POST /api/config - invalid type
+        invalid_val = client.post(
+            "/api/config",
+            json={"loop_interval": "abc"},
+        )
+        self.assertEqual(invalid_val.status_code, 400)
+
+        # POST /api/config - success
+        success = client.post(
+            "/api/config",
+            json={
+                "loop_interval": 3600,
+                "max_releases_per_run": 50,
+                "lbry_concurrency": 8,
+            },
+        )
+        self.assertEqual(success.status_code, 200)
+        sdata = success.get_json()
+        self.assertTrue(sdata["ok"])
+        self.assertEqual(sdata["updated"]["loop_interval"], 3600.0)
+        self.assertEqual(sdata["updated"]["lbry_concurrency"], 8)
+
+        # POST /api/config - empty max_releases_per_run
+        zero_cap = client.post(
+            "/api/config",
+            json={"max_releases_per_run": ""},
+        )
+        self.assertEqual(zero_cap.status_code, 200)
+
+        # POST /settings/config - form submit
+        form_resp = client.post(
+            "/settings/config",
+            data={
+                "loop_interval": "7200",
+                "cycle_error_interval": "30",
+                "api_max_pages": "500",
+                "max_releases_per_run": "",
+                "download_timeout": "1800",
+                "min_free_space": "1000000000",
+                "max_release_size": "2000000000",
+                "lbry_concurrency": "6",
+                "odysee_concurrency": "3",
+                "printables_concurrency": "3",
+                "github_concurrency": "3",
+                "http_concurrency": "3",
+                "torrent_concurrency": "3",
+                "finalize_concurrency": "3",
+                "publish_concurrency": "3",
+            },
+        )
+        self.assertEqual(form_resp.status_code, 302)
+        self.assertIn("config_saved=1", form_resp.headers["Location"])
 
 
 if __name__ == "__main__":

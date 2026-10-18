@@ -234,6 +234,27 @@ class StatsCollector:
     def set_feature_enabled(self, name: str, enabled: bool) -> None:
         self.store.set_setting(f"feature_{name}", "true" if enabled else "false")
 
+    def get_setting_override(self, name: str) -> str:
+        return self.store.get_setting(f"config_{name}")
+
+    def set_setting_override(self, name: str, value: str) -> None:
+        self.store.set_setting(f"config_{name}", value)
+
+    def get_effective_setting(self, name: str, default_type: type = int) -> Any:
+        override = self.store.get_setting(f"config_{name}")
+        if override != "":
+            try:
+                if default_type is int:
+                    return int(override)
+                elif default_type is float:
+                    return float(override)
+                elif default_type is bool:
+                    return override.strip().lower() in {"1", "true", "t", "yes", "on", "enabled"}
+                return override
+            except (ValueError, TypeError):
+                pass
+        return getattr(self.settings, name)
+
     def get_activities(self) -> dict[tuple[str, str], dict[str, Any]]:
         with self._lock:
             return {key: dict(val) for key, val in self._activities.items()}
@@ -306,6 +327,30 @@ class StatsCollector:
                 "archive_inspector"
             ),
         }
+        config_items = [
+            ("mirror_loop_interval", "loop_interval", float),
+            ("mirror_cycle_error_interval", "cycle_error_interval", float),
+            ("mirror_api_max_pages", "api_max_pages", int),
+            ("mirror_max_releases_per_run", "max_releases_per_run", int),
+            ("mirror_download_timeout", "download_timeout", float),
+            ("mirror_min_free_space", "min_free_space", int),
+            ("mirror_release_max_size", "max_release_size", int),
+            ("mirror_lbry_concurrency", "lbry_concurrency", int),
+            ("mirror_odysee_concurrency", "odysee_concurrency", int),
+            ("mirror_printables_concurrency", "printables_concurrency", int),
+            ("mirror_github_concurrency", "github_concurrency", int),
+            ("mirror_http_concurrency", "http_concurrency", int),
+            ("mirror_torrent_concurrency", "torrent_concurrency", int),
+            ("mirror_finalize_concurrency", "finalize_concurrency", int),
+            ("mirror_publish_concurrency", "publish_concurrency", int),
+        ]
+        config_overrides = {}
+        for snap_key, attr, typ in config_items:
+            override_val = self.get_setting_override(attr)
+            if override_val != "":
+                config_overrides[attr] = True
+            values[snap_key] = self.get_effective_setting(attr, typ)
+        values["config_overrides"] = config_overrides
         with self._lock:
             self._snapshot.update(values)
 
